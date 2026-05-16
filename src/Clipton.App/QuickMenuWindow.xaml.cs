@@ -4,6 +4,7 @@ using System.Windows.Threading;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
+using System.Windows.Media.Imaging;
 using Brush = System.Windows.Media.Brush;
 using KeyEventArgs = System.Windows.Input.KeyEventArgs;
 
@@ -184,4 +185,10 @@ public sealed record QuickMenuItem(
     Brush AccentBrush,
     Action Invoke,
     Action? PlainTextInvoke = null,
-    bool IsEnabled = true);
+    bool IsEnabled = true,
+    ImageSource? PreviewImage = null)
+{
+    public Visibility PreviewVisibility => PreviewImage is null ? Visibility.Collapsed : Visibility.Visible;
+
+    public Visibility IconVisibility => PreviewImage is null ? Visibility.Visible : Visibility.Collapsed;
+}

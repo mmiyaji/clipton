@@ -14,6 +14,7 @@ public sealed class LocalizationCatalog
                 ["en"] = new ReadOnlyDictionary<string, string>(new Dictionary<string, string>
                 {
                     ["AppName"] = "Clipton",
+                    ["Image"] = "Image",
                     ["History"] = "Clipboard history",
                     ["HistoryEmpty"] = "No clipboard history",
                     ["Snippets"] = "Snippets",
@@ -33,6 +34,7 @@ public sealed class LocalizationCatalog
                 ["ja"] = new ReadOnlyDictionary<string, string>(new Dictionary<string, string>
                 {
                     ["AppName"] = "Clipton",
+                    ["Image"] = "画像",
                     ["History"] = "クリップボード履歴",
                     ["HistoryEmpty"] = "履歴はありません",
                     ["Snippets"] = "登録単語",

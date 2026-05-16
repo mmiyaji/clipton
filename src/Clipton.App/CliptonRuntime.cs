@@ -2,6 +2,7 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media.Imaging;
 using System.Windows.Media;
 using Clipton.Core;
 using Application = System.Windows.Application;
@@ -254,7 +255,7 @@ public sealed class CliptonRuntime : IDisposable
 
         foreach (var item in History.Items.Take(20))
         {
-            var header = Trim(item.Preview, 80);
+            var header = item.Formats.Contains(ClipboardFormatKind.Image) ? Translate("Image") : item.Preview;
             var formats = string.Join(", ", item.Formats);
             menuItems.Add(new QuickMenuItem(
                 header,
@@ -263,7 +264,8 @@ public sealed class CliptonRuntime : IDisposable
                 !string.IsNullOrEmpty(item.Text) ? "Enter / T" : "Enter",
                 Brushes.SteelBlue,
                 () => PasteHistoryItem(item.Id, asPlainText: false),
-                !string.IsNullOrEmpty(item.Text) ? () => PasteHistoryItem(item.Id, asPlainText: true) : null));
+                !string.IsNullOrEmpty(item.Text) ? () => PasteHistoryItem(item.Id, asPlainText: true) : null,
+                PreviewImage: CreatePreviewImage(item)));
         }
 
         foreach (var snippet in Snippets.Snippets)
@@ -367,11 +369,6 @@ public sealed class CliptonRuntime : IDisposable
         NativeMethods.keybd_event(NativeMethods.VkControl, 0, NativeMethods.KeyeventfKeyup, UIntPtr.Zero);
     }
 
-    private static string Trim(string value, int maxLength)
-    {
-        return value.Length <= maxLength ? value : string.Concat(value.AsSpan(0, maxLength - 1), "...");
-    }
-
     private static string GetKindLabel(ClipboardSnapshot item)
     {
         if (item.Formats.Contains(ClipboardFormatKind.FileDrop))
@@ -390,5 +387,23 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         return "T";
+    }
+
+    private static BitmapImage? CreatePreviewImage(ClipboardSnapshot item)
+    {
+        if (item.ImagePng is not { Length: > 0 })
+        {
+            return null;
+        }
+
+        using var stream = new MemoryStream(item.ImagePng);
+        var image = new BitmapImage();
+        image.BeginInit();
+        image.CacheOption = BitmapCacheOption.OnLoad;
+        image.DecodePixelWidth = 88;
+        image.StreamSource = stream;
+        image.EndInit();
+        image.Freeze();
+        return image;
     }
 }
