@@ -14,6 +14,25 @@ public static class ClipboardBridge
 {
     public static ClipboardSnapshot? Capture()
     {
+        return WithClipboardRetry(CaptureOnce);
+    }
+
+    public static void Put(ClipboardSnapshot snapshot, bool asPlainText)
+    {
+        WithClipboardRetry(() =>
+        {
+            PutOnce(snapshot, asPlainText);
+            return true;
+        });
+    }
+
+    public static ClipboardSnapshot FromSnippet(Snippet snippet)
+    {
+        return new ClipboardSnapshot(Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, [ClipboardFormatKind.Text], text: snippet.Text);
+    }
+
+    private static ClipboardSnapshot? CaptureOnce()
+    {
         try
         {
             var data = Clipboard.GetDataObject();
@@ -88,7 +107,7 @@ public static class ClipboardBridge
         }
     }
 
-    public static void Put(ClipboardSnapshot snapshot, bool asPlainText)
+    private static void PutOnce(ClipboardSnapshot snapshot, bool asPlainText)
     {
         if (asPlainText && !string.IsNullOrEmpty(snapshot.Text))
         {
@@ -129,9 +148,21 @@ public static class ClipboardBridge
         Clipboard.SetDataObject(data, copy: true);
     }
 
-    public static ClipboardSnapshot FromSnippet(Snippet snippet)
+    private static T? WithClipboardRetry<T>(Func<T?> action)
     {
-        return new ClipboardSnapshot(Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, [ClipboardFormatKind.Text], text: snippet.Text);
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                return action();
+            }
+            catch (ExternalException) when (attempt < 4)
+            {
+                Thread.Sleep(40);
+            }
+        }
+
+        return action();
     }
 
     private static byte[] EncodePng(BitmapSource bitmap)
