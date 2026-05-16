@@ -259,17 +259,11 @@ public sealed class CliptonRuntime : IDisposable
             menuItems.Add(new QuickMenuItem(
                 header,
                 formats,
+                GetKindLabel(item),
+                !string.IsNullOrEmpty(item.Text) ? "Enter / T" : "Enter",
                 Brushes.SteelBlue,
-                () => PasteHistoryItem(item.Id, asPlainText: false)));
-
-            if (!string.IsNullOrEmpty(item.Text))
-            {
-                menuItems.Add(new QuickMenuItem(
-                    $"{Translate("PastePlain")}: {header}",
-                    ClipboardFormatKind.Text.ToString(),
-                    Brushes.SeaGreen,
-                    () => PasteHistoryItem(item.Id, asPlainText: true)));
-            }
+                () => PasteHistoryItem(item.Id, asPlainText: false),
+                !string.IsNullOrEmpty(item.Text) ? () => PasteHistoryItem(item.Id, asPlainText: true) : null));
         }
 
         foreach (var snippet in Snippets.Snippets)
@@ -277,6 +271,8 @@ public sealed class CliptonRuntime : IDisposable
             menuItems.Add(new QuickMenuItem(
                 snippet.Name,
                 Translate("Snippets"),
+                "S",
+                "Enter",
                 Brushes.DarkOrange,
                 () => PasteSnippet(snippet.Name)));
         }
@@ -286,8 +282,11 @@ public sealed class CliptonRuntime : IDisposable
             menuItems.Add(new QuickMenuItem(
                 Translate("HistoryEmpty"),
                 Translate("Settings"),
+                "-",
+                "Enter",
                 Brushes.Gray,
                 ShowMainWindow,
+                PlainTextInvoke: null,
                 IsEnabled: true));
         }
 
@@ -371,5 +370,25 @@ public sealed class CliptonRuntime : IDisposable
     private static string Trim(string value, int maxLength)
     {
         return value.Length <= maxLength ? value : string.Concat(value.AsSpan(0, maxLength - 1), "...");
+    }
+
+    private static string GetKindLabel(ClipboardSnapshot item)
+    {
+        if (item.Formats.Contains(ClipboardFormatKind.FileDrop))
+        {
+            return "F";
+        }
+
+        if (item.Formats.Contains(ClipboardFormatKind.Image))
+        {
+            return "I";
+        }
+
+        if (item.Formats.Contains(ClipboardFormatKind.RichText) || item.Formats.Contains(ClipboardFormatKind.Html))
+        {
+            return "R";
+        }
+
+        return "T";
     }
 }

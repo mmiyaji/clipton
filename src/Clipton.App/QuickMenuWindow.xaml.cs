@@ -1,7 +1,9 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Threading;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Media3D;
 using Brush = System.Windows.Media.Brush;
 using KeyEventArgs = System.Windows.Input.KeyEventArgs;
 
@@ -49,7 +51,11 @@ public sealed partial class QuickMenuWindow : Window
         switch (e.Key)
         {
             case Key.Enter:
-                InvokeSelected();
+                InvokeSelected(asPlainText: false);
+                e.Handled = true;
+                break;
+            case Key.T:
+                InvokeSelected(asPlainText: true);
                 e.Handled = true;
                 break;
             case Key.Escape:
@@ -67,9 +73,16 @@ public sealed partial class QuickMenuWindow : Window
         }
     }
 
-    private void ItemsList_OnMouseDoubleClick(object sender, MouseButtonEventArgs e)
+    private void ItemsList_OnPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        InvokeSelected();
+        var item = FindAncestor<ListBoxItem>((DependencyObject)e.OriginalSource);
+        if (item is null)
+        {
+            return;
+        }
+
+        item.IsSelected = true;
+        InvokeSelected(asPlainText: false);
     }
 
     private void Window_OnDeactivated(object sender, EventArgs e)
@@ -86,15 +99,21 @@ public sealed partial class QuickMenuWindow : Window
         }
     }
 
-    private void InvokeSelected()
+    private void InvokeSelected(bool asPlainText)
     {
         if (ItemsList.SelectedItem is not QuickMenuItem item || !item.IsEnabled)
         {
             return;
         }
 
+        var action = asPlainText ? item.PlainTextInvoke : item.Invoke;
+        if (action is null)
+        {
+            return;
+        }
+
         Close();
-        item.Invoke();
+        action();
     }
 
     private void MoveSelection(int delta)
@@ -116,11 +135,32 @@ public sealed partial class QuickMenuWindow : Window
             }
         }
     }
+
+    private static T? FindAncestor<T>(DependencyObject? current)
+        where T : DependencyObject
+    {
+        while (current is not null)
+        {
+            if (current is T match)
+            {
+                return match;
+            }
+
+            current = current is Visual or Visual3D
+                ? VisualTreeHelper.GetParent(current)
+                : null;
+        }
+
+        return null;
+    }
 }
 
 public sealed record QuickMenuItem(
     string Title,
     string Subtitle,
+    string KindLabel,
+    string CommandHint,
     Brush AccentBrush,
     Action Invoke,
+    Action? PlainTextInvoke = null,
     bool IsEnabled = true);
