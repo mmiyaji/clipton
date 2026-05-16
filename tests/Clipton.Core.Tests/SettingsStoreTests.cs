@@ -15,7 +15,9 @@ public sealed class SettingsStoreTests
             Hotkey = "Ctrl+Alt+V",
             Locale = "ja",
             MaxHistoryItems = 42,
+            PauseCapture = true,
             PastePlainTextByDefault = true,
+            PersistEncryptedHistory = true,
             StartWithWindows = true
         });
 
@@ -24,7 +26,9 @@ public sealed class SettingsStoreTests
         Assert.Equal("Ctrl+Alt+V", loaded.Hotkey);
         Assert.Equal("ja", loaded.Locale);
         Assert.Equal(42, loaded.MaxHistoryItems);
+        Assert.True(loaded.PauseCapture);
         Assert.True(loaded.PastePlainTextByDefault);
+        Assert.True(loaded.PersistEncryptedHistory);
         Assert.True(loaded.StartWithWindows);
     }
 }

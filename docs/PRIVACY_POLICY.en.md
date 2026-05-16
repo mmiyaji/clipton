@@ -10,7 +10,7 @@ Clipton reads clipboard content so it can show recent clipboard history and past
 
 ## Storage
 
-The current version keeps clipboard history in memory while Clipton is running. Settings and snippets are stored locally under the user's application data folder.
+The current version keeps clipboard history in memory by default. If the user enables encrypted history, clipboard history is stored locally under the user's application data folder and protected with Windows user-scoped DPAPI. Settings and snippets are stored locally under the user's application data folder.
 
 Clipton does not upload clipboard content, settings, snippets, or usage data to any server.
 
@@ -20,7 +20,7 @@ The current version has no cloud sync, analytics, telemetry, crash reporting, ad
 
 ## User Control
 
-Users can clear clipboard history from the app window. Users can disable startup launch in the app settings or through Windows startup settings.
+Users can pause capture, delete individual history items with the Delete key, clear clipboard history from the app window, and disable encrypted local history. Users can disable startup launch in the app settings or through Windows startup settings.
 
 ## Future Changes
 

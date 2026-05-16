@@ -48,6 +48,17 @@ public sealed class ClipboardHistory
         _lastFingerprint = null;
     }
 
+    public bool Remove(string id)
+    {
+        var removed = _items.RemoveAll(item => item.Id == id) > 0;
+        if (_items.Count == 0)
+        {
+            _lastFingerprint = null;
+        }
+
+        return removed;
+    }
+
     public ClipboardSnapshot? Find(string id) => _items.FirstOrDefault(item => item.Id == id);
 
     public static string CreateFingerprint(ClipboardSnapshot snapshot)

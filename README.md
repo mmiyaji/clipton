@@ -11,6 +11,7 @@ Clipton is a Windows resident clipboard manager inspired by Clipy and CLCL.
 - Paste text items as plain text.
 - Snippet insertion from a local snippet catalog.
 - Configurable hotkey, startup registration, and UI language.
+- Pause capture, clear history, item deletion with Delete, and opt-in encrypted local history.
 - English and Japanese UI strings.
 - Core unit tests for history, hotkeys, settings, and localization.
 
@@ -35,7 +36,7 @@ Settings and snippets are stored under `%APPDATA%\Clipton`.
 - `settings.json`: hotkey, startup, language, and history size settings.
 - `snippets.json`: registered text snippets.
 
-Clipboard history is currently kept in memory only. Persistent encrypted history is planned before Store release.
+Clipboard history is kept in memory by default. Users can enable encrypted local history in the settings window; it is protected with Windows user-scoped DPAPI and stored as `history.dat`.
 
 ## Store readiness
 

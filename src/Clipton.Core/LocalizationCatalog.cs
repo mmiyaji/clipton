@@ -22,6 +22,8 @@ public sealed class LocalizationCatalog
                     ["ClearHistory"] = "Clear history",
                     ["Exit"] = "Exit",
                     ["Startup"] = "Start with Windows",
+                    ["PauseCapture"] = "Pause capture",
+                    ["PersistHistory"] = "Encrypted history",
                     ["Hotkey"] = "Global hotkey",
                     ["Language"] = "Language"
                 }),
@@ -36,6 +38,8 @@ public sealed class LocalizationCatalog
                     ["ClearHistory"] = "履歴を消去",
                     ["Exit"] = "終了",
                     ["Startup"] = "Windows 起動時に開始",
+                    ["PauseCapture"] = "記録を一時停止",
+                    ["PersistHistory"] = "暗号化履歴",
                     ["Hotkey"] = "グローバルホットキー",
                     ["Language"] = "言語"
                 })

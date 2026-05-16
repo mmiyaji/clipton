@@ -29,6 +29,16 @@
                           VerticalAlignment="Center"
                           Checked="StartupCheckBox_OnChanged"
                           Unchecked="StartupCheckBox_OnChanged" />
+                <CheckBox x:Name="PauseCaptureCheckBox"
+                          Margin="16,0,0,0"
+                          VerticalAlignment="Center"
+                          Checked="PauseCaptureCheckBox_OnChanged"
+                          Unchecked="PauseCaptureCheckBox_OnChanged" />
+                <CheckBox x:Name="PersistHistoryCheckBox"
+                          Margin="16,0,0,0"
+                          VerticalAlignment="Center"
+                          Checked="PersistHistoryCheckBox_OnChanged"
+                          Unchecked="PersistHistoryCheckBox_OnChanged" />
                 <TextBox x:Name="HotkeyBox"
                          Width="140"
                          Margin="16,0,0,0"
@@ -52,7 +62,8 @@
         <TabControl>
             <TabItem x:Name="HistoryTab">
                 <ListBox x:Name="HistoryList"
-                         MouseDoubleClick="HistoryList_OnMouseDoubleClick">
+                         MouseDoubleClick="HistoryList_OnMouseDoubleClick"
+                         KeyDown="HistoryList_OnKeyDown">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Margin="2,6">

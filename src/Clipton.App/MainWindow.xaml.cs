@@ -34,7 +34,11 @@ public sealed partial class MainWindow : Window
         SnippetTab.Header = t("Snippets");
         ClearButton.Content = t("ClearHistory");
         StartupCheckBox.Content = t("Startup");
+        PauseCaptureCheckBox.Content = t("PauseCapture");
+        PersistHistoryCheckBox.Content = t("PersistHistory");
         StartupCheckBox.IsChecked = _runtime.Settings.StartWithWindows;
+        PauseCaptureCheckBox.IsChecked = _runtime.Settings.PauseCapture;
+        PersistHistoryCheckBox.IsChecked = _runtime.Settings.PersistEncryptedHistory;
         HotkeyBox.Text = _runtime.Settings.Hotkey;
         HotkeyText.Text = $"{t("Hotkey")}: {_runtime.Settings.Hotkey}";
 
@@ -74,8 +78,7 @@ public sealed partial class MainWindow : Window
 
     private void ClearButton_OnClick(object sender, RoutedEventArgs e)
     {
-        _runtime.History.Clear();
-        RefreshItems();
+        _runtime.ClearHistory();
     }
 
     private void StartupCheckBox_OnChanged(object sender, RoutedEventArgs e)
@@ -86,6 +89,35 @@ public sealed partial class MainWindow : Window
         }
 
         _runtime.SetStartWithWindows(StartupCheckBox.IsChecked == true);
+    }
+
+    private void PauseCaptureCheckBox_OnChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        _runtime.SetPauseCapture(PauseCaptureCheckBox.IsChecked == true);
+    }
+
+    private void PersistHistoryCheckBox_OnChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        _runtime.SetPersistEncryptedHistory(PersistHistoryCheckBox.IsChecked == true);
+    }
+
+    private void HistoryList_OnKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == Key.Delete && HistoryList.SelectedItem is HistoryItemViewModel item)
+        {
+            _runtime.RemoveHistoryItem(item.Id);
+            e.Handled = true;
+        }
     }
 
     private void HotkeyBox_OnLostFocus(object sender, RoutedEventArgs e)

@@ -42,6 +42,18 @@ public sealed class ClipboardHistoryTests
         Assert.Equal(["3", "2"], history.Items.Select(item => item.Id));
     }
 
+    [Fact]
+    public void Remove_DeletesSnapshotById()
+    {
+        var history = new ClipboardHistory(capacity: 10);
+
+        history.Add(TextSnapshot("1", "one"));
+        history.Add(TextSnapshot("2", "two"));
+
+        Assert.True(history.Remove("1"));
+        Assert.Equal(["2"], history.Items.Select(item => item.Id));
+    }
+
     private static ClipboardSnapshot TextSnapshot(string id, string text)
     {
         return new ClipboardSnapshot(id, DateTimeOffset.UtcNow, [ClipboardFormatKind.Text], text: text);

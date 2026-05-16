@@ -12,6 +12,7 @@ public sealed class CliptonRuntime : IDisposable
 {
     private readonly LocalizationCatalog _localization = new();
     private readonly JsonSettingsStore _settingsStore;
+    private readonly EncryptedHistoryStore _historyStore;
     private readonly string _snippetPath;
     private HotkeyMessageWindow? _messageWindow;
     private Forms.NotifyIcon? _notifyIcon;
@@ -21,10 +22,19 @@ public sealed class CliptonRuntime : IDisposable
     {
         var appData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Clipton");
         _settingsStore = new JsonSettingsStore(Path.Combine(appData, "settings.json"));
+        _historyStore = new EncryptedHistoryStore(Path.Combine(appData, "history.dat"));
         _snippetPath = Path.Combine(appData, "snippets.json");
         Settings = _settingsStore.Load();
         History = new ClipboardHistory(Settings.MaxHistoryItems);
         Snippets = LoadSnippets(_snippetPath);
+
+        if (Settings.PersistEncryptedHistory)
+        {
+            foreach (var snapshot in _historyStore.Load().Reverse())
+            {
+                History.Add(snapshot);
+            }
+        }
     }
 
     public CliptonSettings Settings { get; }
@@ -84,6 +94,43 @@ public sealed class CliptonRuntime : IDisposable
         SaveSettings();
     }
 
+    public void SetPauseCapture(bool paused)
+    {
+        Settings.PauseCapture = paused;
+        SaveSettings();
+    }
+
+    public void SetPersistEncryptedHistory(bool enabled)
+    {
+        Settings.PersistEncryptedHistory = enabled;
+        if (enabled)
+        {
+            SaveHistory();
+        }
+        else
+        {
+            _historyStore.Delete();
+        }
+
+        SaveSettings();
+    }
+
+    public void RemoveHistoryItem(string id)
+    {
+        if (History.Remove(id))
+        {
+            SaveHistory();
+            _mainWindow?.RefreshItems();
+        }
+    }
+
+    public void ClearHistory()
+    {
+        History.Clear();
+        SaveHistory();
+        _mainWindow?.RefreshItems();
+    }
+
     public void SetHotkey(string hotkey)
     {
         if (HotkeyGesture.TryParse(hotkey, out var gesture))
@@ -109,6 +156,11 @@ public sealed class CliptonRuntime : IDisposable
 
     private void CaptureClipboard()
     {
+        if (Settings.PauseCapture)
+        {
+            return;
+        }
+
         var snapshot = ClipboardBridge.Capture();
         if (snapshot is null)
         {
@@ -117,6 +169,7 @@ public sealed class CliptonRuntime : IDisposable
 
         if (History.Add(snapshot))
         {
+            SaveHistory();
             _mainWindow?.RefreshItems();
         }
     }
@@ -205,6 +258,18 @@ public sealed class CliptonRuntime : IDisposable
     private void SaveSettings()
     {
         _settingsStore.Save(Settings);
+    }
+
+    private void SaveHistory()
+    {
+        if (Settings.PersistEncryptedHistory)
+        {
+            _historyStore.Save(History.Items);
+        }
+        else
+        {
+            _historyStore.Delete();
+        }
     }
 
     private void EnsureDefaultSnippets()
