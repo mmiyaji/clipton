@@ -46,6 +46,7 @@
                      MaxHeight="480"
                      BorderThickness="0"
                      Background="Transparent"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                      KeyboardNavigation.TabNavigation="Cycle"
                      KeyDown="ItemsList_OnKeyDown"
                      PreviewMouseLeftButtonUp="ItemsList_OnPreviewMouseLeftButtonUp">
@@ -68,7 +69,7 @@
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="52" />
-                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" MinWidth="0" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <Border Width="22"
@@ -97,24 +98,23 @@
                                     <Image Source="{Binding PreviewImage}"
                                            Stretch="Uniform" />
                                 </Border>
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <StackPanel Grid.Column="1"
+                                            Margin="0,0,8,0"
+                                            VerticalAlignment="Center">
                                     <TextBlock Text="{Binding Title}"
                                                FontSize="12"
                                                Foreground="#111827"
                                                TextTrimming="CharacterEllipsis"
                                                TextWrapping="Wrap"
-                                               MaxHeight="34"
-                                               MaxWidth="260" />
+                                               MaxHeight="34" />
                                     <TextBlock Text="{Binding Subtitle}"
                                                Margin="0,1,0,0"
                                                FontSize="11"
                                                Foreground="#6B7280"
                                                TextTrimming="CharacterEllipsis"
-                                               TextWrapping="NoWrap"
-                                               MaxWidth="260" />
+                                               TextWrapping="NoWrap" />
                                 </StackPanel>
                                 <TextBlock Grid.Column="2"
-                                           Margin="10,0,0,0"
                                            VerticalAlignment="Center"
                                            FontSize="11"
                                            Foreground="#52606D"
