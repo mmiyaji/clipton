@@ -200,6 +200,10 @@
                                       Margin="0,12,0,0"
                                       Checked="PersistHistoryCheckBox_OnChanged"
                                       Unchecked="PersistHistoryCheckBox_OnChanged" />
+                            <CheckBox x:Name="FolderModeCheckBox"
+                                      Margin="0,12,0,0"
+                                      Checked="FolderModeCheckBox_OnChanged"
+                                      Unchecked="FolderModeCheckBox_OnChanged" />
                             <Button x:Name="ClearButton"
                                     Margin="0,16,0,0"
                                     HorizontalAlignment="Left"

@@ -14,7 +14,9 @@ public sealed class CliptonSettings
 
     public bool HistoryPersistenceConfigured { get; set; }
 
-    public int MaxHistoryItems { get; set; } = 30;
+    public bool FolderMode { get; set; }
+
+    public int MaxHistoryItems { get; set; } = 200;
 
     public string Locale { get; set; } = "en";
 }

@@ -13,6 +13,7 @@ public sealed class SettingsStoreTests
         var loaded = store.Load();
 
         Assert.True(loaded.PersistEncryptedHistory);
+        Assert.Equal(200, loaded.MaxHistoryItems);
     }
 
     [Fact]
@@ -50,6 +51,7 @@ public sealed class SettingsStoreTests
         store.Save(new CliptonSettings
         {
             Hotkey = "Ctrl+Alt+V",
+            FolderMode = true,
             HistoryPersistenceConfigured = true,
             Locale = "ja",
             MaxHistoryItems = 42,
@@ -62,9 +64,10 @@ public sealed class SettingsStoreTests
         var loaded = store.Load();
 
         Assert.Equal("Ctrl+Alt+V", loaded.Hotkey);
+        Assert.True(loaded.FolderMode);
         Assert.Equal("ja", loaded.Locale);
         Assert.True(loaded.HistoryPersistenceConfigured);
-        Assert.Equal(42, loaded.MaxHistoryItems);
+        Assert.Equal(200, loaded.MaxHistoryItems);
         Assert.True(loaded.PauseCapture);
         Assert.True(loaded.PastePlainTextByDefault);
         Assert.True(loaded.PersistEncryptedHistory);

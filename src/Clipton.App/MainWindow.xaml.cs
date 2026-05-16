@@ -54,9 +54,11 @@ public sealed partial class MainWindow : Window
         StartupCheckBox.Content = t("Startup");
         PauseCaptureCheckBox.Content = t("PauseCapture");
         PersistHistoryCheckBox.Content = t("PersistHistory");
+        FolderModeCheckBox.Content = t("FolderMode");
         StartupCheckBox.IsChecked = _runtime.Settings.StartWithWindows;
         PauseCaptureCheckBox.IsChecked = _runtime.Settings.PauseCapture;
         PersistHistoryCheckBox.IsChecked = _runtime.Settings.PersistEncryptedHistory;
+        FolderModeCheckBox.IsChecked = _runtime.Settings.FolderMode;
         HotkeyBox.Text = _runtime.Settings.Hotkey;
         HotkeyText.Text = $"{t("Hotkey")}: {_runtime.Settings.Hotkey}";
 
@@ -145,6 +147,16 @@ public sealed partial class MainWindow : Window
         }
 
         _runtime.SetPersistEncryptedHistory(PersistHistoryCheckBox.IsChecked == true);
+    }
+
+    private void FolderModeCheckBox_OnChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        _runtime.SetFolderMode(FolderModeCheckBox.IsChecked == true);
     }
 
     private void HistoryList_OnKeyDown(object sender, System.Windows.Input.KeyEventArgs e)

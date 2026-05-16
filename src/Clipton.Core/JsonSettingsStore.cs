@@ -27,7 +27,7 @@ public sealed class JsonSettingsStore
             settings.PersistEncryptedHistory = true;
         }
 
-        settings.MaxHistoryItems = Math.Clamp(settings.MaxHistoryItems, 1, 200);
+        settings.MaxHistoryItems = Math.Clamp(Math.Max(settings.MaxHistoryItems, 200), 1, 500);
         settings.Locale = string.IsNullOrWhiteSpace(settings.Locale) ? "en" : settings.Locale;
         return settings;
     }

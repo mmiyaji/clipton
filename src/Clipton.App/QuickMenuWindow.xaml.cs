@@ -12,15 +12,17 @@ namespace Clipton.App;
 
 public sealed partial class QuickMenuWindow : Window
 {
-    private readonly IReadOnlyList<QuickMenuItem> _items;
+    private readonly string _rootTitle;
+    private IReadOnlyList<QuickMenuItem> _items;
+    private readonly Stack<(string Title, IReadOnlyList<QuickMenuItem> Items)> _navigationStack = new();
     private bool _isClosing;
 
     public QuickMenuWindow(string title, IReadOnlyList<QuickMenuItem> items)
     {
+        _rootTitle = title;
         _items = items;
         InitializeComponent();
-        TitleText.Text = title;
-        ItemsList.ItemsSource = _items;
+        SetItems(title, _items);
         Loaded += (_, _) =>
         {
             if (_items.Count > 0)
@@ -61,7 +63,15 @@ public sealed partial class QuickMenuWindow : Window
                 e.Handled = true;
                 break;
             case Key.Escape:
-                CloseMenu();
+                if (!NavigateBack())
+                {
+                    CloseMenu();
+                }
+
+                e.Handled = true;
+                break;
+            case Key.Back:
+                NavigateBack();
                 e.Handled = true;
                 break;
             case Key.Up:
@@ -87,6 +97,14 @@ public sealed partial class QuickMenuWindow : Window
         InvokeSelected(asPlainText: false);
     }
 
+    private void TitleBar_OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 1)
+        {
+            DragMove();
+        }
+    }
+
     private void Window_OnDeactivated(object sender, EventArgs e)
     {
         CloseMenu();
@@ -109,6 +127,13 @@ public sealed partial class QuickMenuWindow : Window
         }
 
         var action = asPlainText ? item.PlainTextInvoke : item.Invoke;
+        if (!asPlainText && item.Children is { Count: > 0 } children)
+        {
+            _navigationStack.Push((TitleText.Text, _items));
+            SetItems(item.Title, children);
+            return;
+        }
+
         if (action is null)
         {
             return;
@@ -136,6 +161,30 @@ public sealed partial class QuickMenuWindow : Window
                 break;
             }
         }
+    }
+
+    private void SetItems(string title, IReadOnlyList<QuickMenuItem> items)
+    {
+        TitleText.Text = title;
+        _items = items;
+        ItemsList.ItemsSource = _items;
+        ItemsList.SelectedIndex = _items.Count > 0 ? 0 : -1;
+        if (_items.Count > 0)
+        {
+            ItemsList.ScrollIntoView(_items[0]);
+        }
+    }
+
+    private bool NavigateBack()
+    {
+        if (_navigationStack.Count == 0)
+        {
+            return false;
+        }
+
+        var previous = _navigationStack.Pop();
+        SetItems(previous.Title, previous.Items);
+        return true;
     }
 
     private static T? FindAncestor<T>(DependencyObject? current)
@@ -186,7 +235,8 @@ public sealed record QuickMenuItem(
     Action Invoke,
     Action? PlainTextInvoke = null,
     bool IsEnabled = true,
-    ImageSource? PreviewImage = null)
+    ImageSource? PreviewImage = null,
+    IReadOnlyList<QuickMenuItem>? Children = null)
 {
     public Visibility PreviewVisibility => PreviewImage is null ? Visibility.Collapsed : Visibility.Visible;
 

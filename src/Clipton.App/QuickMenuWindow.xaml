@@ -23,7 +23,10 @@
                               Opacity="0.22" />
         </Border.Effect>
         <DockPanel>
-            <Grid DockPanel.Dock="Top" Margin="6,3,6,6">
+            <Grid DockPanel.Dock="Top"
+                  Margin="6,3,6,6"
+                  Cursor="SizeAll"
+                  MouseLeftButtonDown="TitleBar_OnMouseLeftButtonDown">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
@@ -99,7 +102,8 @@
                                                FontSize="12"
                                                Foreground="#111827"
                                                TextTrimming="CharacterEllipsis"
-                                               TextWrapping="NoWrap"
+                                               TextWrapping="Wrap"
+                                               MaxHeight="34"
                                                MaxWidth="260" />
                                     <TextBlock Text="{Binding Subtitle}"
                                                Margin="0,1,0,0"

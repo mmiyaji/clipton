@@ -125,6 +125,12 @@ public sealed class CliptonRuntime : IDisposable
         SaveSettings();
     }
 
+    public void SetFolderMode(bool enabled)
+    {
+        Settings.FolderMode = enabled;
+        SaveSettings();
+    }
+
     public void RemoveHistoryItem(string id)
     {
         if (History.Remove(id))
@@ -255,19 +261,30 @@ public sealed class CliptonRuntime : IDisposable
 
         var menuItems = new List<QuickMenuItem>();
 
-        foreach (var item in History.Items.Take(20))
+        var historyItems = History.Items.ToArray();
+        var directHistoryItems = Settings.FolderMode ? historyItems.Take(5) : historyItems.Take(20);
+        foreach (var item in directHistoryItems)
         {
-            var header = item.Formats.Contains(ClipboardFormatKind.Image) ? Translate("Image") : item.Preview;
-            var formats = string.Join(", ", item.Formats);
-            menuItems.Add(new QuickMenuItem(
-                header,
-                formats,
-                GetKindLabel(item),
-                !string.IsNullOrEmpty(item.Text) ? "Enter / T" : "Enter",
-                Brushes.SteelBlue,
-                () => PasteHistoryItem(item.Id, asPlainText: false),
-                !string.IsNullOrEmpty(item.Text) ? () => PasteHistoryItem(item.Id, asPlainText: true) : null,
-                PreviewImage: CreatePreviewImage(item)));
+            menuItems.Add(CreateHistoryMenuItem(item));
+        }
+
+        if (Settings.FolderMode && historyItems.Length > 5)
+        {
+            var olderItems = historyItems.Skip(5).ToArray();
+            for (var start = 0; start < olderItems.Length; start += 50)
+            {
+                var rangeItems = olderItems.Skip(start).Take(50).Select(CreateHistoryMenuItem).ToArray();
+                var rangeStart = start + 1;
+                var rangeEnd = start + rangeItems.Length;
+                menuItems.Add(new QuickMenuItem(
+                    $"{rangeStart}~{rangeEnd}",
+                    $"{rangeItems.Length} items",
+                    ">",
+                    "Enter",
+                    Brushes.DimGray,
+                    () => { },
+                    Children: rangeItems));
+            }
         }
 
         foreach (var snippet in Snippets.Snippets)
@@ -389,6 +406,21 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         return "T";
+    }
+
+    private QuickMenuItem CreateHistoryMenuItem(ClipboardSnapshot item)
+    {
+        var header = item.Formats.Contains(ClipboardFormatKind.Image) ? Translate("Image") : item.Preview;
+        var formats = string.Join(", ", item.Formats);
+        return new QuickMenuItem(
+            header,
+            formats,
+            GetKindLabel(item),
+            !string.IsNullOrEmpty(item.Text) ? "Enter / T" : "Enter",
+            Brushes.SteelBlue,
+            () => PasteHistoryItem(item.Id, asPlainText: false),
+            !string.IsNullOrEmpty(item.Text) ? () => PasteHistoryItem(item.Id, asPlainText: true) : null,
+            PreviewImage: CreatePreviewImage(item));
     }
 
     private static BitmapImage? CreatePreviewImage(ClipboardSnapshot item)
