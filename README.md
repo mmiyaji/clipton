@@ -36,7 +36,7 @@ Settings and snippets are stored under `%APPDATA%\Clipton`.
 - `settings.json`: hotkey, startup, language, and history size settings.
 - `snippets.json`: registered text snippets.
 
-Clipboard history is kept in memory by default. Users can enable encrypted local history in the settings window; it is protected with Windows user-scoped DPAPI and stored as `history.dat`.
+Clipboard history is encrypted and persisted locally by default. Users can disable encrypted local history in the settings window; when enabled, it is protected with Windows user-scoped DPAPI and stored as `history.dat`.
 
 ## Store readiness
 

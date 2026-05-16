@@ -10,7 +10,7 @@ Clipton reads clipboard content so it can show recent clipboard history and past
 
 ## Storage
 
-The current version keeps clipboard history in memory by default. If the user enables encrypted history, clipboard history is stored locally under the user's application data folder and protected with Windows user-scoped DPAPI. Settings and snippets are stored locally under the user's application data folder.
+The current version stores clipboard history locally by default and protects it with Windows user-scoped DPAPI. Users can disable encrypted history in settings. Settings and snippets are stored locally under the user's application data folder.
 
 Clipton does not upload clipboard content, settings, snippets, or usage data to any server.
 

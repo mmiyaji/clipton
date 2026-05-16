@@ -19,7 +19,14 @@ public sealed class JsonSettingsStore
             return new CliptonSettings();
         }
 
-        var settings = JsonSerializer.Deserialize<CliptonSettings>(File.ReadAllText(_path), Options) ?? new CliptonSettings();
+        var json = File.ReadAllText(_path);
+        var settings = JsonSerializer.Deserialize<CliptonSettings>(json, Options) ?? new CliptonSettings();
+        using var document = JsonDocument.Parse(json);
+        if (!document.RootElement.TryGetProperty(nameof(CliptonSettings.HistoryPersistenceConfigured), out _))
+        {
+            settings.PersistEncryptedHistory = true;
+        }
+
         settings.MaxHistoryItems = Math.Clamp(settings.MaxHistoryItems, 1, 200);
         settings.Locale = string.IsNullOrWhiteSpace(settings.Locale) ? "en" : settings.Locale;
         return settings;

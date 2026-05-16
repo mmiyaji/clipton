@@ -112,6 +112,7 @@ public sealed class CliptonRuntime : IDisposable
     public void SetPersistEncryptedHistory(bool enabled)
     {
         Settings.PersistEncryptedHistory = enabled;
+        Settings.HistoryPersistenceConfigured = true;
         if (enabled)
         {
             SaveHistory();
@@ -180,6 +181,7 @@ public sealed class CliptonRuntime : IDisposable
 
     public void Dispose()
     {
+        SaveHistory();
         _messageWindow?.Dispose();
         _notifyIcon?.Dispose();
         _quickMenuWindow?.Close();

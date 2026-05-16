@@ -10,7 +10,9 @@ public sealed class CliptonSettings
 
     public bool PauseCapture { get; set; }
 
-    public bool PersistEncryptedHistory { get; set; }
+    public bool PersistEncryptedHistory { get; set; } = true;
+
+    public bool HistoryPersistenceConfigured { get; set; }
 
     public int MaxHistoryItems { get; set; } = 30;
 

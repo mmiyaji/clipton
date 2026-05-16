@@ -18,7 +18,7 @@ Last updated: 2026-05-16
 
 - Clipboard history may contain personal or confidential data.
 - Default behavior should remain local-only.
-- Persistent history is opt-in and encrypted per Windows user in the current development build.
+- Persistent history is enabled by default and encrypted per Windows user in the current development build.
 - Item-level delete, pause capture, and full clear controls exist in the current development build.
 - Any sync, telemetry, or crash reporting must be documented and user-controlled.
 
