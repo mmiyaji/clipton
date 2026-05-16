@@ -33,6 +33,8 @@ public sealed partial class MainWindow : Window
         HistoryTab.Header = t("History");
         SnippetTab.Header = t("Snippets");
         ClearButton.Content = t("ClearHistory");
+        SaveSnippetButton.Content = t("Save");
+        DeleteSnippetButton.Content = t("Delete");
         StartupCheckBox.Content = t("Startup");
         PauseCaptureCheckBox.Content = t("PauseCapture");
         PersistHistoryCheckBox.Content = t("PersistHistory");
@@ -74,6 +76,23 @@ public sealed partial class MainWindow : Window
         {
             _runtime.PasteSnippet(name);
         }
+    }
+
+    private void SnippetList_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (SnippetList.SelectedItem is not string name)
+        {
+            return;
+        }
+
+        var snippet = _runtime.Snippets.Snippets.FirstOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (snippet is null)
+        {
+            return;
+        }
+
+        SnippetNameBox.Text = snippet.Name;
+        SnippetTextBox.Text = snippet.Text;
     }
 
     private void ClearButton_OnClick(object sender, RoutedEventArgs e)
@@ -140,6 +159,20 @@ public sealed partial class MainWindow : Window
 
         _runtime.SetLocale(locale);
         RefreshTexts();
+    }
+
+    private void SaveSnippetButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        _runtime.UpsertSnippet(SnippetNameBox.Text, SnippetTextBox.Text);
+        RefreshItems();
+    }
+
+    private void DeleteSnippetButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        _runtime.RemoveSnippet(SnippetNameBox.Text);
+        SnippetNameBox.Clear();
+        SnippetTextBox.Clear();
+        RefreshItems();
     }
 }
 

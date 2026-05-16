@@ -9,7 +9,7 @@ Clipton is a Windows resident clipboard manager inspired by Clipy and CLCL.
 - Clipboard history capture for text, RTF, HTML, images, and file drops.
 - Paste history items in the original clipboard format when possible.
 - Paste text items as plain text.
-- Snippet insertion from a local snippet catalog.
+- Snippet insertion and snippet add/update/delete from the app window.
 - Configurable hotkey, startup registration, and UI language.
 - Pause capture, clear history, item deletion with Delete, and opt-in encrypted local history.
 - English and Japanese UI strings.

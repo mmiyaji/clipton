@@ -124,6 +124,27 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
+    public void UpsertSnippet(string name, string text)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return;
+        }
+
+        Snippets.Upsert(new Snippet(name.Trim(), text));
+        SaveSnippets(_snippetPath, Snippets);
+        _mainWindow?.RefreshItems();
+    }
+
+    public void RemoveSnippet(string name)
+    {
+        if (Snippets.Remove(name))
+        {
+            SaveSnippets(_snippetPath, Snippets);
+            _mainWindow?.RefreshItems();
+        }
+    }
+
     public void ClearHistory()
     {
         History.Clear();
