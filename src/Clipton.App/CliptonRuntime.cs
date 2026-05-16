@@ -298,6 +298,17 @@ public sealed class CliptonRuntime : IDisposable
                 () => PasteSnippet(snippet.Name)));
         }
 
+        if (menuItems.Count > 0)
+        {
+            menuItems.Add(new QuickMenuItem(
+                Translate("Settings"),
+                "Clipton",
+                "*",
+                "Enter",
+                Brushes.DimGray,
+                ShowMainWindow));
+        }
+
         if (menuItems.Count == 0)
         {
             menuItems.Add(new QuickMenuItem(
