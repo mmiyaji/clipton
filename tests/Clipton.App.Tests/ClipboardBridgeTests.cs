@@ -46,6 +46,29 @@ public sealed class ClipboardBridgeTests
     }
 
     [Fact]
+    public void Put_WritesOriginalRichTextAndHtmlFormats()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var snapshot = new ClipboardSnapshot(
+                "rich",
+                DateTimeOffset.UtcNow,
+                [ClipboardFormatKind.Text, ClipboardFormatKind.RichText, ClipboardFormatKind.Html],
+                text: "Rich text",
+                rtf: @"{\rtf1\ansi Rich text}",
+                html: "Version:1.0\r\nStartHTML:00000097\r\nEndHTML:00000159\r\nStartFragment:00000129\r\nEndFragment:00000129\r\n<html><body><!--StartFragment--><b>Rich text</b><!--EndFragment--></body></html>");
+
+            ClipboardBridge.Put(snapshot, asPlainText: false);
+
+            Assert.True(Clipboard.ContainsText(TextDataFormat.UnicodeText));
+            Assert.True(Clipboard.ContainsText(TextDataFormat.Rtf));
+            Assert.True(Clipboard.ContainsText(TextDataFormat.Html));
+            Assert.Equal("Rich text", Clipboard.GetText(TextDataFormat.UnicodeText));
+            Assert.Contains(@"{\rtf1", Clipboard.GetText(TextDataFormat.Rtf));
+        });
+    }
+
+    [Fact]
     public void Put_WritesFileDropList()
     {
         StaTestRunner.Run(() =>
@@ -84,6 +107,25 @@ public sealed class ClipboardBridgeTests
             Assert.Contains(ClipboardFormatKind.Image, snapshot.Formats);
             Assert.NotNull(snapshot.ImagePng);
             Assert.NotEmpty(snapshot.ImagePng);
+        });
+    }
+
+    [Fact]
+    public void Put_WritesImage()
+    {
+        StaTestRunner.Run(() =>
+        {
+            byte[] pixels = [0, 128, 255, 255];
+            var bitmap = BitmapSource.Create(1, 1, 96, 96, PixelFormats.Bgra32, null, pixels, 4);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using var stream = new MemoryStream();
+            encoder.Save(stream);
+            var snapshot = new ClipboardSnapshot("image", DateTimeOffset.UtcNow, [ClipboardFormatKind.Image], imagePng: stream.ToArray());
+
+            ClipboardBridge.Put(snapshot, asPlainText: false);
+
+            Assert.NotNull(Clipboard.GetImage());
         });
     }
 }
