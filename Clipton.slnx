@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Clipton.App/Clipton.App.csproj" />
+    <Project Path="src/Clipton.Core/Clipton.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Clipton.Core.Tests/Clipton.Core.Tests.csproj" />
+  </Folder>
+</Solution>
