@@ -40,4 +40,4 @@ msbuild packaging\Clipton.Package\Clipton.Package.wapproj /p:Configuration=Relea
 
 Production Store submission still requires Partner Center identity association and signing.
 
-Current source includes registry-based startup registration for unpackaged development builds. Packaged Store builds should move startup behavior to the packaged startup task API.
+Current source uses the packaged `StartupTask` API when Clipton has package identity, and falls back to the registry `Run` key only for unpackaged development builds.

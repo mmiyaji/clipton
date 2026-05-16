@@ -100,14 +100,15 @@ public sealed partial class MainWindow : Window
         _runtime.ClearHistory();
     }
 
-    private void StartupCheckBox_OnChanged(object sender, RoutedEventArgs e)
+    private async void StartupCheckBox_OnChanged(object sender, RoutedEventArgs e)
     {
         if (_loading)
         {
             return;
         }
 
-        _runtime.SetStartWithWindows(StartupCheckBox.IsChecked == true);
+        await _runtime.SetStartWithWindowsAsync(StartupCheckBox.IsChecked == true);
+        RefreshTexts();
     }
 
     private void PauseCaptureCheckBox_OnChanged(object sender, RoutedEventArgs e)
