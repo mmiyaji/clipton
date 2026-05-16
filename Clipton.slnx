@@ -1,4 +1,5 @@
 <Solution>
+  <Folder Name="/packaging/" />
   <Folder Name="/src/">
     <Project Path="src/Clipton.App/Clipton.App.csproj" />
     <Project Path="src/Clipton.Core/Clipton.Core.csproj" />

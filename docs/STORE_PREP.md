@@ -4,7 +4,7 @@ Last updated: 2026-05-16
 
 ## Required Before Store Submission
 
-- Add a Windows Application Packaging Project or equivalent MSIX packaging flow.
+- Use `packaging/Clipton.Package/Clipton.Package.wapproj` as the Windows Application Packaging Project.
 - Generate a Release `.msixupload` or `.appxupload` package for Partner Center.
 - Declare only required capabilities. WPF packaged desktop apps normally require `runFullTrust`.
 - Keep `internetClient` absent until network features exist.
@@ -28,6 +28,16 @@ WPF does not produce MSIX by default. The intended release shape is:
 
 - `Clipton.App`: WPF desktop app.
 - Packaging project: MSIX/App Installer package with desktop bridge/full trust declaration.
-- Manifest startup task: optional packaged startup integration, controlled by the user.
+- Manifest startup task: `CliptonStartup`, disabled by default and controlled by the user.
+
+## Local Build
+
+Use Visual Studio 2022 or MSBuild with DesktopBridge targets installed:
+
+```powershell
+msbuild packaging\Clipton.Package\Clipton.Package.wapproj /p:Configuration=Release /p:Platform=x64
+```
+
+Production Store submission still requires Partner Center identity association and signing.
 
 Current source includes registry-based startup registration for unpackaged development builds. Packaged Store builds should move startup behavior to the packaged startup task API.
