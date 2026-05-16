@@ -12,6 +12,7 @@ namespace Clipton.App;
 public sealed partial class QuickMenuWindow : Window
 {
     private readonly IReadOnlyList<QuickMenuItem> _items;
+    private bool _isClosing;
 
     public QuickMenuWindow(string title, IReadOnlyList<QuickMenuItem> items)
     {
@@ -59,7 +60,7 @@ public sealed partial class QuickMenuWindow : Window
                 e.Handled = true;
                 break;
             case Key.Escape:
-                Close();
+                CloseMenu();
                 e.Handled = true;
                 break;
             case Key.Up:
@@ -87,7 +88,7 @@ public sealed partial class QuickMenuWindow : Window
 
     private void Window_OnDeactivated(object sender, EventArgs e)
     {
-        Close();
+        CloseMenu();
     }
 
     private void Window_OnPreviewKeyDown(object sender, KeyEventArgs e)
@@ -112,7 +113,7 @@ public sealed partial class QuickMenuWindow : Window
             return;
         }
 
-        Close();
+        CloseMenu();
         action();
     }
 
@@ -152,6 +153,26 @@ public sealed partial class QuickMenuWindow : Window
         }
 
         return null;
+    }
+
+    private void CloseMenu()
+    {
+        if (_isClosing)
+        {
+            return;
+        }
+
+        _isClosing = true;
+        Dispatcher.BeginInvoke(() =>
+        {
+            try
+            {
+                Close();
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }, DispatcherPriority.Background);
     }
 }
 
