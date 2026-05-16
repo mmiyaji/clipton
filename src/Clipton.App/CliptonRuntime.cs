@@ -305,6 +305,7 @@ public sealed class CliptonRuntime : IDisposable
         };
 
         quickMenuWindow.Show();
+        quickMenuWindow.FocusMenu();
     }
 
     private void SaveSettings()

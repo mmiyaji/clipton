@@ -20,9 +20,8 @@ public sealed class ClipboardBridgeTests
             data.SetText("Version:1.0\r\nStartHTML:00000097\r\nEndHTML:00000161\r\nStartFragment:00000129\r\nEndFragment:00000129\r\n<html><body><!--StartFragment--><b>Plain text</b><!--EndFragment--></body></html>", TextDataFormat.Html);
             Clipboard.SetDataObject(data, copy: true);
 
-            var snapshot = ClipboardBridge.Capture();
+            var snapshot = ClipboardTestHelpers.Capture();
 
-            Assert.NotNull(snapshot);
             Assert.Contains(ClipboardFormatKind.Text, snapshot.Formats);
             Assert.Contains(ClipboardFormatKind.RichText, snapshot.Formats);
             Assert.Contains(ClipboardFormatKind.Html, snapshot.Formats);
@@ -41,7 +40,7 @@ public sealed class ClipboardBridgeTests
 
             ClipboardBridge.Put(snapshot, asPlainText: true);
 
-            Assert.Equal("Hello", Clipboard.GetText(TextDataFormat.UnicodeText));
+            Assert.Equal("Hello", ClipboardTestHelpers.GetText(TextDataFormat.UnicodeText));
         });
     }
 
@@ -60,11 +59,11 @@ public sealed class ClipboardBridgeTests
 
             ClipboardBridge.Put(snapshot, asPlainText: false);
 
-            Assert.True(Clipboard.ContainsText(TextDataFormat.UnicodeText));
-            Assert.True(Clipboard.ContainsText(TextDataFormat.Rtf));
-            Assert.True(Clipboard.ContainsText(TextDataFormat.Html));
-            Assert.Equal("Rich text", Clipboard.GetText(TextDataFormat.UnicodeText));
-            Assert.Contains(@"{\rtf1", Clipboard.GetText(TextDataFormat.Rtf));
+            Assert.True(ClipboardTestHelpers.ContainsText(TextDataFormat.UnicodeText));
+            Assert.True(ClipboardTestHelpers.ContainsText(TextDataFormat.Rtf));
+            Assert.True(ClipboardTestHelpers.ContainsText(TextDataFormat.Html));
+            Assert.Equal("Rich text", ClipboardTestHelpers.GetText(TextDataFormat.UnicodeText));
+            Assert.Contains(@"{\rtf1", ClipboardTestHelpers.GetText(TextDataFormat.Rtf));
         });
     }
 
@@ -79,7 +78,7 @@ public sealed class ClipboardBridgeTests
 
             ClipboardBridge.Put(snapshot, asPlainText: false);
 
-            StringCollection files = Clipboard.GetFileDropList();
+            StringCollection files = ClipboardTestHelpers.GetFileDropList();
             Assert.Contains(path, files.Cast<string>());
         });
     }
@@ -101,9 +100,8 @@ public sealed class ClipboardBridgeTests
                 4);
             Clipboard.SetImage(bitmap);
 
-            var snapshot = ClipboardBridge.Capture();
+            var snapshot = ClipboardTestHelpers.Capture();
 
-            Assert.NotNull(snapshot);
             Assert.Contains(ClipboardFormatKind.Image, snapshot.Formats);
             Assert.NotNull(snapshot.ImagePng);
             Assert.NotEmpty(snapshot.ImagePng);
@@ -125,7 +123,7 @@ public sealed class ClipboardBridgeTests
 
             ClipboardBridge.Put(snapshot, asPlainText: false);
 
-            Assert.NotNull(Clipboard.GetImage());
+            Assert.NotNull(ClipboardTestHelpers.GetImage());
         });
     }
 }

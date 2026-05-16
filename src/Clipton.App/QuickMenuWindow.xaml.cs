@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Threading;
 using System.Windows.Input;
 using System.Windows.Media;
 using Brush = System.Windows.Media.Brush;
@@ -23,9 +24,24 @@ public sealed partial class QuickMenuWindow : Window
                 ItemsList.SelectedIndex = 0;
             }
 
+            FocusMenu();
+        };
+    }
+
+    public void FocusMenu()
+    {
+        Topmost = true;
+        Activate();
+        Focus();
+        ItemsList.Focus();
+        Keyboard.Focus(ItemsList);
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            Activate();
             ItemsList.Focus();
             Keyboard.Focus(ItemsList);
-        };
+        }, DispatcherPriority.ApplicationIdle);
     }
 
     private void ItemsList_OnKeyDown(object sender, KeyEventArgs e)
@@ -59,6 +75,15 @@ public sealed partial class QuickMenuWindow : Window
     private void Window_OnDeactivated(object sender, EventArgs e)
     {
         Close();
+    }
+
+    private void Window_OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (!ItemsList.IsKeyboardFocusWithin)
+        {
+            ItemsList.Focus();
+            Keyboard.Focus(ItemsList);
+        }
     }
 
     private void InvokeSelected()

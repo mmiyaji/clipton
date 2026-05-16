@@ -7,8 +7,10 @@
         WindowStyle="None"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
+        ShowActivated="True"
         Topmost="True"
         Background="Transparent"
+        PreviewKeyDown="Window_OnPreviewKeyDown"
         Deactivated="Window_OnDeactivated">
     <Border Background="#FAFAFA"
             BorderBrush="#B8C2CC"
