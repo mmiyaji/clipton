@@ -32,4 +32,7 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     internal static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
+    [DllImport("dwmapi.dll", PreserveSig = true)]
+    internal static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
 }

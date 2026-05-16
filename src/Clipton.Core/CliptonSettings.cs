@@ -16,7 +16,11 @@ public sealed class CliptonSettings
 
     public bool FolderMode { get; set; }
 
+    public bool MaskSensitiveContent { get; set; } = true;
+
     public int MaxHistoryItems { get; set; } = 200;
+
+    public string Theme { get; set; } = "light";
 
     public string Locale { get; set; } = "en";
 }

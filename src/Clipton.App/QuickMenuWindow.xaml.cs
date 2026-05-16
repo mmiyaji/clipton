@@ -17,11 +17,12 @@ public sealed partial class QuickMenuWindow : Window
     private readonly Stack<(string Title, IReadOnlyList<QuickMenuItem> Items)> _navigationStack = new();
     private bool _isClosing;
 
-    public QuickMenuWindow(string title, IReadOnlyList<QuickMenuItem> items)
+    public QuickMenuWindow(string title, IReadOnlyList<QuickMenuItem> items, string theme)
     {
         _rootTitle = title;
         _items = items;
         InitializeComponent();
+        ApplyTheme(theme);
         SetItems(title, _items);
         Loaded += (_, _) =>
         {
@@ -223,6 +224,35 @@ public sealed partial class QuickMenuWindow : Window
             {
             }
         }, DispatcherPriority.Background);
+    }
+
+    private void ApplyTheme(string theme)
+    {
+        var dark = string.Equals(theme, "dark", StringComparison.OrdinalIgnoreCase);
+        if (dark)
+        {
+            SetBrush("QuickPanelBrush", "#171D24");
+            SetBrush("QuickBorderBrush", "#3A4653");
+            SetBrush("QuickTextBrush", "#F1F5F9");
+            SetBrush("QuickSecondaryTextBrush", "#A7B0BA");
+            SetBrush("QuickSelectionBrush", "#1E3A56");
+            SetBrush("QuickPreviewBrush", "#222B34");
+            SetBrush("QuickPreviewBorderBrush", "#3A4653");
+            return;
+        }
+
+        SetBrush("QuickPanelBrush", "#F9FAFB");
+        SetBrush("QuickBorderBrush", "#9AA5B1");
+        SetBrush("QuickTextBrush", "#111827");
+        SetBrush("QuickSecondaryTextBrush", "#6B7280");
+        SetBrush("QuickSelectionBrush", "#DDEBFA");
+        SetBrush("QuickPreviewBrush", "#E5E7EB");
+        SetBrush("QuickPreviewBorderBrush", "#CAD3DD");
+    }
+
+    private void SetBrush(string key, string color)
+    {
+        Resources[key] = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(color));
     }
 }
 

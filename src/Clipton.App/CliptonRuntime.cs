@@ -79,9 +79,9 @@ public sealed class CliptonRuntime : IDisposable
         SendPaste();
     }
 
-    public void PasteSnippet(string name)
+    public void PasteSnippet(string folder, string name)
     {
-        var snippet = Snippets.Snippets.FirstOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
+        var snippet = Snippets.Find(folder, name);
         if (snippet is null)
         {
             return;
@@ -125,6 +125,12 @@ public sealed class CliptonRuntime : IDisposable
         SaveSettings();
     }
 
+    public void SetMaskSensitiveContent(bool enabled)
+    {
+        Settings.MaskSensitiveContent = enabled;
+        SaveSettings();
+    }
+
     public void SetFolderMode(bool enabled)
     {
         Settings.FolderMode = enabled;
@@ -140,21 +146,21 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
-    public void UpsertSnippet(string name, string text)
+    public void UpsertSnippet(string folder, string name, string text)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
             return;
         }
 
-        Snippets.Upsert(new Snippet(name.Trim(), text));
+        Snippets.Upsert(new Snippet(name.Trim(), text, folder));
         SaveSnippets(_snippetPath, Snippets);
         _mainWindow?.RefreshItems();
     }
 
-    public void RemoveSnippet(string name)
+    public void RemoveSnippet(string folder, string name)
     {
-        if (Snippets.Remove(name))
+        if (Snippets.Remove(folder, name))
         {
             SaveSnippets(_snippetPath, Snippets);
             _mainWindow?.RefreshItems();
@@ -183,6 +189,12 @@ public sealed class CliptonRuntime : IDisposable
         Settings.Locale = locale;
         SaveSettings();
         RefreshTrayText();
+    }
+
+    public void SetTheme(string theme)
+    {
+        Settings.Theme = string.Equals(theme, "dark", StringComparison.OrdinalIgnoreCase) ? "dark" : "light";
+        SaveSettings();
     }
 
     public void Dispose()
@@ -287,16 +299,7 @@ public sealed class CliptonRuntime : IDisposable
             }
         }
 
-        foreach (var snippet in Snippets.Snippets)
-        {
-            menuItems.Add(new QuickMenuItem(
-                snippet.Name,
-                Translate("Snippets"),
-                "S",
-                "Enter",
-                Brushes.DarkOrange,
-                () => PasteSnippet(snippet.Name)));
-        }
+        menuItems.AddRange(CreateSnippetMenuItems(Snippets.Snippets));
 
         if (menuItems.Count > 0)
         {
@@ -322,7 +325,7 @@ public sealed class CliptonRuntime : IDisposable
                 IsEnabled: true));
         }
 
-        var quickMenuWindow = new QuickMenuWindow(Translate("History"), menuItems);
+        var quickMenuWindow = new QuickMenuWindow(Translate("History"), menuItems, Settings.Theme);
         _quickMenuWindow = quickMenuWindow;
         var cursor = Forms.Cursor.Position;
         quickMenuWindow.Left = cursor.X;
@@ -421,17 +424,115 @@ public sealed class CliptonRuntime : IDisposable
 
     private QuickMenuItem CreateHistoryMenuItem(ClipboardSnapshot item)
     {
-        var header = item.Formats.Contains(ClipboardFormatKind.Image) ? Translate("Image") : item.Preview;
-        var formats = string.Join(", ", item.Formats);
+        var display = CreateHistoryItemViewModel(item);
+        var header = item.Formats.Contains(ClipboardFormatKind.Image) ? Translate("Image") : display.Preview;
         return new QuickMenuItem(
             header,
-            formats,
+            display.FormatSummary,
             GetKindLabel(item),
             !string.IsNullOrEmpty(item.Text) ? "Enter / T" : "Enter",
             Brushes.SteelBlue,
             () => PasteHistoryItem(item.Id, asPlainText: false),
             !string.IsNullOrEmpty(item.Text) ? () => PasteHistoryItem(item.Id, asPlainText: true) : null,
             PreviewImage: CreatePreviewImage(item));
+    }
+
+    public HistoryItemViewModel CreateHistoryItemViewModel(ClipboardSnapshot snapshot)
+    {
+        var formats = string.Join(", ", snapshot.Formats);
+        var snippet = Snippets.FindByText(snapshot.Text);
+        if (snippet is not null)
+        {
+            return new HistoryItemViewModel(snapshot.Id, snippet.DisplayName, $"{Translate("RegisteredSnippetMasked")} - {formats}");
+        }
+
+        if (Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(snapshot.Text))
+        {
+            return new HistoryItemViewModel(snapshot.Id, Translate("MaskedSensitive"), formats);
+        }
+
+        return new HistoryItemViewModel(snapshot.Id, snapshot.Preview, formats);
+    }
+
+    private IReadOnlyList<QuickMenuItem> CreateSnippetMenuItems(IEnumerable<Snippet> snippets)
+    {
+        return CreateSnippetMenuItems(snippets, string.Empty);
+    }
+
+    private IReadOnlyList<QuickMenuItem> CreateSnippetMenuItems(IEnumerable<Snippet> snippets, string parentFolder)
+    {
+        var normalizedParent = NormalizeFolder(parentFolder);
+        var directSnippets = snippets
+            .Where(snippet => NormalizeFolder(snippet.Folder) == normalizedParent)
+            .OrderBy(snippet => snippet.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(CreateSnippetMenuItem)
+            .ToList();
+
+        var childFolders = snippets
+            .Select(snippet => snippet.Folder)
+            .Select(folder => GetImmediateChildFolder(folder, normalizedParent))
+            .Where(folder => !string.IsNullOrEmpty(folder))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(folder => folder, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var childFolder in childFolders)
+        {
+            var fullFolder = string.IsNullOrEmpty(normalizedParent) ? childFolder : $"{normalizedParent}/{childFolder}";
+            var children = CreateSnippetMenuItems(snippets, fullFolder);
+            directSnippets.Add(new QuickMenuItem(
+                childFolder,
+                Translate("Snippets"),
+                ">",
+                "Enter",
+                Brushes.DarkOrange,
+                () => { },
+                Children: children));
+        }
+
+        return directSnippets;
+    }
+
+    private QuickMenuItem CreateSnippetMenuItem(Snippet snippet)
+    {
+        return new QuickMenuItem(
+            snippet.Name,
+            string.IsNullOrWhiteSpace(snippet.Folder) ? Translate("Snippets") : snippet.Folder,
+            "S",
+            "Enter",
+            Brushes.DarkOrange,
+            () => PasteSnippet(snippet.Folder, snippet.Name));
+    }
+
+    private static string NormalizeFolder(string? folder)
+    {
+        return string.Join(
+            "/",
+            (folder ?? string.Empty)
+                .Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+    }
+
+    private static string GetImmediateChildFolder(string? folder, string parentFolder)
+    {
+        var normalized = NormalizeFolder(folder);
+        var parent = NormalizeFolder(parentFolder);
+        if (string.IsNullOrEmpty(normalized) || normalized == parent)
+        {
+            return string.Empty;
+        }
+
+        if (!string.IsNullOrEmpty(parent))
+        {
+            var prefix = $"{parent}/";
+            if (!normalized.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return string.Empty;
+            }
+
+            normalized = normalized[prefix.Length..];
+        }
+
+        var separator = normalized.IndexOf('/');
+        return separator < 0 ? normalized : normalized[..separator];
     }
 
     private static BitmapImage? CreatePreviewImage(ClipboardSnapshot item)

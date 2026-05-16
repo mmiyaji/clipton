@@ -12,8 +12,17 @@
         Background="Transparent"
         PreviewKeyDown="Window_OnPreviewKeyDown"
         Deactivated="Window_OnDeactivated">
-    <Border Background="#F9FAFB"
-            BorderBrush="#9AA5B1"
+    <Window.Resources>
+        <SolidColorBrush x:Key="QuickPanelBrush" Color="#F9FAFB" />
+        <SolidColorBrush x:Key="QuickBorderBrush" Color="#9AA5B1" />
+        <SolidColorBrush x:Key="QuickTextBrush" Color="#111827" />
+        <SolidColorBrush x:Key="QuickSecondaryTextBrush" Color="#6B7280" />
+        <SolidColorBrush x:Key="QuickSelectionBrush" Color="#DDEBFA" />
+        <SolidColorBrush x:Key="QuickPreviewBrush" Color="#E5E7EB" />
+        <SolidColorBrush x:Key="QuickPreviewBorderBrush" Color="#CAD3DD" />
+    </Window.Resources>
+    <Border Background="{DynamicResource QuickPanelBrush}"
+            BorderBrush="{DynamicResource QuickBorderBrush}"
             BorderThickness="1"
             CornerRadius="4"
             Padding="6">
@@ -34,10 +43,10 @@
                 <TextBlock x:Name="TitleText"
                            FontSize="12"
                            FontWeight="SemiBold"
-                           Foreground="#1F2933" />
+                           Foreground="{DynamicResource QuickTextBrush}" />
                 <TextBlock Grid.Column="1"
                            FontSize="11"
-                           Foreground="#6B7280"
+                           Foreground="{DynamicResource QuickSecondaryTextBrush}"
                            Text="Enter: Paste  T: Text  Esc" />
             </Grid>
 
@@ -58,7 +67,7 @@
                         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
                         <Style.Triggers>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter Property="Background" Value="#DDEBFA" />
+                                <Setter Property="Background" Value="{DynamicResource QuickSelectionBrush}" />
                             </Trigger>
                         </Style.Triggers>
                     </Style>
@@ -90,8 +99,8 @@
                                         Height="32"
                                         HorizontalAlignment="Left"
                                         VerticalAlignment="Center"
-                                        Background="#E5E7EB"
-                                        BorderBrush="#CAD3DD"
+                                        Background="{DynamicResource QuickPreviewBrush}"
+                                        BorderBrush="{DynamicResource QuickPreviewBorderBrush}"
                                         BorderThickness="1"
                                         CornerRadius="3"
                                         Visibility="{Binding PreviewVisibility}">
@@ -103,21 +112,21 @@
                                             VerticalAlignment="Center">
                                     <TextBlock Text="{Binding Title}"
                                                FontSize="12"
-                                               Foreground="#111827"
+                                               Foreground="{DynamicResource QuickTextBrush}"
                                                TextTrimming="CharacterEllipsis"
                                                TextWrapping="Wrap"
                                                MaxHeight="34" />
                                     <TextBlock Text="{Binding Subtitle}"
                                                Margin="0,1,0,0"
                                                FontSize="11"
-                                               Foreground="#6B7280"
+                                               Foreground="{DynamicResource QuickSecondaryTextBrush}"
                                                TextTrimming="CharacterEllipsis"
                                                TextWrapping="NoWrap" />
                                 </StackPanel>
                                 <TextBlock Grid.Column="2"
                                            VerticalAlignment="Center"
                                            FontSize="11"
-                                           Foreground="#52606D"
+                                           Foreground="{DynamicResource QuickSecondaryTextBrush}"
                                            Text="{Binding CommandHint}" />
                             </Grid>
                         </Border>
