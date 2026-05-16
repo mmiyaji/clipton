@@ -15,6 +15,7 @@ public sealed partial class MainWindow : Window
     {
         _runtime = runtime;
         InitializeComponent();
+        NavList.SelectedIndex = 0;
         RefreshTexts();
         RefreshItems();
     }
@@ -30,8 +31,23 @@ public sealed partial class MainWindow : Window
         _loading = true;
         var t = _runtime.Translate;
         TitleText.Text = t("AppName");
-        HistoryTab.Header = t("History");
-        SnippetTab.Header = t("Snippets");
+        GeneralNavItem.Content = t("General");
+        HistoryNavItem.Content = t("History");
+        SnippetNavItem.Content = t("Snippets");
+        GeneralHeaderText.Text = t("General");
+        GeneralDescriptionText.Text = t("GeneralDescription");
+        HistoryHeaderText.Text = t("History");
+        HistoryDescriptionText.Text = t("HistoryDescription");
+        SnippetHeaderText.Text = t("Snippets");
+        SnippetDescriptionText.Text = t("SnippetDescription");
+        HotkeyTitleText.Text = t("Hotkey");
+        HotkeyDescriptionText.Text = t("HotkeyDescription");
+        LanguageTitleText.Text = t("Language");
+        LanguageDescriptionText.Text = t("LanguageDescription");
+        StartupTitleText.Text = t("Startup");
+        StartupDescriptionText.Text = t("StartupDescription");
+        SnippetNameTitleText.Text = t("SnippetName");
+        SnippetTextTitleText.Text = t("SnippetText");
         ClearButton.Content = t("ClearHistory");
         SaveSnippetButton.Content = t("Save");
         DeleteSnippetButton.Content = t("Delete");
@@ -174,6 +190,18 @@ public sealed partial class MainWindow : Window
         SnippetNameBox.Clear();
         SnippetTextBox.Clear();
         RefreshItems();
+    }
+
+    private void NavList_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (GeneralPage is null)
+        {
+            return;
+        }
+
+        GeneralPage.Visibility = NavList.SelectedItem == GeneralNavItem ? Visibility.Visible : Visibility.Collapsed;
+        HistoryPage.Visibility = NavList.SelectedItem == HistoryNavItem ? Visibility.Visible : Visibility.Collapsed;
+        SnippetPage.Visibility = NavList.SelectedItem == SnippetNavItem ? Visibility.Visible : Visibility.Collapsed;
     }
 }
 

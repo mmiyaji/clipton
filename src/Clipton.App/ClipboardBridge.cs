@@ -150,15 +150,16 @@ public static class ClipboardBridge
 
     private static T? WithClipboardRetry<T>(Func<T?> action)
     {
-        for (var attempt = 0; attempt < 5; attempt++)
+        const int maxAttempts = 20;
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
             try
             {
                 return action();
             }
-            catch (ExternalException) when (attempt < 4)
+            catch (ExternalException) when (attempt < maxAttempts - 1)
             {
-                Thread.Sleep(40);
+                Thread.Sleep(75);
             }
         }
 

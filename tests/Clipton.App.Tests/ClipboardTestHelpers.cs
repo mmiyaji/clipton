@@ -44,15 +44,16 @@ internal static class ClipboardTestHelpers
 
     private static T Retry<T>(Func<T> action)
     {
-        for (var attempt = 0; attempt < 10; attempt++)
+        const int maxAttempts = 20;
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
             try
             {
                 return action();
             }
-            catch (Exception ex) when (attempt < 9 && ex is ExternalException or InvalidOperationException)
+            catch (Exception ex) when (attempt < maxAttempts - 1 && ex is ExternalException or InvalidOperationException)
             {
-                Thread.Sleep(50);
+                Thread.Sleep(75);
             }
         }
 
