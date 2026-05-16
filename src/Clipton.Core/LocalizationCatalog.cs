@@ -15,6 +15,7 @@ public sealed class LocalizationCatalog
                 {
                     ["AppName"] = "Clipton",
                     ["History"] = "Clipboard history",
+                    ["HistoryEmpty"] = "No clipboard history",
                     ["Snippets"] = "Snippets",
                     ["Settings"] = "Settings",
                     ["PastePlain"] = "Paste plain text",
@@ -33,6 +34,7 @@ public sealed class LocalizationCatalog
                 {
                     ["AppName"] = "Clipton",
                     ["History"] = "クリップボード履歴",
+                    ["HistoryEmpty"] = "履歴はありません",
                     ["Snippets"] = "登録単語",
                     ["Settings"] = "設定",
                     ["PastePlain"] = "プレーンテキストで貼り付け",

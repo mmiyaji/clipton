@@ -6,25 +6,58 @@
         Height="560"
         MinWidth="640"
         MinHeight="440"
+        Background="#F4F6F8"
         WindowStartupLocation="CenterScreen">
-    <DockPanel Margin="16">
-        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="Padding" Value="14,6" />
+            <Setter Property="Background" Value="#1F5E8C" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderBrush" Value="#174766" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="BorderBrush" Value="#B8C2CC" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="MinHeight" Value="32" />
+        </Style>
+        <Style TargetType="ListBox">
+            <Setter Property="BorderBrush" Value="#CAD3DD" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Background" Value="White" />
+        </Style>
+    </Window.Resources>
+    <DockPanel Margin="20">
+        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,16">
             <TextBlock x:Name="TitleText"
-                       FontSize="22"
+                       FontSize="24"
                        FontWeight="SemiBold"
+                       Foreground="#111827"
                        Text="Clipton" />
             <TextBlock x:Name="HotkeyText"
                        Margin="0,4,0,0"
-                       Foreground="#555" />
+                       Foreground="#52606D" />
         </StackPanel>
 
-        <Grid DockPanel.Dock="Bottom" Margin="0,12,0,0">
+        <Border DockPanel.Dock="Bottom"
+                Margin="0,14,0,0"
+                Padding="12"
+                Background="White"
+                BorderBrush="#CAD3DD"
+                BorderThickness="1"
+                CornerRadius="6">
+        <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <StackPanel Orientation="Horizontal">
+            <WrapPanel VerticalAlignment="Center">
                 <CheckBox x:Name="StartupCheckBox"
                           VerticalAlignment="Center"
                           Checked="StartupCheckBox_OnChanged"
@@ -51,13 +84,13 @@
                     <ComboBoxItem Content="English" Tag="en" />
                     <ComboBoxItem Content="Japanese" Tag="ja" />
                 </ComboBox>
-            </StackPanel>
+            </WrapPanel>
 
             <Button x:Name="ClearButton"
                     Grid.Column="1"
-                    Padding="14,7"
                     Click="ClearButton_OnClick" />
         </Grid>
+        </Border>
 
         <TabControl>
             <TabItem x:Name="HistoryTab">

@@ -2,8 +2,10 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using Clipton.Core;
 using Application = System.Windows.Application;
+using Brushes = System.Windows.Media.Brushes;
 using Forms = System.Windows.Forms;
 
 namespace Clipton.App;
@@ -17,6 +19,7 @@ public sealed class CliptonRuntime : IDisposable
     private HotkeyMessageWindow? _messageWindow;
     private Forms.NotifyIcon? _notifyIcon;
     private MainWindow? _mainWindow;
+    private QuickMenuWindow? _quickMenuWindow;
 
     public CliptonRuntime()
     {
@@ -178,6 +181,7 @@ public sealed class CliptonRuntime : IDisposable
     {
         _messageWindow?.Dispose();
         _notifyIcon?.Dispose();
+        _quickMenuWindow?.Close();
     }
 
     private void CaptureClipboard()
@@ -244,41 +248,63 @@ public sealed class CliptonRuntime : IDisposable
     private void ShowQuickMenu()
     {
         CaptureClipboard();
-        var menu = new ContextMenu { Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint };
+        _quickMenuWindow?.Close();
+
+        var menuItems = new List<QuickMenuItem>();
 
         foreach (var item in History.Items.Take(20))
         {
             var header = Trim(item.Preview, 80);
-            var pasteOriginal = new MenuItem { Header = header };
-            pasteOriginal.Click += (_, _) => PasteHistoryItem(item.Id, asPlainText: false);
-            menu.Items.Add(pasteOriginal);
+            var formats = string.Join(", ", item.Formats);
+            menuItems.Add(new QuickMenuItem(
+                header,
+                formats,
+                Brushes.SteelBlue,
+                () => PasteHistoryItem(item.Id, asPlainText: false)));
 
             if (!string.IsNullOrEmpty(item.Text))
             {
-                var pastePlain = new MenuItem { Header = $"  {Translate("PastePlain")}: {header}" };
-                pastePlain.Click += (_, _) => PasteHistoryItem(item.Id, asPlainText: true);
-                menu.Items.Add(pastePlain);
+                menuItems.Add(new QuickMenuItem(
+                    $"{Translate("PastePlain")}: {header}",
+                    ClipboardFormatKind.Text.ToString(),
+                    Brushes.SeaGreen,
+                    () => PasteHistoryItem(item.Id, asPlainText: true)));
             }
-        }
-
-        if (History.Items.Count > 0 && Snippets.Snippets.Count > 0)
-        {
-            menu.Items.Add(new Separator());
         }
 
         foreach (var snippet in Snippets.Snippets)
         {
-            var menuItem = new MenuItem { Header = $"{Translate("Snippets")}: {snippet.Name}" };
-            menuItem.Click += (_, _) => PasteSnippet(snippet.Name);
-            menu.Items.Add(menuItem);
+            menuItems.Add(new QuickMenuItem(
+                snippet.Name,
+                Translate("Snippets"),
+                Brushes.DarkOrange,
+                () => PasteSnippet(snippet.Name)));
         }
 
-        menu.Items.Add(new Separator());
-        var settings = new MenuItem { Header = Translate("Settings") };
-        settings.Click += (_, _) => ShowMainWindow();
-        menu.Items.Add(settings);
+        if (menuItems.Count == 0)
+        {
+            menuItems.Add(new QuickMenuItem(
+                Translate("HistoryEmpty"),
+                Translate("Settings"),
+                Brushes.Gray,
+                ShowMainWindow,
+                IsEnabled: true));
+        }
 
-        menu.IsOpen = true;
+        var quickMenuWindow = new QuickMenuWindow(Translate("History"), menuItems);
+        _quickMenuWindow = quickMenuWindow;
+        var cursor = Forms.Cursor.Position;
+        quickMenuWindow.Left = cursor.X;
+        quickMenuWindow.Top = cursor.Y;
+        quickMenuWindow.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_quickMenuWindow, quickMenuWindow))
+            {
+                _quickMenuWindow = null;
+            }
+        };
+
+        quickMenuWindow.Show();
     }
 
     private void SaveSettings()
