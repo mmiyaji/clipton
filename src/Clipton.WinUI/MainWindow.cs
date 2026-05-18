@@ -1,10 +1,7 @@
 using Clipton.Core;
-using Microsoft.UI;
-using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using WinRT.Interop;
 
 namespace Clipton.WinUI;
 
@@ -12,31 +9,25 @@ public sealed class MainWindow : Window
 {
     private readonly CliptonRuntime _runtime;
     private readonly Grid _root = new();
-    private readonly ListView _navList = new();
+    private readonly StackPanel _sidebar = new() { Padding = new Thickness(18), Spacing = 10 };
     private readonly StackPanel _generalPage = new() { Spacing = 12 };
     private readonly StackPanel _historyPage = new() { Spacing = 12 };
     private readonly StackPanel _snippetPage = new() { Spacing = 12 };
+    private readonly StackPanel _historyItemsPanel = new() { Spacing = 6 };
+    private readonly StackPanel _snippetItemsPanel = new() { Spacing = 6 };
     private readonly List<Border> _cards = [];
-    private readonly TextBlock _titleText = new() { FontSize = 22, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
-    private readonly TextBlock _hotkeyText = new() { FontSize = 12 };
+    private readonly Button _generalNavButton = new();
+    private readonly Button _historyNavButton = new();
+    private readonly Button _snippetNavButton = new();
+    private readonly TextBlock _titleText = Header(22);
+    private readonly TextBlock _hotkeyText = Description();
     private readonly TextBlock _generalHeaderText = Header();
     private readonly TextBlock _generalDescriptionText = Description();
     private readonly TextBlock _historyHeaderText = Header();
     private readonly TextBlock _historyDescriptionText = Description();
     private readonly TextBlock _snippetHeaderText = Header();
     private readonly TextBlock _snippetDescriptionText = Description();
-    private readonly TextBlock _hotkeyTitleText = SettingTitle();
-    private readonly TextBlock _hotkeyDescriptionText = SettingDescription();
-    private readonly TextBlock _themeTitleText = SettingTitle();
-    private readonly TextBlock _themeDescriptionText = SettingDescription();
-    private readonly TextBlock _languageTitleText = SettingTitle();
-    private readonly TextBlock _languageDescriptionText = SettingDescription();
-    private readonly TextBlock _startupTitleText = SettingTitle();
-    private readonly TextBlock _startupDescriptionText = SettingDescription();
-    private readonly TextBlock _snippetFolderTitleText = SettingTitle();
-    private readonly TextBlock _snippetNameTitleText = SettingTitle();
-    private readonly TextBlock _snippetTextTitleText = SettingTitle();
-    private readonly TextBox _hotkeyBox = new();
+    private readonly ComboBox _hotkeyBox = new();
     private readonly ComboBox _themeBox = new();
     private readonly ComboBox _localeBox = new();
     private readonly CheckBox _startupCheckBox = new();
@@ -47,38 +38,46 @@ public sealed class MainWindow : Window
     private readonly CheckBox _simpleContextMenuCheckBox = new();
     private readonly Button _registerFromHistoryButton = new();
     private readonly Button _clearButton = new();
-    private readonly ListView _historyList = new();
-    private readonly ListView _snippetList = new();
-    private readonly TextBox _snippetFolderBox = new();
-    private readonly TextBox _snippetNameBox = new();
-    private readonly TextBox _snippetTextBox = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 96 };
-    private readonly Button _saveSnippetButton = new();
+    private readonly TextBlock _selectedSnippetText = Description();
+    private readonly Button _pasteSnippetButton = new();
     private readonly Button _deleteSnippetButton = new();
-    private readonly string[] _navKeys = ["General", "History", "Snippets"];
-    private StackPanel? _sidebar;
+    private string? _selectedHistoryId;
+    private SnippetItemViewModel? _selectedSnippet;
     private bool _loading;
 
     public MainWindow(CliptonRuntime runtime)
     {
         _runtime = runtime;
         Title = "Clipton";
-        SystemBackdrop = new MicaBackdrop();
         BuildUi();
         ApplyTheme();
         RefreshTexts();
         RefreshItems();
-        SetWindowIconAndSize();
         Closed += (_, _) => _runtime.OnMainWindowClosed(this);
     }
 
     public void RefreshItems()
     {
-        _historyList.ItemsSource = _runtime.History.Items.Select(_runtime.CreateHistoryItemViewModel).ToArray();
-        _snippetList.ItemsSource = _runtime.Snippets.Snippets
+        _historyItemsPanel.Children.Clear();
+        foreach (var item in _runtime.History.Items.Select(_runtime.CreateHistoryItemViewModel))
+        {
+            var button = ItemButton(item.Preview, item.FormatSummary);
+            button.Click += (_, _) => _selectedHistoryId = item.Id;
+            button.DoubleTapped += (_, _) => _runtime.PasteHistoryItem(item.Id, asPlainText: false);
+            _historyItemsPanel.Children.Add(button);
+        }
+
+        _snippetItemsPanel.Children.Clear();
+        foreach (var item in _runtime.Snippets.Snippets
             .OrderBy(snippet => snippet.Folder, StringComparer.OrdinalIgnoreCase)
             .ThenBy(snippet => snippet.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(SnippetItemViewModel.FromSnippet)
-            .ToArray();
+            .Select(SnippetItemViewModel.FromSnippet))
+        {
+            var button = ItemButton(item.DisplayName, item.Folder);
+            button.Click += (_, _) => SelectSnippet(item);
+            button.DoubleTapped += (_, _) => _runtime.PasteSnippet(item.Folder, item.Name);
+            _snippetItemsPanel.Children.Add(button);
+        }
     }
 
     public void RefreshTexts()
@@ -86,25 +85,17 @@ public sealed class MainWindow : Window
         _loading = true;
         var t = _runtime.Translate;
         _titleText.Text = t("AppName");
-        RefreshNavigationTexts();
+        _hotkeyText.Text = $"{t("Hotkey")}: {_runtime.Settings.Hotkey}";
+        _generalNavButton.Content = t("General");
+        _historyNavButton.Content = t("History");
+        _snippetNavButton.Content = t("Snippets");
         _generalHeaderText.Text = t("General");
         _generalDescriptionText.Text = t("GeneralDescription");
         _historyHeaderText.Text = t("History");
         _historyDescriptionText.Text = t("HistoryDescription");
         _snippetHeaderText.Text = t("Snippets");
         _snippetDescriptionText.Text = t("SnippetDescription");
-        _hotkeyTitleText.Text = t("Hotkey");
-        _hotkeyDescriptionText.Text = t("HotkeyDescription");
-        _themeTitleText.Text = t("Theme");
-        _themeDescriptionText.Text = t("ThemeDescription");
-        _languageTitleText.Text = t("Language");
-        _languageDescriptionText.Text = t("LanguageDescription");
-        _startupTitleText.Text = t("Startup");
-        _startupDescriptionText.Text = t("StartupDescription");
-        _snippetFolderTitleText.Text = t("SnippetFolder");
-        _snippetNameTitleText.Text = t("SnippetName");
-        _snippetTextTitleText.Text = t("SnippetText");
-        _startupCheckBox.Content = string.Empty;
+        _startupCheckBox.Content = t("Startup");
         _pauseCaptureCheckBox.Content = t("PauseCapture");
         _persistHistoryCheckBox.Content = t("PersistHistory");
         _maskSensitiveContentCheckBox.Content = t("MaskSensitiveContent");
@@ -112,10 +103,8 @@ public sealed class MainWindow : Window
         _simpleContextMenuCheckBox.Content = t("SimpleContextMenuMode");
         _registerFromHistoryButton.Content = t("RegisterFromHistory");
         _clearButton.Content = t("ClearHistory");
-        _saveSnippetButton.Content = t("Save");
+        _pasteSnippetButton.Content = t("Paste");
         _deleteSnippetButton.Content = t("Delete");
-        _hotkeyText.Text = $"{t("Hotkey")}: {_runtime.Settings.Hotkey}";
-        _hotkeyBox.Text = _runtime.Settings.Hotkey;
         SetComboBoxText(_themeBox, "light", t("ThemeLight"));
         SetComboBoxText(_themeBox, "dark", t("ThemeDark"));
         _startupCheckBox.IsChecked = _runtime.Settings.StartWithWindows;
@@ -124,8 +113,10 @@ public sealed class MainWindow : Window
         _maskSensitiveContentCheckBox.IsChecked = _runtime.Settings.MaskSensitiveContent;
         _folderModeCheckBox.IsChecked = _runtime.Settings.FolderMode;
         _simpleContextMenuCheckBox.IsChecked = _runtime.Settings.SimpleContextMenuMode;
+        SetComboSelection(_hotkeyBox, _runtime.Settings.Hotkey);
         SetComboSelection(_themeBox, _runtime.Settings.Theme);
         SetComboSelection(_localeBox, _runtime.Settings.Locale);
+        UpdateSelectedSnippetText();
         _loading = false;
     }
 
@@ -135,16 +126,15 @@ public sealed class MainWindow : Window
         _root.ColumnDefinitions.Add(new ColumnDefinition());
         Content = _root;
 
-        _sidebar = new StackPanel { Padding = new Thickness(18), Spacing = 12 };
         Grid.SetColumn(_sidebar, 0);
-        _titleText.FontFamily = new FontFamily("Segoe UI Variable Display");
-        _hotkeyText.Foreground = Brush("#667085");
         _sidebar.Children.Add(_titleText);
         _sidebar.Children.Add(_hotkeyText);
-        _navList.ItemsSource = _navKeys.Select(_runtime.Translate).ToArray();
-        _navList.SelectedIndex = 0;
-        _navList.SelectionChanged += (_, _) => SelectPage(_navList.SelectedIndex);
-        _sidebar.Children.Add(_navList);
+        _generalNavButton.Click += (_, _) => SelectPage(0);
+        _historyNavButton.Click += (_, _) => SelectPage(1);
+        _snippetNavButton.Click += (_, _) => SelectPage(2);
+        _sidebar.Children.Add(_generalNavButton);
+        _sidebar.Children.Add(_historyNavButton);
+        _sidebar.Children.Add(_snippetNavButton);
         _root.Children.Add(_sidebar);
 
         var scroller = new ScrollViewer { Padding = new Thickness(28), VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
@@ -166,23 +156,28 @@ public sealed class MainWindow : Window
     {
         _generalPage.Children.Add(_generalHeaderText);
         _generalPage.Children.Add(_generalDescriptionText);
-        _generalPage.Children.Add(SettingRow(_hotkeyTitleText, _hotkeyDescriptionText, _hotkeyBox));
-        _hotkeyBox.LostFocus += (_, _) =>
+        foreach (var hotkey in new[] { "Ctrl+Shift+V", "Ctrl+Alt+V", "Alt+Space" })
         {
-            if (_loading) return;
-            _runtime.SetHotkey(_hotkeyBox.Text);
+            _hotkeyBox.Items.Add(new ComboBoxItem { Content = hotkey, Tag = hotkey });
+        }
+
+        _hotkeyBox.SelectionChanged += (_, _) =>
+        {
+            if (_loading || (_hotkeyBox.SelectedItem as ComboBoxItem)?.Tag is not string hotkey) return;
+            _runtime.SetHotkey(hotkey);
             RefreshTexts();
         };
+        _generalPage.Children.Add(SettingRow("Hotkey", "HotkeyDescription", _hotkeyBox));
 
-        _themeBox.Items.Add(new ComboBoxItem { Content = _runtime.Translate("ThemeLight"), Tag = "light" });
-        _themeBox.Items.Add(new ComboBoxItem { Content = _runtime.Translate("ThemeDark"), Tag = "dark" });
+        _themeBox.Items.Add(new ComboBoxItem { Tag = "light" });
+        _themeBox.Items.Add(new ComboBoxItem { Tag = "dark" });
         _themeBox.SelectionChanged += (_, _) =>
         {
             if (_loading || (_themeBox.SelectedItem as ComboBoxItem)?.Tag is not string theme) return;
             _runtime.SetTheme(theme);
             ApplyTheme();
         };
-        _generalPage.Children.Add(SettingRow(_themeTitleText, _themeDescriptionText, _themeBox));
+        _generalPage.Children.Add(SettingRow("Theme", "ThemeDescription", _themeBox));
 
         _localeBox.Items.Add(new ComboBoxItem { Content = "English", Tag = "en" });
         _localeBox.Items.Add(new ComboBoxItem { Content = "Japanese", Tag = "ja" });
@@ -192,10 +187,11 @@ public sealed class MainWindow : Window
             _runtime.SetLocale(locale);
             RefreshTexts();
         };
-        _generalPage.Children.Add(SettingRow(_languageTitleText, _languageDescriptionText, _localeBox));
+        _generalPage.Children.Add(SettingRow("Language", "LanguageDescription", _localeBox));
+
         _startupCheckBox.Checked += async (_, _) => await SetStartupAsync();
         _startupCheckBox.Unchecked += async (_, _) => await SetStartupAsync();
-        _generalPage.Children.Add(SettingRow(_startupTitleText, _startupDescriptionText, _startupCheckBox));
+        _generalPage.Children.Add(Card(_startupCheckBox));
     }
 
     private void BuildHistoryPage()
@@ -226,15 +222,7 @@ public sealed class MainWindow : Window
                 actions
             }
         }));
-        _historyList.MinHeight = 300;
-        _historyList.DoubleTapped += (_, _) =>
-        {
-            if (_historyList.SelectedItem is HistoryItemViewModel item)
-            {
-                _runtime.PasteHistoryItem(item.Id, asPlainText: false);
-            }
-        };
-        _historyPage.Children.Add(ListPanel(_historyList));
+        _historyPage.Children.Add(Card(_historyItemsPanel));
     }
 
     private void BuildSnippetPage()
@@ -242,53 +230,34 @@ public sealed class MainWindow : Window
         _snippetPage.Children.Add(_snippetHeaderText);
         _snippetPage.Children.Add(_snippetDescriptionText);
         var grid = new Grid { ColumnSpacing = 16 };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(240) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(320) });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
-        _snippetList.SelectionChanged += (_, _) =>
-        {
-            if (_snippetList.SelectedItem is not SnippetItemViewModel selected) return;
-            var snippet = _runtime.Snippets.Find(selected.Folder, selected.Name);
-            if (snippet is null) return;
-            _snippetFolderBox.Text = snippet.Folder;
-            _snippetNameBox.Text = snippet.Name;
-            _snippetTextBox.Text = snippet.Text;
-        };
-        _snippetList.DoubleTapped += (_, _) =>
-        {
-            if (_snippetList.SelectedItem is SnippetItemViewModel item)
-            {
-                _runtime.PasteSnippet(item.Folder, item.Name);
-            }
-        };
-        grid.Children.Add(ListPanel(_snippetList));
-        var editor = new StackPanel { Spacing = 8 };
-        Grid.SetColumn(editor, 1);
-        editor.Children.Add(_snippetFolderTitleText);
-        editor.Children.Add(_snippetFolderBox);
-        editor.Children.Add(_snippetNameTitleText);
-        editor.Children.Add(_snippetNameBox);
-        editor.Children.Add(_snippetTextTitleText);
-        editor.Children.Add(_snippetTextBox);
+        grid.Children.Add(Card(_snippetItemsPanel));
+
+        var details = new StackPanel { Spacing = 10 };
+        details.Children.Add(_selectedSnippetText);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
-        _saveSnippetButton.Click += (_, _) =>
+        _pasteSnippetButton.Click += (_, _) =>
         {
-            _runtime.UpsertSnippet(_snippetFolderBox.Text, _snippetNameBox.Text, _snippetTextBox.Text);
-            RefreshItems();
+            if (_selectedSnippet is not null)
+            {
+                _runtime.PasteSnippet(_selectedSnippet.Folder, _selectedSnippet.Name);
+            }
         };
         _deleteSnippetButton.Click += (_, _) =>
         {
-            _runtime.RemoveSnippet(_snippetFolderBox.Text, _snippetNameBox.Text);
-            _snippetFolderBox.Text = "";
-            _snippetNameBox.Text = "";
-            _snippetTextBox.Text = "";
+            if (_selectedSnippet is null) return;
+            _runtime.RemoveSnippet(_selectedSnippet.Folder, _selectedSnippet.Name);
+            _selectedSnippet = null;
+            UpdateSelectedSnippetText();
             RefreshItems();
         };
-        buttons.Children.Add(_saveSnippetButton);
+        buttons.Children.Add(_pasteSnippetButton);
         buttons.Children.Add(_deleteSnippetButton);
-        editor.Children.Add(buttons);
-        var editorCard = Card(editor);
-        Grid.SetColumn(editorCard, 1);
-        grid.Children.Add(editorCard);
+        details.Children.Add(buttons);
+        var detailsCard = Card(details);
+        Grid.SetColumn(detailsCard, 1);
+        grid.Children.Add(detailsCard);
         _snippetPage.Children.Add(grid);
     }
 
@@ -312,16 +281,24 @@ public sealed class MainWindow : Window
 
     private void RegisterSelectedHistory()
     {
-        if (_historyList.SelectedItem is not HistoryItemViewModel selected) return;
-        var item = _runtime.History.Find(selected.Id);
+        if (_selectedHistoryId is null) return;
+        var item = _runtime.History.Find(_selectedHistoryId);
         if (string.IsNullOrWhiteSpace(item?.Text)) return;
-        _snippetFolderBox.Text = "";
-        _snippetNameBox.Text = CreateSnippetName(item.Text);
-        _snippetTextBox.Text = item.Text;
-        _navList.SelectedIndex = 2;
+        _runtime.UpsertSnippet("History", CreateSnippetName(item.Text), item.Text);
         SelectPage(2);
-        _snippetNameBox.Focus(FocusState.Programmatic);
-        _snippetNameBox.SelectAll();
+    }
+
+    private void SelectSnippet(SnippetItemViewModel selected)
+    {
+        _selectedSnippet = selected;
+        UpdateSelectedSnippetText();
+    }
+
+    private void UpdateSelectedSnippetText()
+    {
+        _selectedSnippetText.Text = _selectedSnippet is null
+            ? _runtime.Translate("Snippets")
+            : $"{_selectedSnippet.DisplayName}\n{_selectedSnippet.Folder}";
     }
 
     private void SelectPage(int index)
@@ -336,37 +313,11 @@ public sealed class MainWindow : Window
         var dark = IsDark;
         _root.RequestedTheme = dark ? ElementTheme.Dark : ElementTheme.Light;
         _root.Background = Brush(dark ? "#202020" : "#F3F3F3");
-        if (_sidebar is not null)
-        {
-            _sidebar.Background = Brush(dark ? "#1B1B1B" : "#F9F9F9");
-        }
-
-        _hotkeyText.Foreground = Brush(dark ? "#C7C7C7" : "#667085");
-        _generalDescriptionText.Foreground = DescriptionBrush();
-        _historyDescriptionText.Foreground = DescriptionBrush();
-        _snippetDescriptionText.Foreground = DescriptionBrush();
-        foreach (var text in DescriptionTexts())
-        {
-            text.Foreground = DescriptionBrush();
-        }
-
+        _sidebar.Background = Brush(dark ? "#1B1B1B" : "#F9F9F9");
         foreach (var card in _cards)
         {
             card.Background = CardBackground();
             card.BorderBrush = CardBorderBrush();
-        }
-    }
-
-    private void SetWindowIconAndSize()
-    {
-        var hwnd = WindowNative.GetWindowHandle(this);
-        var id = Win32Interop.GetWindowIdFromWindow(hwnd);
-        var appWindow = AppWindow.GetFromWindowId(id);
-        appWindow.Resize(new Windows.Graphics.SizeInt32(980, 640));
-        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Clipton.ico");
-        if (File.Exists(iconPath))
-        {
-            appWindow.SetIcon(iconPath);
         }
     }
 
@@ -387,40 +338,35 @@ public sealed class MainWindow : Window
         return card;
     }
 
-    private Border ListPanel(ListView listView)
-    {
-        listView.BorderThickness = new Thickness(0);
-        listView.Background = new SolidColorBrush(Colors.Transparent);
-        return Card(listView);
-    }
-
-    private UIElement SettingRow(TextBlock title, TextBlock description, Control control)
+    private UIElement SettingRow(string titleKey, string descriptionKey, Control control)
     {
         var grid = new Grid { ColumnSpacing = 16 };
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
         var texts = new StackPanel { Spacing = 3 };
-        texts.Children.Add(title);
-        texts.Children.Add(description);
+        texts.Children.Add(new TextBlock { Text = _runtime.Translate(titleKey), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        texts.Children.Add(new TextBlock { Text = _runtime.Translate(descriptionKey), FontSize = 12, Foreground = DescriptionBrush(), TextWrapping = TextWrapping.Wrap });
         grid.Children.Add(texts);
         Grid.SetColumn(control, 1);
         grid.Children.Add(control);
         return Card(grid);
     }
 
-    private void RefreshNavigationTexts()
+    private Button ItemButton(string title, string subtitle)
     {
-        var selectedIndex = _navList.SelectedIndex < 0 ? 0 : _navList.SelectedIndex;
-        _navList.ItemsSource = _navKeys.Select(_runtime.Translate).ToArray();
-        _navList.SelectedIndex = Math.Clamp(selectedIndex, 0, _navKeys.Length - 1);
-    }
-
-    private IEnumerable<TextBlock> DescriptionTexts()
-    {
-        yield return _hotkeyDescriptionText;
-        yield return _themeDescriptionText;
-        yield return _languageDescriptionText;
-        yield return _startupDescriptionText;
+        return new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            Content = new StackPanel
+            {
+                Children =
+                {
+                    new TextBlock { Text = title, TextTrimming = TextTrimming.CharacterEllipsis },
+                    new TextBlock { Text = subtitle, FontSize = 12, Foreground = DescriptionBrush() }
+                }
+            }
+        };
     }
 
     private Brush CardBackground() => Brush(IsDark ? "#2B2B2B" : "#FFFFFF");
@@ -438,13 +384,9 @@ public sealed class MainWindow : Window
             Convert.ToByte(color.Substring(5, 2), 16)));
     }
 
-    private static TextBlock Header() => new() { FontSize = 28, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
+    private static TextBlock Header(double size = 28) => new() { FontSize = size, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
 
     private static TextBlock Description() => new() { Foreground = Brush("#667085"), TextWrapping = TextWrapping.Wrap };
-
-    private static TextBlock SettingTitle() => new() { FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
-
-    private static TextBlock SettingDescription() => new() { FontSize = 12, Foreground = Brush("#667085"), TextWrapping = TextWrapping.Wrap };
 
     private static void SetComboSelection(ComboBox comboBox, string tag)
     {

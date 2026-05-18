@@ -2,10 +2,7 @@ using System.Text.Json;
 using Clipton.Core;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
-using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
-using Windows.Graphics;
-using WinRT.Interop;
 using Forms = System.Windows.Forms;
 
 namespace Clipton.WinUI;
@@ -21,7 +18,6 @@ public sealed class CliptonRuntime : IDisposable
     private Forms.NotifyIcon? _notifyIcon;
     private MainWindow? _mainWindow;
     private QuickMenuWindow? _quickMenuWindow;
-    private Window? _lifetimeWindow;
     private IntPtr _pasteTargetWindow;
 
     public CliptonRuntime()
@@ -54,7 +50,6 @@ public sealed class CliptonRuntime : IDisposable
 
     public void Start()
     {
-        CreateLifetimeWindow();
         EnsureDefaultSnippets();
         _messageWindow = new HotkeyMessageWindow(ShowQuickMenuOnUiThread, CaptureClipboardOnUiThread);
         RegisterHotkey();
@@ -276,28 +271,15 @@ public sealed class CliptonRuntime : IDisposable
             Text = "Clipton",
             Visible = true
         };
+        _notifyIcon.MouseClick += (_, e) =>
+        {
+            if (e.Button == Forms.MouseButtons.Left)
+            {
+                _dispatcherQueue.TryEnqueue(ShowMainWindow);
+            }
+        };
         _notifyIcon.DoubleClick += (_, _) => _dispatcherQueue.TryEnqueue(ShowMainWindow);
         RefreshTrayText();
-    }
-
-    private void CreateLifetimeWindow()
-    {
-        _lifetimeWindow = new Window { Title = "Clipton" };
-        var hwnd = WindowNative.GetWindowHandle(_lifetimeWindow);
-        var id = Win32Interop.GetWindowIdFromWindow(hwnd);
-        var appWindow = AppWindow.GetFromWindowId(id);
-        if (appWindow.Presenter is OverlappedPresenter presenter)
-        {
-            presenter.SetBorderAndTitleBar(false, false);
-            presenter.IsResizable = false;
-            presenter.IsMaximizable = false;
-            presenter.IsMinimizable = false;
-        }
-
-        appWindow.Resize(new SizeInt32(1, 1));
-        appWindow.Move(new PointInt32(-32000, -32000));
-        _lifetimeWindow.Activate();
-        appWindow.Hide();
     }
 
     private void RefreshTrayText()
