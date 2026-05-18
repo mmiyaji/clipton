@@ -12,7 +12,22 @@ internal static class NativeMethods
     internal const uint ModWin = 0x0008;
     internal const byte VkControl = 0x11;
     internal const byte VkV = 0x56;
+    internal const int VkReturn = 0x0D;
+    internal const int VkEscape = 0x1B;
+    internal const int VkBack = 0x08;
+    internal const int VkLeft = 0x25;
+    internal const int VkUp = 0x26;
+    internal const int VkRight = 0x27;
+    internal const int VkDown = 0x28;
+    internal const int WhKeyboardLl = 13;
+    internal const int WmKeydown = 0x0100;
+    internal const int WmSyskeydown = 0x0104;
+    internal const int GwlExstyle = -20;
+    internal const int WsExToolwindow = 0x00000080;
+    internal const int WsExAppwindow = 0x00040000;
     internal const uint KeyeventfKeyup = 0x0002;
+
+    internal delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -32,4 +47,31 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     internal static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
+    internal static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+    internal static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    internal static extern IntPtr GetModuleHandle(string? lpModuleName);
+
 }

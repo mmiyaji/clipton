@@ -1,7 +1,11 @@
 using System.Text.Json;
 using Clipton.Core;
+using Microsoft.UI;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Windows.Graphics;
+using WinRT.Interop;
 using Forms = System.Windows.Forms;
 
 namespace Clipton.WinUI;
@@ -17,6 +21,8 @@ public sealed class CliptonRuntime : IDisposable
     private Forms.NotifyIcon? _notifyIcon;
     private MainWindow? _mainWindow;
     private QuickMenuWindow? _quickMenuWindow;
+    private Window? _lifetimeWindow;
+    private IntPtr _pasteTargetWindow;
 
     public CliptonRuntime()
     {
@@ -48,6 +54,7 @@ public sealed class CliptonRuntime : IDisposable
 
     public void Start()
     {
+        CreateLifetimeWindow();
         EnsureDefaultSnippets();
         _messageWindow = new HotkeyMessageWindow(ShowQuickMenuOnUiThread, CaptureClipboardOnUiThread);
         RegisterHotkey();
@@ -204,7 +211,7 @@ public sealed class CliptonRuntime : IDisposable
         SaveHistory();
         _messageWindow?.Dispose();
         _notifyIcon?.Dispose();
-        _quickMenuWindow?.Close();
+        _quickMenuWindow?.Dismiss();
     }
 
     private void CaptureClipboardOnUiThread()
@@ -212,8 +219,9 @@ public sealed class CliptonRuntime : IDisposable
         _dispatcherQueue.TryEnqueue(CaptureClipboard);
     }
 
-    private void ShowQuickMenuOnUiThread()
+    private void ShowQuickMenuOnUiThread(IntPtr pasteTargetWindow)
     {
+        _pasteTargetWindow = pasteTargetWindow;
         _dispatcherQueue.TryEnqueue(ShowQuickMenu);
     }
 
@@ -264,6 +272,26 @@ public sealed class CliptonRuntime : IDisposable
         RefreshTrayText();
     }
 
+    private void CreateLifetimeWindow()
+    {
+        _lifetimeWindow = new Window { Title = "Clipton" };
+        var hwnd = WindowNative.GetWindowHandle(_lifetimeWindow);
+        var id = Win32Interop.GetWindowIdFromWindow(hwnd);
+        var appWindow = AppWindow.GetFromWindowId(id);
+        if (appWindow.Presenter is OverlappedPresenter presenter)
+        {
+            presenter.SetBorderAndTitleBar(false, false);
+            presenter.IsResizable = false;
+            presenter.IsMaximizable = false;
+            presenter.IsMinimizable = false;
+        }
+
+        appWindow.Resize(new SizeInt32(1, 1));
+        appWindow.Move(new PointInt32(-32000, -32000));
+        _lifetimeWindow.Activate();
+        appWindow.Hide();
+    }
+
     private void RefreshTrayText()
     {
         if (_notifyIcon is null)
@@ -288,8 +316,12 @@ public sealed class CliptonRuntime : IDisposable
 
     private void ShowQuickMenu()
     {
+        if (_pasteTargetWindow == IntPtr.Zero)
+        {
+            _pasteTargetWindow = NativeMethods.GetForegroundWindow();
+        }
+
         CaptureClipboard();
-        _quickMenuWindow?.Close();
 
         var menuItems = new List<QuickMenuItem>();
         var historyItems = History.Items.ToArray();
@@ -347,17 +379,16 @@ public sealed class CliptonRuntime : IDisposable
                 ShowMainWindow));
         }
 
+        _quickMenuWindow?.Dismiss();
         var quickMenuWindow = new QuickMenuWindow(Translate("History"), menuItems, Settings.Theme, Settings.SimpleContextMenuMode);
         _quickMenuWindow = quickMenuWindow;
-        quickMenuWindow.Closed += (_, _) =>
+        quickMenuWindow.Dismissed += (_, _) =>
         {
             if (ReferenceEquals(_quickMenuWindow, quickMenuWindow))
             {
                 _quickMenuWindow = null;
             }
         };
-
-        quickMenuWindow.Activate();
         quickMenuWindow.FocusMenu();
     }
 
@@ -413,12 +444,22 @@ public sealed class CliptonRuntime : IDisposable
         File.WriteAllText(path, JsonSerializer.Serialize(catalog.Snippets, new JsonSerializerOptions { WriteIndented = true }));
     }
 
-    private static void SendPaste()
+    private void SendPaste()
     {
+        RestorePasteTarget();
         NativeMethods.keybd_event(NativeMethods.VkControl, 0, 0, UIntPtr.Zero);
         NativeMethods.keybd_event(NativeMethods.VkV, 0, 0, UIntPtr.Zero);
         NativeMethods.keybd_event(NativeMethods.VkV, 0, NativeMethods.KeyeventfKeyup, UIntPtr.Zero);
         NativeMethods.keybd_event(NativeMethods.VkControl, 0, NativeMethods.KeyeventfKeyup, UIntPtr.Zero);
+    }
+
+    private void RestorePasteTarget()
+    {
+        if (_pasteTargetWindow != IntPtr.Zero)
+        {
+            NativeMethods.SetForegroundWindow(_pasteTargetWindow);
+            Thread.Sleep(80);
+        }
     }
 
     private static string GetKindLabel(ClipboardSnapshot item)
