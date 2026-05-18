@@ -25,6 +25,17 @@ public sealed class MainWindow : Window
     private readonly TextBlock _historyDescriptionText = Description();
     private readonly TextBlock _snippetHeaderText = Header();
     private readonly TextBlock _snippetDescriptionText = Description();
+    private readonly TextBlock _hotkeyTitleText = SettingTitle();
+    private readonly TextBlock _hotkeyDescriptionText = SettingDescription();
+    private readonly TextBlock _themeTitleText = SettingTitle();
+    private readonly TextBlock _themeDescriptionText = SettingDescription();
+    private readonly TextBlock _languageTitleText = SettingTitle();
+    private readonly TextBlock _languageDescriptionText = SettingDescription();
+    private readonly TextBlock _startupTitleText = SettingTitle();
+    private readonly TextBlock _startupDescriptionText = SettingDescription();
+    private readonly TextBlock _snippetFolderTitleText = SettingTitle();
+    private readonly TextBlock _snippetNameTitleText = SettingTitle();
+    private readonly TextBlock _snippetTextTitleText = SettingTitle();
     private readonly TextBox _hotkeyBox = new();
     private readonly ComboBox _themeBox = new();
     private readonly ComboBox _localeBox = new();
@@ -43,6 +54,7 @@ public sealed class MainWindow : Window
     private readonly TextBox _snippetTextBox = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 96 };
     private readonly Button _saveSnippetButton = new();
     private readonly Button _deleteSnippetButton = new();
+    private readonly string[] _navKeys = ["General", "History", "Snippets"];
     private StackPanel? _sidebar;
     private bool _loading;
 
@@ -56,6 +68,7 @@ public sealed class MainWindow : Window
         RefreshTexts();
         RefreshItems();
         SetWindowIconAndSize();
+        Closed += (_, _) => _runtime.OnMainWindowClosed(this);
     }
 
     public void RefreshItems()
@@ -73,13 +86,25 @@ public sealed class MainWindow : Window
         _loading = true;
         var t = _runtime.Translate;
         _titleText.Text = t("AppName");
+        RefreshNavigationTexts();
         _generalHeaderText.Text = t("General");
         _generalDescriptionText.Text = t("GeneralDescription");
         _historyHeaderText.Text = t("History");
         _historyDescriptionText.Text = t("HistoryDescription");
         _snippetHeaderText.Text = t("Snippets");
         _snippetDescriptionText.Text = t("SnippetDescription");
-        _startupCheckBox.Content = t("Startup");
+        _hotkeyTitleText.Text = t("Hotkey");
+        _hotkeyDescriptionText.Text = t("HotkeyDescription");
+        _themeTitleText.Text = t("Theme");
+        _themeDescriptionText.Text = t("ThemeDescription");
+        _languageTitleText.Text = t("Language");
+        _languageDescriptionText.Text = t("LanguageDescription");
+        _startupTitleText.Text = t("Startup");
+        _startupDescriptionText.Text = t("StartupDescription");
+        _snippetFolderTitleText.Text = t("SnippetFolder");
+        _snippetNameTitleText.Text = t("SnippetName");
+        _snippetTextTitleText.Text = t("SnippetText");
+        _startupCheckBox.Content = string.Empty;
         _pauseCaptureCheckBox.Content = t("PauseCapture");
         _persistHistoryCheckBox.Content = t("PersistHistory");
         _maskSensitiveContentCheckBox.Content = t("MaskSensitiveContent");
@@ -91,6 +116,8 @@ public sealed class MainWindow : Window
         _deleteSnippetButton.Content = t("Delete");
         _hotkeyText.Text = $"{t("Hotkey")}: {_runtime.Settings.Hotkey}";
         _hotkeyBox.Text = _runtime.Settings.Hotkey;
+        SetComboBoxText(_themeBox, "light", t("ThemeLight"));
+        SetComboBoxText(_themeBox, "dark", t("ThemeDark"));
         _startupCheckBox.IsChecked = _runtime.Settings.StartWithWindows;
         _pauseCaptureCheckBox.IsChecked = _runtime.Settings.PauseCapture;
         _persistHistoryCheckBox.IsChecked = _runtime.Settings.PersistEncryptedHistory;
@@ -114,7 +141,7 @@ public sealed class MainWindow : Window
         _hotkeyText.Foreground = Brush("#667085");
         _sidebar.Children.Add(_titleText);
         _sidebar.Children.Add(_hotkeyText);
-        _navList.ItemsSource = new[] { "General", "History", "Snippets" };
+        _navList.ItemsSource = _navKeys.Select(_runtime.Translate).ToArray();
         _navList.SelectedIndex = 0;
         _navList.SelectionChanged += (_, _) => SelectPage(_navList.SelectedIndex);
         _sidebar.Children.Add(_navList);
@@ -139,7 +166,7 @@ public sealed class MainWindow : Window
     {
         _generalPage.Children.Add(_generalHeaderText);
         _generalPage.Children.Add(_generalDescriptionText);
-        _generalPage.Children.Add(SettingRow(_runtime.Translate("Hotkey"), _runtime.Translate("HotkeyDescription"), _hotkeyBox));
+        _generalPage.Children.Add(SettingRow(_hotkeyTitleText, _hotkeyDescriptionText, _hotkeyBox));
         _hotkeyBox.LostFocus += (_, _) =>
         {
             if (_loading) return;
@@ -155,7 +182,7 @@ public sealed class MainWindow : Window
             _runtime.SetTheme(theme);
             ApplyTheme();
         };
-        _generalPage.Children.Add(SettingRow(_runtime.Translate("Theme"), _runtime.Translate("ThemeDescription"), _themeBox));
+        _generalPage.Children.Add(SettingRow(_themeTitleText, _themeDescriptionText, _themeBox));
 
         _localeBox.Items.Add(new ComboBoxItem { Content = "English", Tag = "en" });
         _localeBox.Items.Add(new ComboBoxItem { Content = "Japanese", Tag = "ja" });
@@ -165,10 +192,10 @@ public sealed class MainWindow : Window
             _runtime.SetLocale(locale);
             RefreshTexts();
         };
-        _generalPage.Children.Add(SettingRow(_runtime.Translate("Language"), _runtime.Translate("LanguageDescription"), _localeBox));
+        _generalPage.Children.Add(SettingRow(_languageTitleText, _languageDescriptionText, _localeBox));
         _startupCheckBox.Checked += async (_, _) => await SetStartupAsync();
         _startupCheckBox.Unchecked += async (_, _) => await SetStartupAsync();
-        _generalPage.Children.Add(Card(_startupCheckBox));
+        _generalPage.Children.Add(SettingRow(_startupTitleText, _startupDescriptionText, _startupCheckBox));
     }
 
     private void BuildHistoryPage()
@@ -236,11 +263,11 @@ public sealed class MainWindow : Window
         grid.Children.Add(ListPanel(_snippetList));
         var editor = new StackPanel { Spacing = 8 };
         Grid.SetColumn(editor, 1);
-        editor.Children.Add(new TextBlock { Text = _runtime.Translate("SnippetFolder") });
+        editor.Children.Add(_snippetFolderTitleText);
         editor.Children.Add(_snippetFolderBox);
-        editor.Children.Add(new TextBlock { Text = _runtime.Translate("SnippetName") });
+        editor.Children.Add(_snippetNameTitleText);
         editor.Children.Add(_snippetNameBox);
-        editor.Children.Add(new TextBlock { Text = _runtime.Translate("SnippetText") });
+        editor.Children.Add(_snippetTextTitleText);
         editor.Children.Add(_snippetTextBox);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         _saveSnippetButton.Click += (_, _) =>
@@ -318,6 +345,10 @@ public sealed class MainWindow : Window
         _generalDescriptionText.Foreground = DescriptionBrush();
         _historyDescriptionText.Foreground = DescriptionBrush();
         _snippetDescriptionText.Foreground = DescriptionBrush();
+        foreach (var text in DescriptionTexts())
+        {
+            text.Foreground = DescriptionBrush();
+        }
 
         foreach (var card in _cards)
         {
@@ -363,18 +394,33 @@ public sealed class MainWindow : Window
         return Card(listView);
     }
 
-    private UIElement SettingRow(string title, string description, Control control)
+    private UIElement SettingRow(TextBlock title, TextBlock description, Control control)
     {
         var grid = new Grid { ColumnSpacing = 16 };
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
         var texts = new StackPanel { Spacing = 3 };
-        texts.Children.Add(new TextBlock { Text = title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        texts.Children.Add(new TextBlock { Text = description, FontSize = 12, Foreground = DescriptionBrush(), TextWrapping = TextWrapping.Wrap });
+        texts.Children.Add(title);
+        texts.Children.Add(description);
         grid.Children.Add(texts);
         Grid.SetColumn(control, 1);
         grid.Children.Add(control);
         return Card(grid);
+    }
+
+    private void RefreshNavigationTexts()
+    {
+        var selectedIndex = _navList.SelectedIndex < 0 ? 0 : _navList.SelectedIndex;
+        _navList.ItemsSource = _navKeys.Select(_runtime.Translate).ToArray();
+        _navList.SelectedIndex = Math.Clamp(selectedIndex, 0, _navKeys.Length - 1);
+    }
+
+    private IEnumerable<TextBlock> DescriptionTexts()
+    {
+        yield return _hotkeyDescriptionText;
+        yield return _themeDescriptionText;
+        yield return _languageDescriptionText;
+        yield return _startupDescriptionText;
     }
 
     private Brush CardBackground() => Brush(IsDark ? "#2B2B2B" : "#FFFFFF");
@@ -396,6 +442,10 @@ public sealed class MainWindow : Window
 
     private static TextBlock Description() => new() { Foreground = Brush("#667085"), TextWrapping = TextWrapping.Wrap };
 
+    private static TextBlock SettingTitle() => new() { FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
+
+    private static TextBlock SettingDescription() => new() { FontSize = 12, Foreground = Brush("#667085"), TextWrapping = TextWrapping.Wrap };
+
     private static void SetComboSelection(ComboBox comboBox, string tag)
     {
         foreach (ComboBoxItem item in comboBox.Items)
@@ -403,6 +453,18 @@ public sealed class MainWindow : Window
             if (Equals(item.Tag, tag))
             {
                 comboBox.SelectedItem = item;
+                return;
+            }
+        }
+    }
+
+    private static void SetComboBoxText(ComboBox comboBox, string tag, string content)
+    {
+        foreach (ComboBoxItem item in comboBox.Items)
+        {
+            if (Equals(item.Tag, tag))
+            {
+                item.Content = content;
                 return;
             }
         }

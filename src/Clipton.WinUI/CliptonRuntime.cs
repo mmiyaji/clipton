@@ -70,6 +70,14 @@ public sealed class CliptonRuntime : IDisposable
         _mainWindow.Activate();
     }
 
+    public void OnMainWindowClosed(MainWindow window)
+    {
+        if (ReferenceEquals(_mainWindow, window))
+        {
+            _mainWindow = null;
+        }
+    }
+
     public void PasteHistoryItem(string id, bool asPlainText)
     {
         var item = History.Find(id);
