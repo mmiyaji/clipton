@@ -1,18 +1,14 @@
-using System.IO;
 using System.Text.Json;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media.Imaging;
-using System.Windows.Media;
 using Clipton.Core;
-using Application = System.Windows.Application;
-using Brushes = System.Windows.Media.Brushes;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
 using Forms = System.Windows.Forms;
 
-namespace Clipton.App;
+namespace Clipton.WinUI;
 
 public sealed class CliptonRuntime : IDisposable
 {
+    private readonly DispatcherQueue _dispatcherQueue;
     private readonly LocalizationCatalog _localization = new();
     private readonly JsonSettingsStore _settingsStore;
     private readonly EncryptedHistoryStore _historyStore;
@@ -24,6 +20,7 @@ public sealed class CliptonRuntime : IDisposable
 
     public CliptonRuntime()
     {
+        _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
         var appData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Clipton");
         _settingsStore = new JsonSettingsStore(Path.Combine(appData, "settings.json"));
         _historyStore = new EncryptedHistoryStore(Path.Combine(appData, "history.dat"));
@@ -52,7 +49,7 @@ public sealed class CliptonRuntime : IDisposable
     public void Start()
     {
         EnsureDefaultSnippets();
-        _messageWindow = new HotkeyMessageWindow(ShowQuickMenu, CaptureClipboard);
+        _messageWindow = new HotkeyMessageWindow(ShowQuickMenuOnUiThread, CaptureClipboardOnUiThread);
         RegisterHotkey();
         CreateTrayIcon();
         CaptureClipboard();
@@ -63,7 +60,6 @@ public sealed class CliptonRuntime : IDisposable
         _mainWindow ??= new MainWindow(this);
         _mainWindow.RefreshTexts();
         _mainWindow.RefreshItems();
-        _mainWindow.Show();
         _mainWindow.Activate();
     }
 
@@ -211,6 +207,16 @@ public sealed class CliptonRuntime : IDisposable
         _quickMenuWindow?.Close();
     }
 
+    private void CaptureClipboardOnUiThread()
+    {
+        _dispatcherQueue.TryEnqueue(CaptureClipboard);
+    }
+
+    private void ShowQuickMenuOnUiThread()
+    {
+        _dispatcherQueue.TryEnqueue(ShowQuickMenu);
+    }
+
     private void CaptureClipboard()
     {
         if (Settings.PauseCapture)
@@ -254,7 +260,7 @@ public sealed class CliptonRuntime : IDisposable
             Text = "Clipton",
             Visible = true
         };
-        _notifyIcon.DoubleClick += (_, _) => Application.Current.Dispatcher.Invoke(ShowMainWindow);
+        _notifyIcon.DoubleClick += (_, _) => _dispatcherQueue.TryEnqueue(ShowMainWindow);
         RefreshTrayText();
     }
 
@@ -266,21 +272,18 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         var menu = new Forms.ContextMenuStrip();
-        menu.Items.Add(Translate("History"), null, (_, _) => Application.Current.Dispatcher.Invoke(ShowQuickMenu));
-        menu.Items.Add(Translate("Settings"), null, (_, _) => Application.Current.Dispatcher.Invoke(ShowMainWindow));
-        menu.Items.Add(Translate("Exit"), null, (_, _) => Application.Current.Dispatcher.Invoke(Application.Current.Shutdown));
+        menu.Items.Add(Translate("History"), null, (_, _) => _dispatcherQueue.TryEnqueue(ShowQuickMenu));
+        menu.Items.Add(Translate("Settings"), null, (_, _) => _dispatcherQueue.TryEnqueue(ShowMainWindow));
+        menu.Items.Add(Translate("Exit"), null, (_, _) => _dispatcherQueue.TryEnqueue(Application.Current.Exit));
         _notifyIcon.ContextMenuStrip = menu;
     }
 
     private static System.Drawing.Icon LoadTrayIcon()
     {
-        var streamInfo = Application.GetResourceStream(new Uri("pack://application:,,,/Assets/Clipton.ico"));
-        if (streamInfo is null)
-        {
-            return System.Drawing.SystemIcons.Application;
-        }
-
-        return new System.Drawing.Icon(streamInfo.Stream);
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Clipton.ico");
+        return File.Exists(iconPath)
+            ? new System.Drawing.Icon(iconPath)
+            : System.Drawing.SystemIcons.Application;
     }
 
     private void ShowQuickMenu()
@@ -289,7 +292,6 @@ public sealed class CliptonRuntime : IDisposable
         _quickMenuWindow?.Close();
 
         var menuItems = new List<QuickMenuItem>();
-
         var historyItems = History.Items.ToArray();
         var directHistoryItems = Settings.FolderMode ? historyItems.Take(3) : historyItems.Take(20);
         foreach (var item in directHistoryItems)
@@ -311,22 +313,27 @@ public sealed class CliptonRuntime : IDisposable
                     $"{rangeCount} items",
                     ">",
                     "Enter",
-                    Brushes.DimGray,
                     () => { },
                     LazyChildren: () => olderItems.Skip(rangeOffset).Take(rangeCount).Select(CreateHistoryMenuItem).ToArray()));
             }
         }
 
-        menuItems.AddRange(CreateSnippetMenuItems(Snippets.Snippets));
+        var snippetItems = CreateSnippetMenuItems(Snippets.Snippets);
+        if (menuItems.Count > 0 && snippetItems.Count > 0)
+        {
+            menuItems.Add(QuickMenuItem.Separator());
+        }
+
+        menuItems.AddRange(snippetItems);
 
         if (menuItems.Count > 0)
         {
+            menuItems.Add(QuickMenuItem.Separator());
             menuItems.Add(new QuickMenuItem(
                 Translate("Settings"),
                 "Clipton",
                 "*",
                 "Enter",
-                Brushes.DimGray,
                 ShowMainWindow));
         }
 
@@ -337,17 +344,11 @@ public sealed class CliptonRuntime : IDisposable
                 Translate("Settings"),
                 "-",
                 "Enter",
-                Brushes.Gray,
-                ShowMainWindow,
-                PlainTextInvoke: null,
-                IsEnabled: true));
+                ShowMainWindow));
         }
 
         var quickMenuWindow = new QuickMenuWindow(Translate("History"), menuItems, Settings.Theme, Settings.SimpleContextMenuMode);
         _quickMenuWindow = quickMenuWindow;
-        var cursor = Forms.Cursor.Position;
-        quickMenuWindow.Left = cursor.X;
-        quickMenuWindow.Top = cursor.Y;
         quickMenuWindow.Closed += (_, _) =>
         {
             if (ReferenceEquals(_quickMenuWindow, quickMenuWindow))
@@ -356,7 +357,7 @@ public sealed class CliptonRuntime : IDisposable
             }
         };
 
-        quickMenuWindow.Show();
+        quickMenuWindow.Activate();
         quickMenuWindow.FocusMenu();
     }
 
@@ -449,10 +450,8 @@ public sealed class CliptonRuntime : IDisposable
             display.FormatSummary,
             GetKindLabel(item),
             !string.IsNullOrEmpty(item.Text) ? "Enter / T" : "Enter",
-            Brushes.SteelBlue,
             () => PasteHistoryItem(item.Id, asPlainText: false),
-            !string.IsNullOrEmpty(item.Text) ? () => PasteHistoryItem(item.Id, asPlainText: true) : null,
-            PreviewImage: CreatePreviewImage(item));
+            !string.IsNullOrEmpty(item.Text) ? () => PasteHistoryItem(item.Id, asPlainText: true) : null);
     }
 
     public HistoryItemViewModel CreateHistoryItemViewModel(ClipboardSnapshot snapshot)
@@ -502,7 +501,6 @@ public sealed class CliptonRuntime : IDisposable
                 Translate("Snippets"),
                 ">",
                 "Enter",
-                Brushes.DarkOrange,
                 () => { },
                 Children: children));
         }
@@ -517,7 +515,6 @@ public sealed class CliptonRuntime : IDisposable
             string.IsNullOrWhiteSpace(snippet.Folder) ? Translate("Snippets") : snippet.Folder,
             "S",
             "Enter",
-            Brushes.DarkOrange,
             () => PasteSnippet(snippet.Folder, snippet.Name));
     }
 
@@ -551,23 +548,5 @@ public sealed class CliptonRuntime : IDisposable
 
         var separator = normalized.IndexOf('/');
         return separator < 0 ? normalized : normalized[..separator];
-    }
-
-    private static BitmapImage? CreatePreviewImage(ClipboardSnapshot item)
-    {
-        if (item.ImagePng is not { Length: > 0 })
-        {
-            return null;
-        }
-
-        using var stream = new MemoryStream(item.ImagePng);
-        var image = new BitmapImage();
-        image.BeginInit();
-        image.CacheOption = BitmapCacheOption.OnLoad;
-        image.DecodePixelWidth = 88;
-        image.StreamSource = stream;
-        image.EndInit();
-        image.Freeze();
-        return image;
     }
 }

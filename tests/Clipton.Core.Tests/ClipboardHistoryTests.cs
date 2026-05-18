@@ -52,6 +52,38 @@ public sealed class ClipboardHistoryTests
 
         Assert.True(history.Remove("1"));
         Assert.Equal(["2"], history.Items.Select(item => item.Id));
+        Assert.Null(history.Find("1"));
+    }
+
+    [Fact]
+    public void Find_ReturnsItemAfterDuplicateMoveAndCapacityTrim()
+    {
+        var history = new ClipboardHistory(capacity: 2);
+
+        history.Add(TextSnapshot("1", "alpha"));
+        history.Add(TextSnapshot("2", "beta"));
+        history.Add(TextSnapshot("3", "alpha"));
+        history.Add(TextSnapshot("4", "gamma"));
+
+        Assert.Null(history.Find("1"));
+        Assert.Null(history.Find("2"));
+        Assert.Equal("alpha", history.Find("3")?.Text);
+        Assert.Equal("gamma", history.Find("4")?.Text);
+        Assert.Equal(["4", "3"], history.Items.Select(item => item.Id));
+    }
+
+    [Fact]
+    public void Add_HandlesLargeHistoryWithoutRepeatedFingerprintScanning()
+    {
+        var history = new ClipboardHistory(capacity: 2_000);
+
+        for (var i = 0; i < 2_000; i++)
+        {
+            Assert.True(history.Add(TextSnapshot(i.ToString(), $"value-{i}")));
+        }
+
+        Assert.False(history.Add(TextSnapshot("duplicate", "value-1999")));
+        Assert.Equal(2_000, history.Items.Count);
     }
 
     private static ClipboardSnapshot TextSnapshot(string id, string text)

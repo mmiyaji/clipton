@@ -3,6 +3,8 @@ namespace Clipton.Core;
 public sealed class SnippetCatalog
 {
     private readonly List<Snippet> _snippets = new();
+    private readonly Dictionary<string, Snippet> _snippetsByKey = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Snippet> _snippetsByText = new(StringComparer.Ordinal);
 
     public IReadOnlyList<Snippet> Snippets => _snippets;
 
@@ -14,25 +16,50 @@ public sealed class SnippetCatalog
         }
 
         var normalized = Normalize(snippet);
-        var index = _snippets.FindIndex(item => HasSameKey(item, normalized));
+        var key = CreateKey(normalized.Folder, normalized.Name);
+        var index = _snippetsByKey.TryGetValue(key, out var existing)
+            ? _snippets.IndexOf(existing)
+            : -1;
         if (index >= 0)
         {
             _snippets[index] = normalized;
+            RebuildIndexes();
             return;
         }
 
         _snippets.Add(normalized);
+        _snippetsByKey[key] = normalized;
+        if (!_snippetsByText.ContainsKey(normalized.Text))
+        {
+            _snippetsByText[normalized.Text] = normalized;
+        }
     }
 
-    public bool Remove(string name) => _snippets.RemoveAll(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)) > 0;
+    public bool Remove(string name)
+    {
+        var removed = _snippets.RemoveAll(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)) > 0;
+        if (removed)
+        {
+            RebuildIndexes();
+        }
 
-    public bool Remove(string folder, string name) => _snippets.RemoveAll(item =>
-        string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)
-        && string.Equals(NormalizeFolder(item.Folder), NormalizeFolder(folder), StringComparison.OrdinalIgnoreCase)) > 0;
+        return removed;
+    }
 
-    public Snippet? Find(string folder, string name) => _snippets.FirstOrDefault(item =>
-        string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)
-        && string.Equals(NormalizeFolder(item.Folder), NormalizeFolder(folder), StringComparison.OrdinalIgnoreCase));
+    public bool Remove(string folder, string name)
+    {
+        var removed = _snippets.RemoveAll(item =>
+            string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(NormalizeFolder(item.Folder), NormalizeFolder(folder), StringComparison.OrdinalIgnoreCase)) > 0;
+        if (removed)
+        {
+            RebuildIndexes();
+        }
+
+        return removed;
+    }
+
+    public Snippet? Find(string folder, string name) => _snippetsByKey.GetValueOrDefault(CreateKey(NormalizeFolder(folder), name.Trim()));
 
     public Snippet? FindByText(string? text)
     {
@@ -41,13 +68,7 @@ public sealed class SnippetCatalog
             return null;
         }
 
-        return _snippets.FirstOrDefault(item => string.Equals(item.Text, text, StringComparison.Ordinal));
-    }
-
-    private static bool HasSameKey(Snippet left, Snippet right)
-    {
-        return string.Equals(left.Name, right.Name, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(left.Folder, right.Folder, StringComparison.OrdinalIgnoreCase);
+        return _snippetsByText.GetValueOrDefault(text);
     }
 
     private static Snippet Normalize(Snippet snippet)
@@ -65,5 +86,21 @@ public sealed class SnippetCatalog
             "/",
             (folder ?? string.Empty)
                 .Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+    }
+
+    private static string CreateKey(string folder, string name) => $"{folder}\u001F{name}";
+
+    private void RebuildIndexes()
+    {
+        _snippetsByKey.Clear();
+        _snippetsByText.Clear();
+        foreach (var snippet in _snippets)
+        {
+            _snippetsByKey[CreateKey(snippet.Folder, snippet.Name)] = snippet;
+            if (!_snippetsByText.ContainsKey(snippet.Text))
+            {
+                _snippetsByText[snippet.Text] = snippet;
+            }
+        }
     }
 }

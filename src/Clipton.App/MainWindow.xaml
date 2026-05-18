@@ -6,6 +6,7 @@
         Height="640"
         MinWidth="760"
         MinHeight="520"
+        Icon="Assets/Clipton.ico"
         Background="{DynamicResource PageBrush}"
         WindowStartupLocation="CenterScreen">
     <Window.Resources>
@@ -187,6 +188,9 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="ScrollViewer.CanContentScroll" Value="True" />
+            <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True" />
+            <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling" />
         </Style>
 
         <Style TargetType="CheckBox">
@@ -341,10 +345,19 @@
                                       Margin="0,12,0,0"
                                       Checked="FolderModeCheckBox_OnChanged"
                                       Unchecked="FolderModeCheckBox_OnChanged" />
-                            <Button x:Name="ClearButton"
-                                    Margin="0,16,0,0"
-                                    HorizontalAlignment="Left"
-                                    Click="ClearButton_OnClick" />
+                            <CheckBox x:Name="SimpleContextMenuCheckBox"
+                                      Margin="0,12,0,0"
+                                      Checked="SimpleContextMenuCheckBox_OnChanged"
+                                      Unchecked="SimpleContextMenuCheckBox_OnChanged" />
+                            <StackPanel Margin="0,16,0,0"
+                                        Orientation="Horizontal"
+                                        HorizontalAlignment="Left">
+                                <Button x:Name="RegisterFromHistoryButton"
+                                        Click="RegisterFromHistoryButton_OnClick" />
+                                <Button x:Name="ClearButton"
+                                        Margin="8,0,0,0"
+                                        Click="ClearButton_OnClick" />
+                            </StackPanel>
                         </StackPanel>
                     </Border>
 
