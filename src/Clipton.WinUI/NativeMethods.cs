@@ -25,6 +25,9 @@ internal static class NativeMethods
     internal const int GwlExstyle = -20;
     internal const int WsExToolwindow = 0x00000080;
     internal const int WsExAppwindow = 0x00040000;
+    internal const int WsExLayered = 0x00080000;
+    internal const uint LwaColorKey = 0x00000001;
+    internal const uint LwaAlpha = 0x00000002;
     internal const uint KeyeventfKeyup = 0x0002;
 
     internal delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
@@ -70,6 +73,10 @@ internal static class NativeMethods
 
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
     internal static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint crKey, byte bAlpha, uint dwFlags);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     internal static extern IntPtr GetModuleHandle(string? lpModuleName);

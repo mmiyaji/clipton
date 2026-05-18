@@ -269,6 +269,7 @@ public sealed class QuickMenuWindow : Window
         _hwnd = WindowNative.GetWindowHandle(this);
         var id = Win32Interop.GetWindowIdFromWindow(_hwnd);
         _appWindow = AppWindow.GetFromWindowId(id);
+        MakeHostWindowTransparent();
         if (_appWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.SetBorderAndTitleBar(false, false);
@@ -281,6 +282,15 @@ public sealed class QuickMenuWindow : Window
         _appWindow.Resize(new SizeInt32(8, 8));
         _appWindow.Move(new PointInt32(point.X, point.Y));
         NativeMethods.SetForegroundWindow(_hwnd);
+    }
+
+    private void MakeHostWindowTransparent()
+    {
+        var exStyle = NativeMethods.GetWindowLongPtr(_hwnd, NativeMethods.GwlExstyle).ToInt64();
+        exStyle |= NativeMethods.WsExLayered | NativeMethods.WsExToolwindow;
+        exStyle &= ~NativeMethods.WsExAppwindow;
+        NativeMethods.SetWindowLongPtr(_hwnd, NativeMethods.GwlExstyle, new IntPtr(exStyle));
+        NativeMethods.SetLayeredWindowAttributes(_hwnd, 0, 255, NativeMethods.LwaColorKey);
     }
 }
 
