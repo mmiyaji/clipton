@@ -25,6 +25,8 @@ public sealed class QuickMenuWindow : Window
     private IntPtr _keyboardHook;
     private bool _dismissed;
     private bool _opened;
+    private int _lastNavigationKey;
+    private long _lastNavigationTick;
 
     public QuickMenuWindow(string title, IReadOnlyList<QuickMenuItem> items, string theme, bool simpleMode)
     {
@@ -131,10 +133,16 @@ public sealed class QuickMenuWindow : Window
         switch (key)
         {
             case NativeMethods.VkDown:
-                DispatcherQueue.TryEnqueue(() => _navigator.MoveSelection(1));
+                if (ShouldHandleNavigationKey(key))
+                {
+                    DispatcherQueue.TryEnqueue(() => _navigator.MoveSelection(1));
+                }
                 break;
             case NativeMethods.VkUp:
-                DispatcherQueue.TryEnqueue(() => _navigator.MoveSelection(-1));
+                if (ShouldHandleNavigationKey(key))
+                {
+                    DispatcherQueue.TryEnqueue(() => _navigator.MoveSelection(-1));
+                }
                 break;
             case NativeMethods.VkReturn:
                 DispatcherQueue.TryEnqueue(() =>
@@ -165,6 +173,19 @@ public sealed class QuickMenuWindow : Window
         return handled
             ? 1
             : NativeMethods.CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
+    }
+
+    private bool ShouldHandleNavigationKey(int key)
+    {
+        var now = Environment.TickCount64;
+        if (_lastNavigationKey == key && now - _lastNavigationTick < 120)
+        {
+            return false;
+        }
+
+        _lastNavigationKey = key;
+        _lastNavigationTick = now;
+        return true;
     }
 
     private void BuildFlyout()
