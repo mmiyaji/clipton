@@ -12,6 +12,7 @@ internal static class NativeMethods
     internal const uint ModWin = 0x0008;
     internal const byte VkControl = 0x11;
     internal const byte VkV = 0x56;
+    internal const byte VkDownByte = 0x28;
     internal const int VkReturn = 0x0D;
     internal const int VkEscape = 0x1B;
     internal const int VkBack = 0x08;
@@ -57,6 +58,26 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr SetActiveWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr SetFocus(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool BringWindowToTop(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    internal static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("kernel32.dll")]
+    internal static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
 
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);

@@ -14,6 +14,7 @@ namespace Clipton.WinUI;
 
 public sealed class QuickMenuWindow : Window
 {
+    private const int MaxMenuTextLength = 56;
     private readonly QuickMenuNavigator _navigator;
     private readonly Grid _host = new();
     private readonly MenuFlyout _flyout = new();
@@ -85,19 +86,54 @@ public sealed class QuickMenuWindow : Window
         }
 
         _opened = true;
-        InstallKeyboardHook();
         FocusHostWindow();
         _flyout.ShowAt(_host);
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            FocusHostWindow();
+            SelectFirstMenuItem();
+            InstallKeyboardHook();
+        });
     }
 
     private void FocusHostWindow()
     {
-        if (_hwnd != IntPtr.Zero)
+        if (_hwnd == IntPtr.Zero)
         {
-            NativeMethods.SetForegroundWindow(_hwnd);
+            _host.Focus(FocusState.Programmatic);
+            return;
         }
 
-        _host.Focus(FocusState.Programmatic);
+        var foregroundWindow = NativeMethods.GetForegroundWindow();
+        var currentThread = NativeMethods.GetCurrentThreadId();
+        var foregroundThread = foregroundWindow == IntPtr.Zero
+            ? 0
+            : NativeMethods.GetWindowThreadProcessId(foregroundWindow, out _);
+        var attached = foregroundThread != 0
+            && foregroundThread != currentThread
+            && NativeMethods.AttachThreadInput(currentThread, foregroundThread, true);
+
+        try
+        {
+            NativeMethods.BringWindowToTop(_hwnd);
+            NativeMethods.SetForegroundWindow(_hwnd);
+            NativeMethods.SetActiveWindow(_hwnd);
+            NativeMethods.SetFocus(_hwnd);
+            _host.Focus(FocusState.Programmatic);
+        }
+        finally
+        {
+            if (attached)
+            {
+                NativeMethods.AttachThreadInput(currentThread, foregroundThread, false);
+            }
+        }
+    }
+
+    private static void SelectFirstMenuItem()
+    {
+        NativeMethods.keybd_event(NativeMethods.VkDownByte, 0, 0, UIntPtr.Zero);
+        NativeMethods.keybd_event(NativeMethods.VkDownByte, 0, NativeMethods.KeyeventfKeyup, UIntPtr.Zero);
     }
 
     private void InstallKeyboardHook()
@@ -135,23 +171,19 @@ public sealed class QuickMenuWindow : Window
             case NativeMethods.VkDown:
                 if (ShouldHandleNavigationKey(key))
                 {
-                    DispatcherQueue.TryEnqueue(() => _navigator.MoveSelection(1));
+                    _navigator.MoveSelection(1);
                 }
+                handled = false;
                 break;
             case NativeMethods.VkUp:
                 if (ShouldHandleNavigationKey(key))
                 {
-                    DispatcherQueue.TryEnqueue(() => _navigator.MoveSelection(-1));
+                    _navigator.MoveSelection(-1);
                 }
+                handled = false;
                 break;
             case NativeMethods.VkReturn:
-                DispatcherQueue.TryEnqueue(() =>
-                {
-                    if (_navigator.SelectedItem is { } item)
-                    {
-                        Invoke(item, asPlainText: false);
-                    }
-                });
+                handled = false;
                 break;
             case 'T':
                 DispatcherQueue.TryEnqueue(() =>
@@ -163,7 +195,7 @@ public sealed class QuickMenuWindow : Window
                 });
                 break;
             case NativeMethods.VkEscape:
-                DispatcherQueue.TryEnqueue(Dismiss);
+                handled = false;
                 break;
             default:
                 handled = false;
@@ -209,7 +241,7 @@ public sealed class QuickMenuWindow : Window
             {
                 var subItem = new MenuFlyoutSubItem
                 {
-                    Text = item.Title,
+                    Text = TrimForMenu(item.Title),
                     Icon = new FontIcon
                     {
                         Glyph = "\uE8B7",
@@ -223,7 +255,7 @@ public sealed class QuickMenuWindow : Window
 
             var flyoutItem = new MenuFlyoutItem
             {
-                Text = item.Title,
+                Text = TrimForMenu(item.Title),
                 KeyboardAcceleratorTextOverride = item.CommandHint
             };
             flyoutItem.Click += (_, _) => Invoke(item, asPlainText: false);
@@ -233,7 +265,7 @@ public sealed class QuickMenuWindow : Window
             {
                 var plainTextItem = new MenuFlyoutItem
                 {
-                    Text = $"{item.Title} (Text)",
+                    Text = $"{TrimForMenu(item.Title)} (Text)",
                     KeyboardAcceleratorTextOverride = "T",
                     Icon = new FontIcon
                     {
@@ -282,6 +314,14 @@ public sealed class QuickMenuWindow : Window
         _appWindow.Resize(new SizeInt32(8, 8));
         _appWindow.Move(new PointInt32(point.X, point.Y));
         NativeMethods.SetForegroundWindow(_hwnd);
+    }
+
+    private static string TrimForMenu(string text)
+    {
+        var normalized = string.Join(" ", text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return normalized.Length <= MaxMenuTextLength
+            ? normalized
+            : $"{normalized[..(MaxMenuTextLength - 1)]}\u2026";
     }
 
     private void MakeHostWindowTransparent()
