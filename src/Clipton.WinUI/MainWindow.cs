@@ -1,7 +1,10 @@
 using Clipton.Core;
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Windows.Graphics;
+using WinRT.Interop;
 
 namespace Clipton.WinUI;
 
@@ -9,17 +12,18 @@ public sealed class MainWindow : Window
 {
     private readonly CliptonRuntime _runtime;
     private readonly Grid _root = new();
-    private readonly StackPanel _sidebar = new() { Padding = new Thickness(18), Spacing = 10 };
-    private readonly StackPanel _generalPage = new() { Spacing = 12 };
-    private readonly StackPanel _historyPage = new() { Spacing = 12 };
-    private readonly StackPanel _snippetPage = new() { Spacing = 12 };
+    private readonly StackPanel _sidebar = new() { Padding = new Thickness(18, 22, 14, 18), Spacing = 12 };
+    private readonly StackPanel _generalPage = new() { Spacing = 18, MaxWidth = 920 };
+    private readonly StackPanel _historyPage = new() { Spacing = 18, MaxWidth = 920 };
+    private readonly StackPanel _snippetPage = new() { Spacing = 18, MaxWidth = 920 };
     private readonly StackPanel _historyItemsPanel = new() { Spacing = 6 };
     private readonly StackPanel _snippetItemsPanel = new() { Spacing = 6 };
     private readonly List<Border> _cards = [];
+    private readonly List<Button> _navButtons = [];
     private readonly Button _generalNavButton = new();
     private readonly Button _historyNavButton = new();
     private readonly Button _snippetNavButton = new();
-    private readonly TextBlock _titleText = Header(22);
+    private readonly TextBlock _titleText = Header(20);
     private readonly TextBlock _hotkeyText = Description();
     private readonly TextBlock _generalHeaderText = Header();
     private readonly TextBlock _generalDescriptionText = Description();
@@ -30,12 +34,12 @@ public sealed class MainWindow : Window
     private readonly ComboBox _hotkeyBox = new();
     private readonly ComboBox _themeBox = new();
     private readonly ComboBox _localeBox = new();
-    private readonly CheckBox _startupCheckBox = new();
-    private readonly CheckBox _pauseCaptureCheckBox = new();
-    private readonly CheckBox _persistHistoryCheckBox = new();
-    private readonly CheckBox _maskSensitiveContentCheckBox = new();
-    private readonly CheckBox _folderModeCheckBox = new();
-    private readonly CheckBox _simpleContextMenuCheckBox = new();
+    private readonly ToggleSwitch _startupToggle = CompactToggle();
+    private readonly ToggleSwitch _pauseCaptureToggle = CompactToggle();
+    private readonly ToggleSwitch _persistHistoryToggle = CompactToggle();
+    private readonly ToggleSwitch _maskSensitiveContentToggle = CompactToggle();
+    private readonly ToggleSwitch _folderModeToggle = CompactToggle();
+    private readonly ToggleSwitch _simpleContextMenuToggle = CompactToggle();
     private readonly Button _registerFromHistoryButton = new();
     private readonly Button _clearButton = new();
     private readonly TextBlock _selectedSnippetText = Description();
@@ -51,6 +55,7 @@ public sealed class MainWindow : Window
         Title = "Clipton";
         BuildUi();
         ApplyTheme();
+        SizeWindow();
         RefreshTexts();
         RefreshItems();
         Closed += (_, _) => _runtime.OnMainWindowClosed(this);
@@ -95,24 +100,18 @@ public sealed class MainWindow : Window
         _historyDescriptionText.Text = t("HistoryDescription");
         _snippetHeaderText.Text = t("Snippets");
         _snippetDescriptionText.Text = t("SnippetDescription");
-        _startupCheckBox.Content = t("Startup");
-        _pauseCaptureCheckBox.Content = t("PauseCapture");
-        _persistHistoryCheckBox.Content = t("PersistHistory");
-        _maskSensitiveContentCheckBox.Content = t("MaskSensitiveContent");
-        _folderModeCheckBox.Content = t("FolderMode");
-        _simpleContextMenuCheckBox.Content = t("SimpleContextMenuMode");
         _registerFromHistoryButton.Content = t("RegisterFromHistory");
         _clearButton.Content = t("ClearHistory");
         _pasteSnippetButton.Content = t("Paste");
         _deleteSnippetButton.Content = t("Delete");
         SetComboBoxText(_themeBox, "light", t("ThemeLight"));
         SetComboBoxText(_themeBox, "dark", t("ThemeDark"));
-        _startupCheckBox.IsChecked = _runtime.Settings.StartWithWindows;
-        _pauseCaptureCheckBox.IsChecked = _runtime.Settings.PauseCapture;
-        _persistHistoryCheckBox.IsChecked = _runtime.Settings.PersistEncryptedHistory;
-        _maskSensitiveContentCheckBox.IsChecked = _runtime.Settings.MaskSensitiveContent;
-        _folderModeCheckBox.IsChecked = _runtime.Settings.FolderMode;
-        _simpleContextMenuCheckBox.IsChecked = _runtime.Settings.SimpleContextMenuMode;
+        _startupToggle.IsOn = _runtime.Settings.StartWithWindows;
+        _pauseCaptureToggle.IsOn = _runtime.Settings.PauseCapture;
+        _persistHistoryToggle.IsOn = _runtime.Settings.PersistEncryptedHistory;
+        _maskSensitiveContentToggle.IsOn = _runtime.Settings.MaskSensitiveContent;
+        _folderModeToggle.IsOn = _runtime.Settings.FolderMode;
+        _simpleContextMenuToggle.IsOn = _runtime.Settings.SimpleContextMenuMode;
         SetComboSelection(_hotkeyBox, _runtime.Settings.Hotkey);
         SetComboSelection(_themeBox, _runtime.Settings.Theme);
         SetComboSelection(_localeBox, _runtime.Settings.Locale);
@@ -122,24 +121,26 @@ public sealed class MainWindow : Window
 
     private void BuildUi()
     {
-        _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
+        _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(248) });
         _root.ColumnDefinitions.Add(new ColumnDefinition());
         Content = _root;
 
         Grid.SetColumn(_sidebar, 0);
-        _sidebar.Children.Add(_titleText);
-        _sidebar.Children.Add(_hotkeyText);
+        _sidebar.Children.Add(BuildBrandHeader());
+        _hotkeyText.Margin = new Thickness(8, 0, 8, 4);
+        _sidebar.Children.Add(Pill(_hotkeyText));
         _generalNavButton.Click += (_, _) => SelectPage(0);
         _historyNavButton.Click += (_, _) => SelectPage(1);
         _snippetNavButton.Click += (_, _) => SelectPage(2);
+        _navButtons.AddRange([_generalNavButton, _historyNavButton, _snippetNavButton]);
         _sidebar.Children.Add(_generalNavButton);
         _sidebar.Children.Add(_historyNavButton);
         _sidebar.Children.Add(_snippetNavButton);
         _root.Children.Add(_sidebar);
 
-        var scroller = new ScrollViewer { Padding = new Thickness(28), VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        var scroller = new ScrollViewer { Padding = new Thickness(36, 30, 36, 42), VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         Grid.SetColumn(scroller, 1);
-        var contentHost = new Grid();
+        var contentHost = new Grid { HorizontalAlignment = HorizontalAlignment.Left };
         scroller.Content = contentHost;
         contentHost.Children.Add(_generalPage);
         contentHost.Children.Add(_historyPage);
@@ -154,8 +155,8 @@ public sealed class MainWindow : Window
 
     private void BuildGeneralPage()
     {
-        _generalPage.Children.Add(_generalHeaderText);
-        _generalPage.Children.Add(_generalDescriptionText);
+        _generalPage.Children.Add(PageHeader(_generalHeaderText, _generalDescriptionText));
+        _generalPage.Children.Add(SectionHeader("ActivationSection"));
         foreach (var hotkey in new[] { "Ctrl+Shift+V", "Ctrl+Alt+V", "Alt+Space" })
         {
             _hotkeyBox.Items.Add(new ComboBoxItem { Content = hotkey, Tag = hotkey });
@@ -167,7 +168,7 @@ public sealed class MainWindow : Window
             _runtime.SetHotkey(hotkey);
             RefreshTexts();
         };
-        _generalPage.Children.Add(SettingRow("Hotkey", "HotkeyDescription", _hotkeyBox));
+        _generalPage.Children.Add(SettingCard("\uE765", "Hotkey", "HotkeyDescription", _hotkeyBox));
 
         _themeBox.Items.Add(new ComboBoxItem { Tag = "light" });
         _themeBox.Items.Add(new ComboBoxItem { Tag = "dark" });
@@ -177,7 +178,7 @@ public sealed class MainWindow : Window
             _runtime.SetTheme(theme);
             ApplyTheme();
         };
-        _generalPage.Children.Add(SettingRow("Theme", "ThemeDescription", _themeBox));
+        _generalPage.Children.Add(SettingCard("\uE790", "Theme", "ThemeDescription", _themeBox));
 
         _localeBox.Items.Add(new ComboBoxItem { Content = "English", Tag = "en" });
         _localeBox.Items.Add(new ComboBoxItem { Content = "Japanese", Tag = "ja" });
@@ -187,48 +188,40 @@ public sealed class MainWindow : Window
             _runtime.SetLocale(locale);
             RefreshTexts();
         };
-        _generalPage.Children.Add(SettingRow("Language", "LanguageDescription", _localeBox));
+        _generalPage.Children.Add(SettingCard("\uE8C1", "Language", "LanguageDescription", _localeBox));
 
-        _startupCheckBox.Checked += async (_, _) => await SetStartupAsync();
-        _startupCheckBox.Unchecked += async (_, _) => await SetStartupAsync();
-        _generalPage.Children.Add(Card(_startupCheckBox));
+        _startupToggle.Toggled += async (_, _) => await SetStartupAsync();
+        _generalPage.Children.Add(SettingCard("\uE7C3", "Startup", "StartupDescription", _startupToggle));
     }
 
     private void BuildHistoryPage()
     {
-        _historyPage.Children.Add(_historyHeaderText);
-        _historyPage.Children.Add(_historyDescriptionText);
-        foreach (var checkBox in new[] { _pauseCaptureCheckBox, _persistHistoryCheckBox, _maskSensitiveContentCheckBox, _folderModeCheckBox, _simpleContextMenuCheckBox })
+        _historyPage.Children.Add(PageHeader(_historyHeaderText, _historyDescriptionText));
+        _historyPage.Children.Add(SectionHeader("CapturePrivacySection"));
+        foreach (var toggle in new[] { _pauseCaptureToggle, _persistHistoryToggle, _maskSensitiveContentToggle, _folderModeToggle, _simpleContextMenuToggle })
         {
-            checkBox.Checked += (_, _) => SaveHistoryOptions();
-            checkBox.Unchecked += (_, _) => SaveHistoryOptions();
+            toggle.Toggled += (_, _) => SaveHistoryOptions();
         }
 
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        _historyPage.Children.Add(SettingCard("\uE769", "PauseCapture", "PauseCaptureDescription", _pauseCaptureToggle));
+        _historyPage.Children.Add(SettingCard("\uE72E", "PersistHistory", "PersistHistoryDescription", _persistHistoryToggle));
+        _historyPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", _maskSensitiveContentToggle));
+        _historyPage.Children.Add(SettingCard("\uE8B7", "FolderMode", "FolderModeDescription", _folderModeToggle));
+        _historyPage.Children.Add(SettingCard("\uE8A5", "SimpleContextMenuMode", "SimpleContextMenuModeDescription", _simpleContextMenuToggle));
+
+        _historyPage.Children.Add(SectionHeader("HistorySection"));
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         _registerFromHistoryButton.Click += (_, _) => RegisterSelectedHistory();
         _clearButton.Click += (_, _) => _runtime.ClearHistory();
         actions.Children.Add(_registerFromHistoryButton);
         actions.Children.Add(_clearButton);
-        _historyPage.Children.Add(Card(new StackPanel
-        {
-            Spacing = 8,
-            Children =
-            {
-                _pauseCaptureCheckBox,
-                _persistHistoryCheckBox,
-                _maskSensitiveContentCheckBox,
-                _folderModeCheckBox,
-                _simpleContextMenuCheckBox,
-                actions
-            }
-        }));
+        _historyPage.Children.Add(actions);
         _historyPage.Children.Add(Card(_historyItemsPanel));
     }
 
     private void BuildSnippetPage()
     {
-        _snippetPage.Children.Add(_snippetHeaderText);
-        _snippetPage.Children.Add(_snippetDescriptionText);
+        _snippetPage.Children.Add(PageHeader(_snippetHeaderText, _snippetDescriptionText));
         var grid = new Grid { ColumnSpacing = 16 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(320) });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
@@ -264,18 +257,18 @@ public sealed class MainWindow : Window
     private async Task SetStartupAsync()
     {
         if (_loading) return;
-        await _runtime.SetStartWithWindowsAsync(_startupCheckBox.IsChecked == true);
+        await _runtime.SetStartWithWindowsAsync(_startupToggle.IsOn);
         RefreshTexts();
     }
 
     private void SaveHistoryOptions()
     {
         if (_loading) return;
-        _runtime.SetPauseCapture(_pauseCaptureCheckBox.IsChecked == true);
-        _runtime.SetPersistEncryptedHistory(_persistHistoryCheckBox.IsChecked == true);
-        _runtime.SetMaskSensitiveContent(_maskSensitiveContentCheckBox.IsChecked == true);
-        _runtime.SetFolderMode(_folderModeCheckBox.IsChecked == true);
-        _runtime.SetSimpleContextMenuMode(_simpleContextMenuCheckBox.IsChecked == true);
+        _runtime.SetPauseCapture(_pauseCaptureToggle.IsOn);
+        _runtime.SetPersistEncryptedHistory(_persistHistoryToggle.IsOn);
+        _runtime.SetMaskSensitiveContent(_maskSensitiveContentToggle.IsOn);
+        _runtime.SetFolderMode(_folderModeToggle.IsOn);
+        _runtime.SetSimpleContextMenuMode(_simpleContextMenuToggle.IsOn);
         RefreshItems();
     }
 
@@ -306,14 +299,19 @@ public sealed class MainWindow : Window
         _generalPage.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
         _historyPage.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
         _snippetPage.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
+        for (var i = 0; i < _navButtons.Count; i++)
+        {
+            _navButtons[i].Background = i == index ? AccentBrush(36) : Brush("#00FFFFFF");
+            _navButtons[i].BorderBrush = i == index ? AccentBrush(72) : Brush("#00FFFFFF");
+        }
     }
 
     private void ApplyTheme()
     {
         var dark = IsDark;
         _root.RequestedTheme = dark ? ElementTheme.Dark : ElementTheme.Light;
-        _root.Background = Brush(dark ? "#202020" : "#F3F3F3");
-        _sidebar.Background = Brush(dark ? "#1B1B1B" : "#F9F9F9");
+        _root.Background = Brush(dark ? "#202020" : "#F5F5F5");
+        _sidebar.Background = Brush(dark ? "#191919" : "#FBFBFB");
         foreach (var card in _cards)
         {
             card.Background = CardBackground();
@@ -327,8 +325,8 @@ public sealed class MainWindow : Window
     {
         var card = new Border
         {
-            Padding = new Thickness(16),
-            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(18),
+            CornerRadius = new CornerRadius(6),
             BorderThickness = new Thickness(1),
             BorderBrush = CardBorderBrush(),
             Background = CardBackground(),
@@ -338,16 +336,23 @@ public sealed class MainWindow : Window
         return card;
     }
 
-    private UIElement SettingRow(string titleKey, string descriptionKey, Control control)
+    private UIElement SettingCard(string glyph, string titleKey, string descriptionKey, Control control)
     {
-        var grid = new Grid { ColumnSpacing = 16 };
+        control.MinWidth = control is ToggleSwitch ? 0 : 220;
+        control.HorizontalAlignment = HorizontalAlignment.Right;
+
+        var grid = new Grid { ColumnSpacing = 14, VerticalAlignment = VerticalAlignment.Center };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.Children.Add(IconCircle(glyph));
+
         var texts = new StackPanel { Spacing = 3 };
         texts.Children.Add(new TextBlock { Text = _runtime.Translate(titleKey), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         texts.Children.Add(new TextBlock { Text = _runtime.Translate(descriptionKey), FontSize = 12, Foreground = DescriptionBrush(), TextWrapping = TextWrapping.Wrap });
+        Grid.SetColumn(texts, 1);
         grid.Children.Add(texts);
-        Grid.SetColumn(control, 1);
+        Grid.SetColumn(control, 2);
         grid.Children.Add(control);
         return Card(grid);
     }
@@ -358,8 +363,10 @@ public sealed class MainWindow : Window
         {
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Left,
+            Padding = new Thickness(12, 9, 12, 9),
             Content = new StackPanel
             {
+                Spacing = 2,
                 Children =
                 {
                     new TextBlock { Text = title, TextTrimming = TextTrimming.CharacterEllipsis },
@@ -369,14 +376,94 @@ public sealed class MainWindow : Window
         };
     }
 
+    private UIElement BuildBrandHeader()
+    {
+        var grid = new Grid { ColumnSpacing = 12, Margin = new Thickness(4, 0, 4, 8) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.Children.Add(new Border
+        {
+            Width = 42,
+            Height = 42,
+            CornerRadius = new CornerRadius(9),
+            Background = AccentBrush(48),
+            Child = new FontIcon { Glyph = "\uE8D5", FontFamily = new FontFamily("Segoe Fluent Icons"), FontSize = 20 }
+        });
+        Grid.SetColumn(_titleText, 1);
+        _titleText.VerticalAlignment = VerticalAlignment.Center;
+        grid.Children.Add(_titleText);
+        return grid;
+    }
+
+    private static Border Pill(UIElement child) => new()
+    {
+        Padding = new Thickness(10, 7, 10, 8),
+        CornerRadius = new CornerRadius(5),
+        Background = new SolidColorBrush(ColorHelper.FromArgb(18, 128, 128, 128)),
+        Child = child
+    };
+
+    private UIElement PageHeader(TextBlock header, TextBlock description)
+    {
+        return new StackPanel
+        {
+            Spacing = 5,
+            Margin = new Thickness(0, 0, 0, 8),
+            Children = { header, description }
+        };
+    }
+
+    private UIElement SectionHeader(string key) => new TextBlock
+    {
+        Text = _runtime.Translate(key),
+        FontSize = 13,
+        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        Foreground = DescriptionBrush(),
+        Margin = new Thickness(1, 6, 0, -8)
+    };
+
+    private UIElement IconCircle(string glyph) => new Border
+    {
+        Width = 30,
+        Height = 30,
+        CornerRadius = new CornerRadius(15),
+        Background = AccentBrush(28),
+        Child = new FontIcon
+        {
+            Glyph = glyph,
+            FontFamily = new FontFamily("Segoe Fluent Icons"),
+            FontSize = 15,
+            Foreground = AccentBrush(220)
+        }
+    };
+
+    private void SizeWindow()
+    {
+        var hwnd = WindowNative.GetWindowHandle(this);
+        var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
+        var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
+        appWindow.Resize(new SizeInt32(1120, 760));
+    }
+
     private Brush CardBackground() => Brush(IsDark ? "#2B2B2B" : "#FFFFFF");
 
     private Brush CardBorderBrush() => Brush(IsDark ? "#3F3F3F" : "#E5E5E5");
 
     private Brush DescriptionBrush() => Brush(IsDark ? "#C7C7C7" : "#667085");
 
+    private static SolidColorBrush AccentBrush(byte alpha) => new(ColorHelper.FromArgb(alpha, 0, 120, 212));
+
     private static SolidColorBrush Brush(string color)
     {
+        if (color.Length == 9)
+        {
+            return new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(
+                Convert.ToByte(color.Substring(1, 2), 16),
+                Convert.ToByte(color.Substring(3, 2), 16),
+                Convert.ToByte(color.Substring(5, 2), 16),
+                Convert.ToByte(color.Substring(7, 2), 16)));
+        }
+
         return new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(
             255,
             Convert.ToByte(color.Substring(1, 2), 16),
@@ -387,6 +474,13 @@ public sealed class MainWindow : Window
     private static TextBlock Header(double size = 28) => new() { FontSize = size, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
 
     private static TextBlock Description() => new() { Foreground = Brush("#667085"), TextWrapping = TextWrapping.Wrap };
+
+    private static ToggleSwitch CompactToggle() => new()
+    {
+        MinWidth = 72,
+        OnContent = string.Empty,
+        OffContent = string.Empty
+    };
 
     private static void SetComboSelection(ComboBox comboBox, string tag)
     {

@@ -10,6 +10,7 @@ public static class Program
         WinRT.ComWrappersSupport.InitializeComWrappers();
         Application.Start(_ =>
         {
+            App.LaunchArgs = args;
             var app = new App();
         });
     }
