@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using Clipton.Core;
 using Forms = System.Windows.Forms;
 
@@ -61,12 +60,8 @@ public sealed class HotkeyMessageWindow : IDisposable
         private readonly Action<IntPtr> _onHotkey;
         private readonly Action _onClipboardChanged;
         private readonly object _registrationLock = new();
-        private readonly NativeMethods.LowLevelKeyboardProc _keyboardProc;
         private HotkeyGesture? _pendingGesture;
         private ManualResetEventSlim? _pendingRegistrationSignal;
-        private HotkeyGesture? _activeGesture;
-        private IntPtr _keyboardHook;
-        private long _lastHotkeyTick;
         private bool _registered;
         private bool _disposed;
 
@@ -74,7 +69,6 @@ public sealed class HotkeyMessageWindow : IDisposable
         {
             _onHotkey = onHotkey;
             _onClipboardChanged = onClipboardChanged;
-            _keyboardProc = OnKeyboardHook;
         }
 
         public void Create()
@@ -88,11 +82,6 @@ public sealed class HotkeyMessageWindow : IDisposable
                 Height = 1
             });
             NativeMethods.AddClipboardFormatListener(Handle);
-            _keyboardHook = NativeMethods.SetWindowsHookEx(
-                NativeMethods.WhKeyboardLl,
-                _keyboardProc,
-                NativeMethods.GetModuleHandle(null),
-                0);
         }
 
         public void RequestRegister(HotkeyGesture gesture)
@@ -125,12 +114,6 @@ public sealed class HotkeyMessageWindow : IDisposable
             {
                 NativeMethods.UnregisterHotKey(Handle, HotkeyId);
                 _registered = false;
-            }
-
-            if (_keyboardHook != IntPtr.Zero)
-            {
-                NativeMethods.UnhookWindowsHookEx(_keyboardHook);
-                _keyboardHook = IntPtr.Zero;
             }
 
             NativeMethods.RemoveClipboardFormatListener(Handle);
@@ -191,49 +174,6 @@ public sealed class HotkeyMessageWindow : IDisposable
             }
 
             _registered = NativeMethods.RegisterHotKey(Handle, HotkeyId, ToNativeModifiers(gesture.Modifiers), ToVirtualKey(gesture.Key));
-            _activeGesture = gesture;
-        }
-
-        private IntPtr OnKeyboardHook(int nCode, IntPtr wParam, IntPtr lParam)
-        {
-            if (nCode < 0 || (wParam.ToInt32() != NativeMethods.WmKeydown && wParam.ToInt32() != NativeMethods.WmSyskeydown))
-            {
-                return NativeMethods.CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
-            }
-
-            var gesture = _activeGesture;
-            if (gesture is null)
-            {
-                return NativeMethods.CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
-            }
-
-            var key = Marshal.ReadInt32(lParam);
-            if (key == ToVirtualKey(gesture.Key) && ModifiersPressed(gesture.Modifiers))
-            {
-                var now = Environment.TickCount64;
-                if (now - _lastHotkeyTick > 250)
-                {
-                    _lastHotkeyTick = now;
-                    _onHotkey(NativeMethods.GetForegroundWindow());
-                }
-
-                return 1;
-            }
-
-            return NativeMethods.CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
-        }
-
-        private static bool ModifiersPressed(HotkeyModifiers modifiers)
-        {
-            return (!modifiers.HasFlag(HotkeyModifiers.Control) || IsKeyDown(0x11))
-                && (!modifiers.HasFlag(HotkeyModifiers.Shift) || IsKeyDown(0x10))
-                && (!modifiers.HasFlag(HotkeyModifiers.Alt) || IsKeyDown(0x12))
-                && (!modifiers.HasFlag(HotkeyModifiers.Windows) || IsKeyDown(0x5B) || IsKeyDown(0x5C));
-        }
-
-        private static bool IsKeyDown(int key)
-        {
-            return (NativeMethods.GetAsyncKeyState(key) & unchecked((short)0x8000)) != 0;
         }
 
         private static uint ToNativeModifiers(HotkeyModifiers modifiers)

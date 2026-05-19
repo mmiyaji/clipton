@@ -31,6 +31,7 @@ public sealed class QuickMenuWindow : Window
     private bool _opened;
     private int _lastNavigationKey;
     private long _lastNavigationTick;
+    private long _focusToken;
 
     public QuickMenuWindow(string title, IReadOnlyList<QuickMenuItem> items, string theme, bool simpleMode)
     {
@@ -67,9 +68,12 @@ public sealed class QuickMenuWindow : Window
 
         _dismissed = true;
         UninstallKeyboardHook();
-        _flyout.Hide();
-        _appWindow?.Hide();
-        Dismissed?.Invoke(this, EventArgs.Empty);
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            _flyout.Hide();
+            _appWindow?.Hide();
+            Dismissed?.Invoke(this, EventArgs.Empty);
+        });
     }
 
     private void BuildHost()
@@ -92,10 +96,16 @@ public sealed class QuickMenuWindow : Window
         InstallKeyboardHook();
         FocusHostWindow();
         _flyout.ShowAt(_host);
+        var focusToken = ++_focusToken;
         DispatcherQueue.TryEnqueue(() =>
         {
             _ = Task.Delay(180).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
             {
+                if (_dismissed || _focusToken != focusToken)
+                {
+                    return;
+                }
+
                 FocusHostWindow();
                 FocusMenuItem(0);
             }));
@@ -175,7 +185,7 @@ public sealed class QuickMenuWindow : Window
                 });
                 break;
             case NativeMethods.VkEscape:
-                DispatcherQueue.TryEnqueue(Dismiss);
+                Dismiss();
                 break;
             default:
                 handled = false;
