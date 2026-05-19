@@ -210,19 +210,11 @@ public sealed class QuickMenuWindow : Window
                 }
                 break;
             case NativeMethods.VkLeft:
-                DispatcherQueue.TryEnqueue(async () =>
-                {
-                    await Task.Delay(80);
-                    ReturnToParentFocusContext();
-                });
+                EnqueueAfterDelay(80, ReturnToParentFocusContext);
                 handled = false;
                 break;
             case NativeMethods.VkRight:
-                DispatcherQueue.TryEnqueue(async () =>
-                {
-                    await Task.Delay(80);
-                    EnterChildFocusContext();
-                });
+                EnqueueAfterDelay(80, EnterChildFocusContext);
                 handled = false;
                 break;
             case NativeMethods.VkReturn:
@@ -280,6 +272,17 @@ public sealed class QuickMenuWindow : Window
         _activeParent = null;
         _focusedIndex = -1;
         AddItems(_flyout.Items, _currentItems, parent: null);
+    }
+
+    private void EnqueueAfterDelay(int milliseconds, Action action)
+    {
+        _ = Task.Delay(milliseconds).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!_dismissed)
+            {
+                action();
+            }
+        }));
     }
 
     private void SearchMenu()
