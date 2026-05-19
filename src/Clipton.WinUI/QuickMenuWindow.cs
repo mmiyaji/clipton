@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
 using Windows.System;
+using Windows.UI;
 using WinRT.Interop;
 using Forms = System.Windows.Forms;
 
@@ -293,6 +294,11 @@ public sealed class QuickMenuWindow : Window
                 KeyboardAcceleratorTextOverride = item.CommandHint,
                 Icon = CreateIcon(item)
             };
+            if (!string.IsNullOrWhiteSpace(item.IconImagePath) && File.Exists(item.IconImagePath))
+            {
+                flyoutItem.Loaded += (_, _) => InsertImagePreview(flyoutItem, item.IconImagePath);
+            }
+
             focusableItems.Add(flyoutItem);
             if (parent is not null)
             {
@@ -486,10 +492,7 @@ public sealed class QuickMenuWindow : Window
     {
         if (!string.IsNullOrWhiteSpace(item.IconImagePath) && File.Exists(item.IconImagePath))
         {
-            return new ImageIcon
-            {
-                Source = new BitmapImage(new Uri(item.IconImagePath))
-            };
+            return null;
         }
 
         if (string.IsNullOrWhiteSpace(item.IconGlyph))
@@ -503,6 +506,76 @@ public sealed class QuickMenuWindow : Window
             FontFamily = new FontFamily(item.IconFontFamily ?? "Segoe UI"),
             FontSize = 12
         };
+    }
+
+    private static void InsertImagePreview(MenuFlyoutItem flyoutItem, string? imagePath)
+    {
+        if (string.IsNullOrWhiteSpace(imagePath) || !File.Exists(imagePath))
+        {
+            return;
+        }
+
+        var textBlock = FindDescendant<TextBlock>(flyoutItem, "TextBlock");
+        if (textBlock?.Parent is not Grid grid || textBlock.Parent is StackPanel)
+        {
+            return;
+        }
+
+        var originalMargin = textBlock.Margin;
+        var column = Grid.GetColumn(textBlock);
+        grid.Children.Remove(textBlock);
+        textBlock.Margin = new Thickness(0);
+        textBlock.VerticalAlignment = VerticalAlignment.Center;
+
+        var preview = new Border
+        {
+            Width = 36,
+            Height = 26,
+            CornerRadius = new CornerRadius(3),
+            BorderThickness = new Thickness(1),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(80, 255, 255, 255)),
+            Background = new SolidColorBrush(Color.FromArgb(32, 255, 255, 255)),
+            Child = new Image
+            {
+                Source = new BitmapImage(new Uri(imagePath)),
+                Stretch = Stretch.UniformToFill
+            }
+        };
+
+        var panel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 10,
+            Margin = originalMargin,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        panel.Children.Add(preview);
+        panel.Children.Add(textBlock);
+
+        Grid.SetColumn(panel, column);
+        grid.Children.Add(panel);
+    }
+
+    private static T? FindDescendant<T>(DependencyObject root, string? name = null)
+        where T : FrameworkElement
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T element && (name is null || element.Name == name))
+            {
+                return element;
+            }
+
+            var descendant = FindDescendant<T>(child, name);
+            if (descendant is not null)
+            {
+                return descendant;
+            }
+        }
+
+        return null;
     }
 
     private void MakeHostWindowTransparent()
