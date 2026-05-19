@@ -490,11 +490,6 @@ public sealed class QuickMenuWindow : Window
 
     private static IconElement? CreateIcon(QuickMenuItem item)
     {
-        if (!string.IsNullOrWhiteSpace(item.IconImagePath) && File.Exists(item.IconImagePath))
-        {
-            return null;
-        }
-
         if (string.IsNullOrWhiteSpace(item.IconGlyph))
         {
             return null;
@@ -504,7 +499,8 @@ public sealed class QuickMenuWindow : Window
         {
             Glyph = item.IconGlyph,
             FontFamily = new FontFamily(item.IconFontFamily ?? "Segoe UI"),
-            FontSize = 12
+            FontSize = !string.IsNullOrWhiteSpace(item.IconImagePath) ? 13 : 12,
+            Opacity = !string.IsNullOrWhiteSpace(item.IconImagePath) ? 0.78 : 1
         };
     }
 
@@ -529,9 +525,9 @@ public sealed class QuickMenuWindow : Window
 
         var preview = new Border
         {
-            Width = 36,
-            Height = 26,
-            CornerRadius = new CornerRadius(3),
+            Width = 52,
+            Height = 36,
+            CornerRadius = new CornerRadius(4),
             BorderThickness = new Thickness(1),
             BorderBrush = new SolidColorBrush(Color.FromArgb(80, 255, 255, 255)),
             Background = new SolidColorBrush(Color.FromArgb(32, 255, 255, 255)),
@@ -545,7 +541,7 @@ public sealed class QuickMenuWindow : Window
         var panel = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 10,
+            Spacing = 11,
             Margin = originalMargin,
             VerticalAlignment = VerticalAlignment.Center
         };

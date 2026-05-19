@@ -530,7 +530,7 @@ public sealed class CliptonRuntime : IDisposable
         try
         {
             Directory.CreateDirectory(_thumbnailPath);
-            var path = Path.Combine(_thumbnailPath, $"{item.Id}.png");
+            var path = Path.Combine(_thumbnailPath, $"{item.Id}-96.png");
             if (File.Exists(path))
             {
                 return path;
@@ -538,7 +538,7 @@ public sealed class CliptonRuntime : IDisposable
 
             using var sourceStream = new MemoryStream(item.ImagePng);
             using var source = Drawing.Image.FromStream(sourceStream);
-            const int size = 32;
+            const int size = 96;
             var scale = Math.Min((double)size / source.Width, (double)size / source.Height);
             var width = Math.Max(1, (int)Math.Round(source.Width * scale));
             var height = Math.Max(1, (int)Math.Round(source.Height * scale));
