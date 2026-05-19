@@ -19,9 +19,15 @@ public sealed class QuickMenuWindow : Window
 {
     private const int MaxMenuLineLength = 34;
     private readonly QuickMenuNavigator _navigator;
+    private readonly IReadOnlyList<QuickMenuItem> _rootItems;
     private readonly Grid _host = new();
     private readonly MenuFlyout _flyout = new();
     private readonly string _theme;
+    private readonly string _searchTitle;
+    private readonly string _searchPrompt;
+    private readonly string _searchButtonText;
+    private readonly string _cancelButtonText;
+    private readonly string _noSearchResultsText;
     private readonly bool _simpleMode;
     private readonly NativeMethods.LowLevelKeyboardProc _keyboardProc;
     private readonly List<MenuFlyoutItemBase> _rootFocusableItems = [];
@@ -38,18 +44,42 @@ public sealed class QuickMenuWindow : Window
     private int _lastNavigationKey;
     private long _lastNavigationTick;
     private long _focusToken;
+    private IReadOnlyList<QuickMenuItem> _currentItems;
+    private bool _rebuildingFlyout;
 
-    public QuickMenuWindow(string title, IReadOnlyList<QuickMenuItem> items, string theme, bool simpleMode)
+    public QuickMenuWindow(
+        string title,
+        IReadOnlyList<QuickMenuItem> items,
+        string theme,
+        bool simpleMode,
+        string searchTitle,
+        string searchPrompt,
+        string searchButtonText,
+        string cancelButtonText,
+        string noSearchResultsText)
     {
         _navigator = new QuickMenuNavigator(title, items);
+        _rootItems = items;
+        _currentItems = items;
         _theme = theme;
         _simpleMode = simpleMode;
+        _searchTitle = searchTitle;
+        _searchPrompt = searchPrompt;
+        _searchButtonText = searchButtonText;
+        _cancelButtonText = cancelButtonText;
+        _noSearchResultsText = noSearchResultsText;
         _keyboardProc = OnKeyboardHook;
         Title = "Clipton";
         BuildHost();
         BuildFlyout();
         PositionNearCursor();
-        _flyout.Closed += (_, _) => Dismiss();
+        _flyout.Closed += (_, _) =>
+        {
+            if (!_rebuildingFlyout)
+            {
+                Dismiss();
+            }
+        };
     }
 
     public event EventHandler? Dismissed;
@@ -158,6 +188,13 @@ public sealed class QuickMenuWindow : Window
 
         var handled = true;
         var key = Marshal.ReadInt32(lParam);
+        var controlDown = (NativeMethods.GetAsyncKeyState(NativeMethods.VkControl) & 0x8000) != 0;
+        if (controlDown && key == NativeMethods.VkS)
+        {
+            DispatcherQueue.TryEnqueue(SearchMenu);
+            return 1;
+        }
+
         switch (key)
         {
             case NativeMethods.VkDown:
@@ -242,7 +279,133 @@ public sealed class QuickMenuWindow : Window
         _activeFocusableItems = _rootFocusableItems;
         _activeParent = null;
         _focusedIndex = -1;
-        AddItems(_flyout.Items, _navigator.Items, parent: null);
+        AddItems(_flyout.Items, _currentItems, parent: null);
+    }
+
+    private void SearchMenu()
+    {
+        var query = PromptForSearch();
+        if (query is null)
+        {
+            return;
+        }
+
+        var normalizedQuery = query.Trim();
+        _currentItems = string.IsNullOrWhiteSpace(normalizedQuery)
+            ? _rootItems
+            : FlattenSearchableItems(_rootItems)
+                .Where(item => MatchesSearch(item, normalizedQuery))
+                .Take(50)
+                .ToArray();
+
+        if (_currentItems.Count == 0)
+        {
+            _currentItems =
+            [
+                new QuickMenuItem(
+                    string.Format(_noSearchResultsText, normalizedQuery),
+                    "Ctrl+S",
+                    "-",
+                    string.Empty,
+                    () => { },
+                    IsEnabled: false)
+            ];
+        }
+
+        _rebuildingFlyout = true;
+        _flyout.Hide();
+        BuildFlyout();
+        _opened = false;
+        ShowFlyout();
+        _ = Task.Delay(250).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => _rebuildingFlyout = false));
+    }
+
+    private string? PromptForSearch()
+    {
+        using var form = new Forms.Form
+        {
+            Text = _searchTitle,
+            Width = 420,
+            Height = 150,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            FormBorderStyle = Forms.FormBorderStyle.FixedDialog,
+            StartPosition = Forms.FormStartPosition.CenterScreen,
+            TopMost = true,
+            BackColor = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase) || _simpleMode
+                ? System.Drawing.Color.FromArgb(32, 32, 32)
+                : System.Drawing.Color.White,
+            ForeColor = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase) || _simpleMode
+                ? System.Drawing.Color.White
+                : System.Drawing.Color.Black
+        };
+
+        var input = new Forms.TextBox
+        {
+            Dock = Forms.DockStyle.Fill,
+            BorderStyle = Forms.BorderStyle.FixedSingle,
+            BackColor = form.BackColor,
+            ForeColor = form.ForeColor
+        };
+        var layout = new Forms.TableLayoutPanel
+        {
+            Dock = Forms.DockStyle.Fill,
+            Padding = new Forms.Padding(16),
+            ColumnCount = 1,
+            RowCount = 3
+        };
+        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 30));
+        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 32));
+        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 42));
+        layout.Controls.Add(new Forms.Label { Text = _searchPrompt, Dock = Forms.DockStyle.Fill, TextAlign = System.Drawing.ContentAlignment.MiddleLeft }, 0, 0);
+        layout.Controls.Add(input, 0, 1);
+
+        var buttons = new Forms.FlowLayoutPanel
+        {
+            Dock = Forms.DockStyle.Fill,
+            FlowDirection = Forms.FlowDirection.RightToLeft
+        };
+        var searchButton = new Forms.Button { Text = _searchButtonText, DialogResult = Forms.DialogResult.OK, Width = 92 };
+        var cancelButton = new Forms.Button { Text = _cancelButtonText, DialogResult = Forms.DialogResult.Cancel, Width = 92 };
+        buttons.Controls.Add(searchButton);
+        buttons.Controls.Add(cancelButton);
+        layout.Controls.Add(buttons, 0, 2);
+        form.Controls.Add(layout);
+        form.AcceptButton = searchButton;
+        form.CancelButton = cancelButton;
+        form.Shown += (_, _) => input.Focus();
+
+        return form.ShowDialog() == Forms.DialogResult.OK ? input.Text : null;
+    }
+
+    private static IEnumerable<QuickMenuItem> FlattenSearchableItems(IEnumerable<QuickMenuItem> items)
+    {
+        foreach (var item in items)
+        {
+            if (item.IsSeparator || !item.IsEnabled)
+            {
+                continue;
+            }
+
+            if (item.IsFolder)
+            {
+                foreach (var child in FlattenSearchableItems(item.GetChildren()))
+                {
+                    yield return child;
+                }
+
+                continue;
+            }
+
+            yield return item;
+        }
+    }
+
+    private static bool MatchesSearch(QuickMenuItem item, string query)
+    {
+        return item.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || item.Subtitle.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || item.KindLabel.Contains(query, StringComparison.OrdinalIgnoreCase);
     }
 
     private void AddItems(IList<MenuFlyoutItemBase> target, IReadOnlyList<QuickMenuItem> items, MenuFlyoutSubItem? parent)

@@ -45,6 +45,9 @@ public sealed class MainWindow : Window
     private readonly ToggleSwitch _simpleContextMenuToggle = CompactToggle();
     private readonly Button _registerFromHistoryButton = new();
     private readonly Button _clearButton = new();
+    private readonly Button _searchHistoryButton = new();
+    private readonly Button _clearHistorySearchButton = new();
+    private readonly TextBlock _historySearchStatusText = Description();
     private readonly TextBlock _selectedSnippetText = Description();
     private readonly Button _newSnippetButton = new();
     private readonly Button _saveSnippetButton = new();
@@ -52,6 +55,7 @@ public sealed class MainWindow : Window
     private readonly Button _deleteSnippetButton = new();
     private string? _selectedHistoryId;
     private SnippetItemViewModel? _selectedSnippet;
+    private string _historySearchQuery = string.Empty;
     private bool _loading;
     private int _selectedPageIndex;
 
@@ -70,12 +74,26 @@ public sealed class MainWindow : Window
     public void RefreshItems()
     {
         _historyItemsPanel.Children.Clear();
-        foreach (var item in _runtime.History.Items.Select(_runtime.CreateHistoryItemViewModel))
+        var historyItems = _runtime.History.Items
+            .Select(snapshot => (Snapshot: snapshot, ViewModel: _runtime.CreateHistoryItemViewModel(snapshot)))
+            .Where(item => HistoryMatchesSearch(item.ViewModel))
+            .ToArray();
+        foreach (var (_, item) in historyItems)
         {
             var button = ItemButton(item.Preview, item.FormatSummary);
             button.Click += (_, _) => _selectedHistoryId = item.Id;
             button.DoubleTapped += (_, _) => _runtime.PasteHistoryItem(item.Id, asPlainText: false);
             _historyItemsPanel.Children.Add(button);
+        }
+
+        if (historyItems.Length == 0)
+        {
+            _historyItemsPanel.Children.Add(new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(_historySearchQuery) ? _runtime.Translate("HistoryEmpty") : _runtime.Translate("NoSearchResults"),
+                Foreground = DescriptionBrush(),
+                Margin = new Thickness(2, 4, 2, 4)
+            });
         }
 
         _snippetItemsPanel.Children.Clear();
@@ -109,6 +127,8 @@ public sealed class MainWindow : Window
         _snippetFormTitle.Text = t("SnippetEditor");
         _registerFromHistoryButton.Content = t("RegisterFromHistory");
         _clearButton.Content = t("ClearHistory");
+        _searchHistoryButton.Content = t("Search");
+        _clearHistorySearchButton.Content = t("ClearSearch");
         _newSnippetButton.Content = t("NewSnippet");
         _saveSnippetButton.Content = t("EditSnippet");
         _pasteSnippetButton.Content = t("Paste");
@@ -125,6 +145,7 @@ public sealed class MainWindow : Window
         SetComboSelection(_themeBox, _runtime.Settings.Theme);
         SetComboSelection(_localeBox, _runtime.Settings.Locale);
         UpdateSelectedSnippetText();
+        UpdateHistorySearchStatus();
         _loading = false;
     }
 
@@ -229,10 +250,56 @@ public sealed class MainWindow : Window
         var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         _registerFromHistoryButton.Click += (_, _) => RegisterSelectedHistory();
         _clearButton.Click += (_, _) => _runtime.ClearHistory();
+        _searchHistoryButton.Click += (_, _) => SearchHistory();
+        _clearHistorySearchButton.Click += (_, _) => ClearHistorySearch();
+        actions.Children.Add(_searchHistoryButton);
+        actions.Children.Add(_clearHistorySearchButton);
         actions.Children.Add(_registerFromHistoryButton);
         actions.Children.Add(_clearButton);
         _historyPage.Children.Add(actions);
+        _historyPage.Children.Add(_historySearchStatusText);
         _historyPage.Children.Add(Card(_historyItemsPanel));
+    }
+
+    private bool HistoryMatchesSearch(HistoryItemViewModel item)
+    {
+        if (string.IsNullOrWhiteSpace(_historySearchQuery))
+        {
+            return true;
+        }
+
+        return item.Preview.Contains(_historySearchQuery, StringComparison.OrdinalIgnoreCase)
+            || item.FormatSummary.Contains(_historySearchQuery, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void SearchHistory()
+    {
+        var query = PromptForText(_runtime.Translate("SearchHistory"), _runtime.Translate("SearchPrompt"), _historySearchQuery);
+        if (query is null)
+        {
+            return;
+        }
+
+        _historySearchQuery = query.Trim();
+        UpdateHistorySearchStatus();
+        RefreshItems();
+    }
+
+    private void ClearHistorySearch()
+    {
+        _historySearchQuery = string.Empty;
+        UpdateHistorySearchStatus();
+        RefreshItems();
+    }
+
+    private void UpdateHistorySearchStatus()
+    {
+        var hasQuery = !string.IsNullOrWhiteSpace(_historySearchQuery);
+        _historySearchStatusText.Text = hasQuery
+            ? string.Format(_runtime.Translate("SearchResults"), _historySearchQuery)
+            : string.Empty;
+        _historySearchStatusText.Visibility = hasQuery ? Visibility.Visible : Visibility.Collapsed;
+        _clearHistorySearchButton.Visibility = hasQuery ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void BuildSnippetPage()
@@ -420,6 +487,58 @@ public sealed class MainWindow : Window
         ForeColor = IsDark ? System.Drawing.Color.White : System.Drawing.Color.Black,
         BorderStyle = Forms.BorderStyle.FixedSingle
     };
+
+    private string? PromptForText(string title, string message, string initialValue)
+    {
+        using var form = new Forms.Form
+        {
+            Text = title,
+            Width = 440,
+            Height = 170,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            FormBorderStyle = Forms.FormBorderStyle.FixedDialog,
+            StartPosition = Forms.FormStartPosition.CenterScreen,
+            BackColor = IsDark ? System.Drawing.Color.FromArgb(32, 32, 32) : System.Drawing.Color.White,
+            ForeColor = IsDark ? System.Drawing.Color.White : System.Drawing.Color.Black
+        };
+
+        var layout = new Forms.TableLayoutPanel
+        {
+            Dock = Forms.DockStyle.Fill,
+            Padding = new Forms.Padding(16),
+            ColumnCount = 1,
+            RowCount = 3
+        };
+        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 32));
+        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 34));
+        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 44));
+
+        var input = DialogTextBox(initialValue);
+        var buttons = new Forms.FlowLayoutPanel
+        {
+            FlowDirection = Forms.FlowDirection.RightToLeft,
+            Dock = Forms.DockStyle.Fill
+        };
+        var okButton = new Forms.Button { Text = _runtime.Translate("Search"), DialogResult = Forms.DialogResult.OK, Width = 96 };
+        var cancelButton = new Forms.Button { Text = _runtime.Translate("Cancel"), DialogResult = Forms.DialogResult.Cancel, Width = 96 };
+        buttons.Controls.Add(okButton);
+        buttons.Controls.Add(cancelButton);
+
+        layout.Controls.Add(DialogLabel(message), 0, 0);
+        layout.Controls.Add(input, 0, 1);
+        layout.Controls.Add(buttons, 0, 2);
+        form.Controls.Add(layout);
+        form.AcceptButton = okButton;
+        form.CancelButton = cancelButton;
+        form.Shown += (_, _) =>
+        {
+            input.Focus();
+            input.SelectAll();
+        };
+
+        return form.ShowDialog() == Forms.DialogResult.OK ? input.Text : null;
+    }
 
     private void SelectPage(int index)
     {

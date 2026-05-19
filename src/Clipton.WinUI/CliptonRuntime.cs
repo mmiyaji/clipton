@@ -375,7 +375,16 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         _quickMenuWindow?.Dismiss();
-        var quickMenuWindow = new QuickMenuWindow(Translate("History"), menuItems, Settings.Theme, Settings.SimpleContextMenuMode);
+        var quickMenuWindow = new QuickMenuWindow(
+            Translate("History"),
+            menuItems,
+            Settings.Theme,
+            Settings.SimpleContextMenuMode,
+            Translate("Search"),
+            Translate("SearchPrompt"),
+            Translate("Search"),
+            Translate("Cancel"),
+            Translate("NoSearchResults"));
         _quickMenuWindow = quickMenuWindow;
         quickMenuWindow.Dismissed += (_, _) =>
         {
