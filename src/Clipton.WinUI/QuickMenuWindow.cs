@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
 using Windows.System;
 using WinRT.Interop;
@@ -289,7 +290,8 @@ public sealed class QuickMenuWindow : Window
             var flyoutItem = new MenuFlyoutItem
             {
                 Text = FormatMenuText(item.Title),
-                KeyboardAcceleratorTextOverride = item.CommandHint
+                KeyboardAcceleratorTextOverride = item.CommandHint,
+                Icon = CreateIcon(item)
             };
             focusableItems.Add(flyoutItem);
             if (parent is not null)
@@ -480,6 +482,29 @@ public sealed class QuickMenuWindow : Window
         return $"{line1}{Environment.NewLine}{line2}";
     }
 
+    private static IconElement? CreateIcon(QuickMenuItem item)
+    {
+        if (!string.IsNullOrWhiteSpace(item.IconImagePath) && File.Exists(item.IconImagePath))
+        {
+            return new ImageIcon
+            {
+                Source = new BitmapImage(new Uri(item.IconImagePath))
+            };
+        }
+
+        if (string.IsNullOrWhiteSpace(item.IconGlyph))
+        {
+            return null;
+        }
+
+        return new FontIcon
+        {
+            Glyph = item.IconGlyph,
+            FontFamily = new FontFamily(item.IconFontFamily ?? "Segoe UI"),
+            FontSize = 12
+        };
+    }
+
     private void MakeHostWindowTransparent()
     {
         var exStyle = NativeMethods.GetWindowLongPtr(_hwnd, NativeMethods.GwlExstyle).ToInt64();
@@ -500,7 +525,10 @@ public sealed record QuickMenuItem(
     bool IsEnabled = true,
     IReadOnlyList<QuickMenuItem>? Children = null,
     Func<IReadOnlyList<QuickMenuItem>>? LazyChildren = null,
-    bool IsSeparator = false)
+    bool IsSeparator = false,
+    string? IconGlyph = null,
+    string? IconFontFamily = null,
+    string? IconImagePath = null)
 {
     private IReadOnlyList<QuickMenuItem>? _resolvedChildren = Children;
 

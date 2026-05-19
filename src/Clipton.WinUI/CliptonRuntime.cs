@@ -3,6 +3,9 @@ using Clipton.Core;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Drawing = System.Drawing;
+using Drawing2D = System.Drawing.Drawing2D;
+using Imaging = System.Drawing.Imaging;
 using Forms = System.Windows.Forms;
 
 namespace Clipton.WinUI;
@@ -14,6 +17,7 @@ public sealed class CliptonRuntime : IDisposable
     private readonly JsonSettingsStore _settingsStore;
     private readonly EncryptedHistoryStore _historyStore;
     private readonly string _snippetPath;
+    private readonly string _thumbnailPath;
     private HotkeyMessageWindow? _messageWindow;
     private Forms.NotifyIcon? _notifyIcon;
     private MainWindow? _mainWindow;
@@ -27,6 +31,7 @@ public sealed class CliptonRuntime : IDisposable
         _settingsStore = new JsonSettingsStore(Path.Combine(appData, "settings.json"));
         _historyStore = new EncryptedHistoryStore(Path.Combine(appData, "history.dat"));
         _snippetPath = Path.Combine(appData, "snippets.json");
+        _thumbnailPath = Path.Combine(appData, "thumbs");
         Settings = _settingsStore.Load();
         History = new ClipboardHistory(Settings.MaxHistoryItems);
         Snippets = LoadSnippets(_snippetPath);
@@ -482,7 +487,75 @@ public sealed class CliptonRuntime : IDisposable
             GetKindLabel(item),
             !string.IsNullOrEmpty(item.Text) ? "Enter / T" : "Enter",
             () => PasteHistoryItem(item.Id, asPlainText: false),
-            !string.IsNullOrEmpty(item.Text) ? () => PasteHistoryItem(item.Id, asPlainText: true) : null);
+            !string.IsNullOrEmpty(item.Text) ? () => PasteHistoryItem(item.Id, asPlainText: true) : null,
+            IconGlyph: GetHistoryIconGlyph(item),
+            IconFontFamily: GetHistoryIconFontFamily(item),
+            IconImagePath: SaveHistoryThumbnail(item));
+    }
+
+    private static string GetHistoryIconGlyph(ClipboardSnapshot item)
+    {
+        if (item.Formats.Contains(ClipboardFormatKind.FileDrop))
+        {
+            return "\uE8B7";
+        }
+
+        if (item.Formats.Contains(ClipboardFormatKind.Image))
+        {
+            return "\uEB9F";
+        }
+
+        if (item.Formats.Contains(ClipboardFormatKind.RichText) || item.Formats.Contains(ClipboardFormatKind.Html))
+        {
+            return "R";
+        }
+
+        return "Aa";
+    }
+
+    private static string GetHistoryIconFontFamily(ClipboardSnapshot item)
+    {
+        return item.Formats.Contains(ClipboardFormatKind.FileDrop) || item.Formats.Contains(ClipboardFormatKind.Image)
+            ? "Segoe Fluent Icons"
+            : "Segoe UI";
+    }
+
+    private string? SaveHistoryThumbnail(ClipboardSnapshot item)
+    {
+        if (item.ImagePng is not { Length: > 0 })
+        {
+            return null;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(_thumbnailPath);
+            var path = Path.Combine(_thumbnailPath, $"{item.Id}.png");
+            if (File.Exists(path))
+            {
+                return path;
+            }
+
+            using var sourceStream = new MemoryStream(item.ImagePng);
+            using var source = Drawing.Image.FromStream(sourceStream);
+            const int size = 32;
+            var scale = Math.Min((double)size / source.Width, (double)size / source.Height);
+            var width = Math.Max(1, (int)Math.Round(source.Width * scale));
+            var height = Math.Max(1, (int)Math.Round(source.Height * scale));
+            using var thumbnail = new Drawing.Bitmap(size, size);
+            using var graphics = Drawing.Graphics.FromImage(thumbnail);
+            graphics.Clear(Drawing.Color.Transparent);
+            graphics.InterpolationMode = Drawing2D.InterpolationMode.HighQualityBicubic;
+            graphics.PixelOffsetMode = Drawing2D.PixelOffsetMode.HighQuality;
+            graphics.SmoothingMode = Drawing2D.SmoothingMode.HighQuality;
+            graphics.DrawImage(source, (size - width) / 2, (size - height) / 2, width, height);
+            thumbnail.Save(path, Imaging.ImageFormat.Png);
+            return path;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     public HistoryItemViewModel CreateHistoryItemViewModel(ClipboardSnapshot snapshot)
@@ -546,7 +619,8 @@ public sealed class CliptonRuntime : IDisposable
             string.IsNullOrWhiteSpace(snippet.Folder) ? Translate("Snippets") : snippet.Folder,
             "S",
             "Enter",
-            () => PasteSnippet(snippet.Folder, snippet.Name));
+            () => PasteSnippet(snippet.Folder, snippet.Name),
+            IconGlyph: "S");
     }
 
     private static string NormalizeFolder(string? folder)
