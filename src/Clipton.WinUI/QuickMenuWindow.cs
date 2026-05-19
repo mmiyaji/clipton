@@ -22,7 +22,11 @@ public sealed class QuickMenuWindow : Window
     private readonly string _theme;
     private readonly bool _simpleMode;
     private readonly NativeMethods.LowLevelKeyboardProc _keyboardProc;
-    private readonly List<MenuFlyoutItemBase> _focusableItems = [];
+    private readonly List<MenuFlyoutItemBase> _rootFocusableItems = [];
+    private readonly Dictionary<MenuFlyoutSubItem, List<MenuFlyoutItemBase>> _childFocusableItems = [];
+    private readonly Dictionary<MenuFlyoutItemBase, MenuFlyoutSubItem> _parentItem = [];
+    private IReadOnlyList<MenuFlyoutItemBase> _activeFocusableItems = [];
+    private MenuFlyoutSubItem? _activeParent;
     private int _focusedIndex = -1;
     private AppWindow? _appWindow;
     private IntPtr _hwnd;
@@ -157,14 +161,30 @@ public sealed class QuickMenuWindow : Window
             case NativeMethods.VkDown:
                 if (ShouldHandleNavigationKey(key))
                 {
-                    DispatcherQueue.TryEnqueue(() => FocusMenuItem(_focusedIndex + 1));
+                    DispatcherQueue.TryEnqueue(() => MoveFocus(1));
                 }
                 break;
             case NativeMethods.VkUp:
                 if (ShouldHandleNavigationKey(key))
                 {
-                    DispatcherQueue.TryEnqueue(() => FocusMenuItem(_focusedIndex - 1));
+                    DispatcherQueue.TryEnqueue(() => MoveFocus(-1));
                 }
+                break;
+            case NativeMethods.VkLeft:
+                DispatcherQueue.TryEnqueue(async () =>
+                {
+                    await Task.Delay(80);
+                    ReturnToParentFocusContext();
+                });
+                handled = false;
+                break;
+            case NativeMethods.VkRight:
+                DispatcherQueue.TryEnqueue(async () =>
+                {
+                    await Task.Delay(80);
+                    EnterChildFocusContext();
+                });
+                handled = false;
                 break;
             case NativeMethods.VkReturn:
                 DispatcherQueue.TryEnqueue(() =>
@@ -214,13 +234,26 @@ public sealed class QuickMenuWindow : Window
     {
         _flyout.Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft;
         _flyout.Items.Clear();
-        _focusableItems.Clear();
+        _rootFocusableItems.Clear();
+        _childFocusableItems.Clear();
+        _parentItem.Clear();
+        _activeFocusableItems = _rootFocusableItems;
+        _activeParent = null;
         _focusedIndex = -1;
-        AddItems(_flyout.Items, _navigator.Items);
+        AddItems(_flyout.Items, _navigator.Items, parent: null);
     }
 
-    private void AddItems(IList<MenuFlyoutItemBase> target, IReadOnlyList<QuickMenuItem> items)
+    private void AddItems(IList<MenuFlyoutItemBase> target, IReadOnlyList<QuickMenuItem> items, MenuFlyoutSubItem? parent)
     {
+        var focusableItems = parent is null
+            ? _rootFocusableItems
+            : _childFocusableItems.GetValueOrDefault(parent);
+        if (focusableItems is null)
+        {
+            focusableItems = [];
+            _childFocusableItems[parent!] = focusableItems;
+        }
+
         foreach (var item in items)
         {
             if (item.IsSeparator)
@@ -240,9 +273,15 @@ public sealed class QuickMenuWindow : Window
                         FontFamily = new FontFamily("Segoe Fluent Icons")
                     }
                 };
-                _focusableItems.Add(subItem);
+                focusableItems.Add(subItem);
                 subItem.Tag = item;
-                AddItems(subItem.Items, item.GetChildren());
+                if (parent is not null)
+                {
+                    _parentItem[subItem] = parent;
+                }
+
+                _childFocusableItems[subItem] = [];
+                AddItems(subItem.Items, item.GetChildren(), subItem);
                 target.Add(subItem);
                 continue;
             }
@@ -252,28 +291,15 @@ public sealed class QuickMenuWindow : Window
                 Text = TrimForMenu(item.Title),
                 KeyboardAcceleratorTextOverride = item.CommandHint
             };
-            _focusableItems.Add(flyoutItem);
+            focusableItems.Add(flyoutItem);
+            if (parent is not null)
+            {
+                _parentItem[flyoutItem] = parent;
+            }
+
             flyoutItem.Tag = item;
             flyoutItem.Click += (_, _) => Invoke(item, asPlainText: false);
             target.Add(flyoutItem);
-
-            if (item.PlainTextInvoke is not null)
-            {
-                var plainTextItem = new MenuFlyoutItem
-                {
-                    Text = $"{TrimForMenu(item.Title)} (Text)",
-                    KeyboardAcceleratorTextOverride = "T",
-                    Icon = new FontIcon
-                    {
-                        Glyph = "\uE8D2",
-                        FontFamily = new FontFamily("Segoe Fluent Icons")
-                    }
-                };
-                _focusableItems.Add(plainTextItem);
-                plainTextItem.Tag = item;
-                plainTextItem.Click += (_, _) => Invoke(item, asPlainText: true);
-                target.Add(plainTextItem);
-            }
         }
     }
 
@@ -294,13 +320,110 @@ public sealed class QuickMenuWindow : Window
 
     private void FocusMenuItem(int index)
     {
-        if (_focusableItems.Count == 0)
+        if (_activeFocusableItems.Count == 0)
         {
             return;
         }
 
-        _focusedIndex = (index + _focusableItems.Count) % _focusableItems.Count;
-        _focusableItems[_focusedIndex].Focus(FocusState.Keyboard);
+        _focusedIndex = (index + _activeFocusableItems.Count) % _activeFocusableItems.Count;
+        _activeFocusableItems[_focusedIndex].Focus(FocusState.Keyboard);
+    }
+
+    private void MoveFocus(int delta)
+    {
+        SyncFocusedIndex();
+        FocusMenuItem(_focusedIndex + delta);
+    }
+
+    private void SyncFocusedIndex()
+    {
+        if (_host.XamlRoot is null)
+        {
+            return;
+        }
+
+        var focusedElement = FocusManager.GetFocusedElement(_host.XamlRoot);
+        if (focusedElement is MenuFlyoutItemBase focusedItem
+            && _parentItem.TryGetValue(focusedItem, out var parent)
+            && _childFocusableItems.TryGetValue(parent, out var childItems))
+        {
+            _activeFocusableItems = childItems;
+            _activeParent = parent;
+        }
+        else if (focusedElement is MenuFlyoutItemBase rootItem && _rootFocusableItems.Contains(rootItem))
+        {
+            _activeFocusableItems = _rootFocusableItems;
+            _activeParent = null;
+        }
+
+        for (var i = 0; i < _activeFocusableItems.Count; i++)
+        {
+            if (ReferenceEquals(_activeFocusableItems[i], focusedElement))
+            {
+                _focusedIndex = i;
+                return;
+            }
+        }
+    }
+
+    private void EnterChildFocusContext()
+    {
+        if (_host.XamlRoot is null)
+        {
+            return;
+        }
+
+        if (FocusManager.GetFocusedElement(_host.XamlRoot) is not MenuFlyoutSubItem focusedFolder
+            || !_childFocusableItems.TryGetValue(focusedFolder, out var childItems)
+            || childItems.Count == 0)
+        {
+            SyncFocusedIndex();
+            return;
+        }
+
+        _activeFocusableItems = childItems;
+        _activeParent = focusedFolder;
+        SyncFocusedIndex();
+        if (_focusedIndex < 0 || _focusedIndex >= _activeFocusableItems.Count)
+        {
+            FocusMenuItem(0);
+        }
+    }
+
+    private void ReturnToParentFocusContext()
+    {
+        if (_activeParent is null)
+        {
+            SyncFocusedIndex();
+            return;
+        }
+
+        var parent = _activeParent;
+        if (_parentItem.TryGetValue(parent, out var grandParent))
+        {
+            _activeFocusableItems = _childFocusableItems[grandParent];
+            _activeParent = grandParent;
+        }
+        else
+        {
+            _activeFocusableItems = _rootFocusableItems;
+            _activeParent = null;
+        }
+
+        FocusMenuItem(IndexOf(_activeFocusableItems, parent));
+    }
+
+    private static int IndexOf(IReadOnlyList<MenuFlyoutItemBase> items, MenuFlyoutItemBase item)
+    {
+        for (var i = 0; i < items.Count; i++)
+        {
+            if (ReferenceEquals(items[i], item))
+            {
+                return i;
+            }
+        }
+
+        return 0;
     }
 
     private void Invoke(QuickMenuItem item, bool asPlainText)
