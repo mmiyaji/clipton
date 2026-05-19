@@ -1,10 +1,12 @@
 using Clipton.Core;
 using Microsoft.UI;
+using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Windows.Graphics;
 using WinRT.Interop;
+using Forms = System.Windows.Forms;
 
 namespace Clipton.WinUI;
 
@@ -31,6 +33,7 @@ public sealed class MainWindow : Window
     private readonly TextBlock _historyDescriptionText = Description();
     private readonly TextBlock _snippetHeaderText = Header();
     private readonly TextBlock _snippetDescriptionText = Description();
+    private readonly TextBlock _snippetFormTitle = Header(18);
     private readonly ComboBox _hotkeyBox = new();
     private readonly ComboBox _themeBox = new();
     private readonly ComboBox _localeBox = new();
@@ -43,11 +46,14 @@ public sealed class MainWindow : Window
     private readonly Button _registerFromHistoryButton = new();
     private readonly Button _clearButton = new();
     private readonly TextBlock _selectedSnippetText = Description();
+    private readonly Button _newSnippetButton = new();
+    private readonly Button _saveSnippetButton = new();
     private readonly Button _pasteSnippetButton = new();
     private readonly Button _deleteSnippetButton = new();
     private string? _selectedHistoryId;
     private SnippetItemViewModel? _selectedSnippet;
     private bool _loading;
+    private int _selectedPageIndex;
 
     public MainWindow(CliptonRuntime runtime)
     {
@@ -100,8 +106,11 @@ public sealed class MainWindow : Window
         _historyDescriptionText.Text = t("HistoryDescription");
         _snippetHeaderText.Text = t("Snippets");
         _snippetDescriptionText.Text = t("SnippetDescription");
+        _snippetFormTitle.Text = t("SnippetEditor");
         _registerFromHistoryButton.Content = t("RegisterFromHistory");
         _clearButton.Content = t("ClearHistory");
+        _newSnippetButton.Content = t("NewSnippet");
+        _saveSnippetButton.Content = t("EditSnippet");
         _pasteSnippetButton.Content = t("Paste");
         _deleteSnippetButton.Content = t("Delete");
         SetComboBoxText(_themeBox, "light", t("ThemeLight"));
@@ -133,6 +142,13 @@ public sealed class MainWindow : Window
         _historyNavButton.Click += (_, _) => SelectPage(1);
         _snippetNavButton.Click += (_, _) => SelectPage(2);
         _navButtons.AddRange([_generalNavButton, _historyNavButton, _snippetNavButton]);
+        foreach (var button in _navButtons)
+        {
+            button.HorizontalAlignment = HorizontalAlignment.Stretch;
+            button.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+            button.Padding = new Thickness(10, 9, 10, 9);
+            button.BorderThickness = new Thickness(1);
+        }
         _sidebar.Children.Add(_generalNavButton);
         _sidebar.Children.Add(_historyNavButton);
         _sidebar.Children.Add(_snippetNavButton);
@@ -227,9 +243,17 @@ public sealed class MainWindow : Window
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.Children.Add(Card(_snippetItemsPanel));
 
-        var details = new StackPanel { Spacing = 10 };
+        var details = new StackPanel { Spacing = 12 };
+        details.Children.Add(_snippetFormTitle);
         details.Children.Add(_selectedSnippetText);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
+        _newSnippetButton.Click += (_, _) => OpenSnippetEditor(null, string.Empty, string.Empty, string.Empty);
+        _saveSnippetButton.Click += (_, _) =>
+        {
+            if (_selectedSnippet is null) return;
+            var snippet = _runtime.Snippets.Find(_selectedSnippet.Folder, _selectedSnippet.Name);
+            OpenSnippetEditor(_selectedSnippet, snippet?.Folder ?? _selectedSnippet.Folder, snippet?.Name ?? _selectedSnippet.Name, snippet?.Text ?? string.Empty);
+        };
         _pasteSnippetButton.Click += (_, _) =>
         {
             if (_selectedSnippet is not null)
@@ -245,6 +269,8 @@ public sealed class MainWindow : Window
             UpdateSelectedSnippetText();
             RefreshItems();
         };
+        buttons.Children.Add(_newSnippetButton);
+        buttons.Children.Add(_saveSnippetButton);
         buttons.Children.Add(_pasteSnippetButton);
         buttons.Children.Add(_deleteSnippetButton);
         details.Children.Add(buttons);
@@ -277,8 +303,8 @@ public sealed class MainWindow : Window
         if (_selectedHistoryId is null) return;
         var item = _runtime.History.Find(_selectedHistoryId);
         if (string.IsNullOrWhiteSpace(item?.Text)) return;
-        _runtime.UpsertSnippet("History", CreateSnippetName(item.Text), item.Text);
         SelectPage(2);
+        OpenSnippetEditor(null, "History", CreateSnippetName(item.Text), item.Text);
     }
 
     private void SelectSnippet(SnippetItemViewModel selected)
@@ -290,19 +316,121 @@ public sealed class MainWindow : Window
     private void UpdateSelectedSnippetText()
     {
         _selectedSnippetText.Text = _selectedSnippet is null
-            ? _runtime.Translate("Snippets")
+            ? _runtime.Translate("SnippetEditorEmpty")
             : $"{_selectedSnippet.DisplayName}\n{_selectedSnippet.Folder}";
     }
 
+    private void OpenSnippetEditor(SnippetItemViewModel? existing, string folder, string name, string text)
+    {
+        using var form = new Forms.Form
+        {
+            Text = _runtime.Translate("SnippetEditor"),
+            Width = 560,
+            Height = 460,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            FormBorderStyle = Forms.FormBorderStyle.FixedDialog,
+            StartPosition = Forms.FormStartPosition.CenterScreen,
+            BackColor = IsDark ? System.Drawing.Color.FromArgb(32, 32, 32) : System.Drawing.Color.White,
+            ForeColor = IsDark ? System.Drawing.Color.White : System.Drawing.Color.Black
+        };
+
+        var table = new Forms.TableLayoutPanel
+        {
+            Dock = Forms.DockStyle.Fill,
+            Padding = new Forms.Padding(18),
+            ColumnCount = 2,
+            RowCount = 5
+        };
+        table.ColumnStyles.Add(new Forms.ColumnStyle(Forms.SizeType.Absolute, 96));
+        table.ColumnStyles.Add(new Forms.ColumnStyle(Forms.SizeType.Percent, 100));
+        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 36));
+        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 36));
+        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Percent, 100));
+        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 12));
+        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 44));
+
+        var folderBox = DialogTextBox(folder);
+        var nameBox = DialogTextBox(name);
+        var textBox = DialogTextBox(text);
+        textBox.Multiline = true;
+        textBox.ScrollBars = Forms.ScrollBars.Vertical;
+        textBox.AcceptsReturn = true;
+
+        table.Controls.Add(DialogLabel(_runtime.Translate("SnippetFolder")), 0, 0);
+        table.Controls.Add(folderBox, 1, 0);
+        table.Controls.Add(DialogLabel(_runtime.Translate("SnippetName")), 0, 1);
+        table.Controls.Add(nameBox, 1, 1);
+        table.Controls.Add(DialogLabel(_runtime.Translate("SnippetText")), 0, 2);
+        table.Controls.Add(textBox, 1, 2);
+
+        var buttons = new Forms.FlowLayoutPanel
+        {
+            FlowDirection = Forms.FlowDirection.RightToLeft,
+            Dock = Forms.DockStyle.Fill
+        };
+        var saveButton = new Forms.Button { Text = _runtime.Translate("Save"), DialogResult = Forms.DialogResult.OK, Width = 96 };
+        var cancelButton = new Forms.Button { Text = _runtime.Translate("Cancel"), DialogResult = Forms.DialogResult.Cancel, Width = 96 };
+        buttons.Controls.Add(saveButton);
+        buttons.Controls.Add(cancelButton);
+        table.Controls.Add(buttons, 0, 4);
+        table.SetColumnSpan(buttons, 2);
+
+        form.Controls.Add(table);
+        form.AcceptButton = saveButton;
+        form.CancelButton = cancelButton;
+        if (form.ShowDialog() != Forms.DialogResult.OK)
+        {
+            return;
+        }
+
+        var newName = nameBox.Text.Trim();
+        var newText = textBox.Text;
+        if (string.IsNullOrWhiteSpace(newName) || string.IsNullOrWhiteSpace(newText))
+        {
+            return;
+        }
+
+        var newFolder = folderBox.Text.Trim();
+        if (existing is not null
+            && (!string.Equals(existing.Name, newName, StringComparison.Ordinal)
+                || !string.Equals(existing.Folder, newFolder, StringComparison.Ordinal)))
+        {
+            _runtime.RemoveSnippet(existing.Folder, existing.Name);
+        }
+
+        _runtime.UpsertSnippet(newFolder, newName, newText);
+        _selectedSnippet = SnippetItemViewModel.FromSnippet(new Snippet(newName, newText, newFolder));
+        UpdateSelectedSnippetText();
+        RefreshItems();
+    }
+
+    private Forms.Label DialogLabel(string text) => new()
+    {
+        Text = text,
+        Dock = Forms.DockStyle.Fill,
+        TextAlign = System.Drawing.ContentAlignment.MiddleLeft
+    };
+
+    private Forms.TextBox DialogTextBox(string text) => new()
+    {
+        Text = text,
+        Dock = Forms.DockStyle.Fill,
+        BackColor = IsDark ? System.Drawing.Color.FromArgb(43, 43, 43) : System.Drawing.Color.White,
+        ForeColor = IsDark ? System.Drawing.Color.White : System.Drawing.Color.Black,
+        BorderStyle = Forms.BorderStyle.FixedSingle
+    };
+
     private void SelectPage(int index)
     {
+        _selectedPageIndex = index;
         _generalPage.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
         _historyPage.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
         _snippetPage.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
         for (var i = 0; i < _navButtons.Count; i++)
         {
-            _navButtons[i].Background = i == index ? AccentBrush(36) : Brush("#00FFFFFF");
-            _navButtons[i].BorderBrush = i == index ? AccentBrush(72) : Brush("#00FFFFFF");
+            _navButtons[i].Background = i == index ? AccentBrush(34) : Brush("#00FFFFFF");
+            _navButtons[i].BorderBrush = i == index ? AccentBrush(68) : Brush("#00FFFFFF");
         }
     }
 
@@ -311,12 +439,14 @@ public sealed class MainWindow : Window
         var dark = IsDark;
         _root.RequestedTheme = dark ? ElementTheme.Dark : ElementTheme.Light;
         _root.Background = Brush(dark ? "#202020" : "#F5F5F5");
-        _sidebar.Background = Brush(dark ? "#191919" : "#FBFBFB");
+        _sidebar.Background = Brush(dark ? "#171717" : "#F7F7F7");
+        ApplyTitleBarTheme();
         foreach (var card in _cards)
         {
             card.Background = CardBackground();
             card.BorderBrush = CardBorderBrush();
         }
+        SelectPage(_selectedPageIndex);
     }
 
     private bool IsDark => string.Equals(_runtime.Settings.Theme, "dark", StringComparison.OrdinalIgnoreCase);
@@ -445,6 +575,24 @@ public sealed class MainWindow : Window
         appWindow.Resize(new SizeInt32(1120, 760));
     }
 
+    private void ApplyTitleBarTheme()
+    {
+        var hwnd = WindowNative.GetWindowHandle(this);
+        if (hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var dark = IsDark;
+        var darkMode = dark ? 1 : 0;
+        _ = DwmSetWindowAttribute(hwnd, 20, ref darkMode, sizeof(int));
+
+        var captionColor = ColorRef(dark ? "#171717" : "#F7F7F7");
+        var textColor = ColorRef(dark ? "#F3F3F3" : "#1F1F1F");
+        _ = DwmSetWindowAttribute(hwnd, 35, ref captionColor, sizeof(int));
+        _ = DwmSetWindowAttribute(hwnd, 36, ref textColor, sizeof(int));
+    }
+
     private Brush CardBackground() => Brush(IsDark ? "#2B2B2B" : "#FFFFFF");
 
     private Brush CardBorderBrush() => Brush(IsDark ? "#3F3F3F" : "#E5E5E5");
@@ -470,6 +618,17 @@ public sealed class MainWindow : Window
             Convert.ToByte(color.Substring(3, 2), 16),
             Convert.ToByte(color.Substring(5, 2), 16)));
     }
+
+    private static int ColorRef(string color)
+    {
+        var r = Convert.ToByte(color.Substring(1, 2), 16);
+        var g = Convert.ToByte(color.Substring(3, 2), 16);
+        var b = Convert.ToByte(color.Substring(5, 2), 16);
+        return r | (g << 8) | (b << 16);
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int attributeValue, int attributeSize);
 
     private static TextBlock Header(double size = 28) => new() { FontSize = size, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
 
