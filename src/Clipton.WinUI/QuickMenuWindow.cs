@@ -46,6 +46,7 @@ public sealed class QuickMenuWindow : Window
     private long _focusToken;
     private IReadOnlyList<QuickMenuItem> _currentItems;
     private bool _rebuildingFlyout;
+    private QuickMenuWindow? _replacementWindow;
 
     public QuickMenuWindow(
         string title,
@@ -287,23 +288,28 @@ public sealed class QuickMenuWindow : Window
 
     private void SearchMenu()
     {
+        _rebuildingFlyout = true;
         var query = PromptForSearch();
         if (query is null)
         {
+            _opened = false;
+            BuildFlyout();
+            ShowFlyout();
+            EnqueueAfterDelay(300, () => _rebuildingFlyout = false);
             return;
         }
 
         var normalizedQuery = query.Trim();
-        _currentItems = string.IsNullOrWhiteSpace(normalizedQuery)
+        var resultItems = string.IsNullOrWhiteSpace(normalizedQuery)
             ? _rootItems
             : FlattenSearchableItems(_rootItems)
                 .Where(item => MatchesSearch(item, normalizedQuery))
                 .Take(50)
                 .ToArray();
 
-        if (_currentItems.Count == 0)
+        if (resultItems.Count == 0)
         {
-            _currentItems =
+            resultItems =
             [
                 new QuickMenuItem(
                     string.Format(_noSearchResultsText, normalizedQuery),
@@ -315,12 +321,26 @@ public sealed class QuickMenuWindow : Window
             ];
         }
 
-        _rebuildingFlyout = true;
+        ShowReplacementMenu(resultItems);
+    }
+
+    private void ShowReplacementMenu(IReadOnlyList<QuickMenuItem> items)
+    {
         _flyout.Hide();
-        BuildFlyout();
-        _opened = false;
-        ShowFlyout();
-        _ = Task.Delay(250).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => _rebuildingFlyout = false));
+        _appWindow?.Hide();
+        UninstallKeyboardHook();
+        _replacementWindow = new QuickMenuWindow(
+            _searchTitle,
+            items,
+            _theme,
+            _simpleMode,
+            _searchTitle,
+            _searchPrompt,
+            _searchButtonText,
+            _cancelButtonText,
+            _noSearchResultsText);
+        _replacementWindow.Dismissed += (_, _) => Dismiss();
+        _replacementWindow.FocusMenu();
     }
 
     private string? PromptForSearch()
@@ -376,9 +396,28 @@ public sealed class QuickMenuWindow : Window
         form.Controls.Add(layout);
         form.AcceptButton = searchButton;
         form.CancelButton = cancelButton;
-        form.Shown += (_, _) => input.Focus();
+        form.Shown += (_, _) =>
+        {
+            ApplyFormTitleBarTheme(form);
+            input.Focus();
+        };
 
         return form.ShowDialog() == Forms.DialogResult.OK ? input.Text : null;
+    }
+
+    private void ApplyFormTitleBarTheme(Forms.Form form)
+    {
+        if (!string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase) || form.Handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var darkMode = 1;
+        _ = DwmSetWindowAttribute(form.Handle, 20, ref darkMode, sizeof(int));
+        var captionColor = ColorRef("#202020");
+        var textColor = ColorRef("#F3F3F3");
+        _ = DwmSetWindowAttribute(form.Handle, 35, ref captionColor, sizeof(int));
+        _ = DwmSetWindowAttribute(form.Handle, 36, ref textColor, sizeof(int));
     }
 
     private static IEnumerable<QuickMenuItem> FlattenSearchableItems(IEnumerable<QuickMenuItem> items)
@@ -739,6 +778,17 @@ public sealed class QuickMenuWindow : Window
 
         return null;
     }
+
+    private static int ColorRef(string color)
+    {
+        var r = Convert.ToByte(color.Substring(1, 2), 16);
+        var g = Convert.ToByte(color.Substring(3, 2), 16);
+        var b = Convert.ToByte(color.Substring(5, 2), 16);
+        return r | (g << 8) | (b << 16);
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int attributeValue, int attributeSize);
 
     private void MakeHostWindowTransparent()
     {

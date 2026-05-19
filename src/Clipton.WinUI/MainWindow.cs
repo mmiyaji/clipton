@@ -247,7 +247,7 @@ public sealed class MainWindow : Window
         _historyPage.Children.Add(SettingCard("\uE8A5", "SimpleContextMenuMode", "SimpleContextMenuModeDescription", _simpleContextMenuToggle));
 
         _historyPage.Children.Add(SectionHeader("HistorySection"));
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Spacing = 8 };
         _registerFromHistoryButton.Click += (_, _) => RegisterSelectedHistory();
         _clearButton.Click += (_, _) => _runtime.ClearHistory();
         _searchHistoryButton.Click += (_, _) => SearchHistory();
@@ -446,6 +446,7 @@ public sealed class MainWindow : Window
         form.Controls.Add(table);
         form.AcceptButton = saveButton;
         form.CancelButton = cancelButton;
+        form.Shown += (_, _) => ApplyFormTitleBarTheme(form);
         if (form.ShowDialog() != Forms.DialogResult.OK)
         {
             return;
@@ -533,6 +534,7 @@ public sealed class MainWindow : Window
         form.CancelButton = cancelButton;
         form.Shown += (_, _) =>
         {
+            ApplyFormTitleBarTheme(form);
             input.Focus();
             input.SelectAll();
         };
@@ -710,6 +712,21 @@ public sealed class MainWindow : Window
         var textColor = ColorRef(dark ? "#F3F3F3" : "#1F1F1F");
         _ = DwmSetWindowAttribute(hwnd, 35, ref captionColor, sizeof(int));
         _ = DwmSetWindowAttribute(hwnd, 36, ref textColor, sizeof(int));
+    }
+
+    private void ApplyFormTitleBarTheme(Forms.Form form)
+    {
+        if (!IsDark || form.Handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var darkMode = 1;
+        _ = DwmSetWindowAttribute(form.Handle, 20, ref darkMode, sizeof(int));
+        var captionColor = ColorRef("#202020");
+        var textColor = ColorRef("#F3F3F3");
+        _ = DwmSetWindowAttribute(form.Handle, 35, ref captionColor, sizeof(int));
+        _ = DwmSetWindowAttribute(form.Handle, 36, ref textColor, sizeof(int));
     }
 
     private Brush CardBackground() => Brush(IsDark ? "#2B2B2B" : "#FFFFFF");
