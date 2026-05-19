@@ -4,6 +4,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Graphics;
 using Windows.System;
@@ -21,6 +22,8 @@ public sealed class QuickMenuWindow : Window
     private readonly string _theme;
     private readonly bool _simpleMode;
     private readonly NativeMethods.LowLevelKeyboardProc _keyboardProc;
+    private readonly List<MenuFlyoutItemBase> _focusableItems = [];
+    private int _focusedIndex = -1;
     private AppWindow? _appWindow;
     private IntPtr _hwnd;
     private IntPtr _keyboardHook;
@@ -89,6 +92,14 @@ public sealed class QuickMenuWindow : Window
         InstallKeyboardHook();
         FocusHostWindow();
         _flyout.ShowAt(_host);
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            _ = Task.Delay(180).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
+            {
+                FocusHostWindow();
+                FocusMenuItem(0);
+            }));
+        });
     }
 
     private void FocusHostWindow()
@@ -136,19 +147,19 @@ public sealed class QuickMenuWindow : Window
             case NativeMethods.VkDown:
                 if (ShouldHandleNavigationKey(key))
                 {
-                    DispatcherQueue.TryEnqueue(() => _navigator.MoveSelection(1));
+                    DispatcherQueue.TryEnqueue(() => FocusMenuItem(_focusedIndex + 1));
                 }
                 break;
             case NativeMethods.VkUp:
                 if (ShouldHandleNavigationKey(key))
                 {
-                    DispatcherQueue.TryEnqueue(() => _navigator.MoveSelection(-1));
+                    DispatcherQueue.TryEnqueue(() => FocusMenuItem(_focusedIndex - 1));
                 }
                 break;
             case NativeMethods.VkReturn:
                 DispatcherQueue.TryEnqueue(() =>
                 {
-                    if (_navigator.SelectedItem is { } item)
+                    if (GetFocusedMenuItem() is { } item)
                     {
                         Invoke(item, asPlainText: false);
                     }
@@ -157,7 +168,7 @@ public sealed class QuickMenuWindow : Window
             case 'T':
                 DispatcherQueue.TryEnqueue(() =>
                 {
-                    if (_navigator.SelectedItem is { } item)
+                    if (GetFocusedMenuItem() is { } item)
                     {
                         Invoke(item, asPlainText: true);
                     }
@@ -193,6 +204,8 @@ public sealed class QuickMenuWindow : Window
     {
         _flyout.Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft;
         _flyout.Items.Clear();
+        _focusableItems.Clear();
+        _focusedIndex = -1;
         AddItems(_flyout.Items, _navigator.Items);
     }
 
@@ -217,6 +230,8 @@ public sealed class QuickMenuWindow : Window
                         FontFamily = new FontFamily("Segoe Fluent Icons")
                     }
                 };
+                _focusableItems.Add(subItem);
+                subItem.Tag = item;
                 AddItems(subItem.Items, item.GetChildren());
                 target.Add(subItem);
                 continue;
@@ -227,6 +242,8 @@ public sealed class QuickMenuWindow : Window
                 Text = TrimForMenu(item.Title),
                 KeyboardAcceleratorTextOverride = item.CommandHint
             };
+            _focusableItems.Add(flyoutItem);
+            flyoutItem.Tag = item;
             flyoutItem.Click += (_, _) => Invoke(item, asPlainText: false);
             target.Add(flyoutItem);
 
@@ -242,10 +259,38 @@ public sealed class QuickMenuWindow : Window
                         FontFamily = new FontFamily("Segoe Fluent Icons")
                     }
                 };
+                _focusableItems.Add(plainTextItem);
+                plainTextItem.Tag = item;
                 plainTextItem.Click += (_, _) => Invoke(item, asPlainText: true);
                 target.Add(plainTextItem);
             }
         }
+    }
+
+    private QuickMenuItem? GetFocusedMenuItem()
+    {
+        if (_host.XamlRoot is null)
+        {
+            return _navigator.SelectedItem;
+        }
+
+        return FocusManager.GetFocusedElement(_host.XamlRoot) switch
+        {
+            MenuFlyoutItem { Tag: QuickMenuItem item } => item,
+            MenuFlyoutSubItem { Tag: QuickMenuItem item } => item,
+            _ => _navigator.SelectedItem
+        };
+    }
+
+    private void FocusMenuItem(int index)
+    {
+        if (_focusableItems.Count == 0)
+        {
+            return;
+        }
+
+        _focusedIndex = (index + _focusableItems.Count) % _focusableItems.Count;
+        _focusableItems[_focusedIndex].Focus(FocusState.Keyboard);
     }
 
     private void Invoke(QuickMenuItem item, bool asPlainText)
