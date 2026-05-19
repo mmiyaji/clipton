@@ -21,6 +21,7 @@ public sealed class QuickMenuWindow : Window
     private readonly string _theme;
     private readonly bool _simpleMode;
     private readonly NativeMethods.LowLevelKeyboardProc _keyboardProc;
+    private MenuFlyoutItemBase? _firstFocusableItem;
     private AppWindow? _appWindow;
     private IntPtr _hwnd;
     private IntPtr _keyboardHook;
@@ -86,13 +87,13 @@ public sealed class QuickMenuWindow : Window
         }
 
         _opened = true;
+        InstallKeyboardHook();
         FocusHostWindow();
         _flyout.ShowAt(_host);
         DispatcherQueue.TryEnqueue(() =>
         {
             FocusHostWindow();
-            SelectFirstMenuItem();
-            InstallKeyboardHook();
+            _firstFocusableItem?.Focus(FocusState.Keyboard);
         });
     }
 
@@ -128,12 +129,6 @@ public sealed class QuickMenuWindow : Window
                 NativeMethods.AttachThreadInput(currentThread, foregroundThread, false);
             }
         }
-    }
-
-    private static void SelectFirstMenuItem()
-    {
-        NativeMethods.keybd_event(NativeMethods.VkDownByte, 0, 0, UIntPtr.Zero);
-        NativeMethods.keybd_event(NativeMethods.VkDownByte, 0, NativeMethods.KeyeventfKeyup, UIntPtr.Zero);
     }
 
     private void InstallKeyboardHook()
@@ -183,7 +178,13 @@ public sealed class QuickMenuWindow : Window
                 handled = false;
                 break;
             case NativeMethods.VkReturn:
-                handled = false;
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (_navigator.SelectedItem is { } item)
+                    {
+                        Invoke(item, asPlainText: false);
+                    }
+                });
                 break;
             case 'T':
                 DispatcherQueue.TryEnqueue(() =>
@@ -195,7 +196,7 @@ public sealed class QuickMenuWindow : Window
                 });
                 break;
             case NativeMethods.VkEscape:
-                handled = false;
+                DispatcherQueue.TryEnqueue(Dismiss);
                 break;
             default:
                 handled = false;
@@ -224,6 +225,7 @@ public sealed class QuickMenuWindow : Window
     {
         _flyout.Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft;
         _flyout.Items.Clear();
+        _firstFocusableItem = null;
         AddItems(_flyout.Items, _navigator.Items);
     }
 
@@ -248,6 +250,7 @@ public sealed class QuickMenuWindow : Window
                         FontFamily = new FontFamily("Segoe Fluent Icons")
                     }
                 };
+                _firstFocusableItem ??= subItem;
                 AddItems(subItem.Items, item.GetChildren());
                 target.Add(subItem);
                 continue;
@@ -258,6 +261,7 @@ public sealed class QuickMenuWindow : Window
                 Text = TrimForMenu(item.Title),
                 KeyboardAcceleratorTextOverride = item.CommandHint
             };
+            _firstFocusableItem ??= flyoutItem;
             flyoutItem.Click += (_, _) => Invoke(item, asPlainText: false);
             target.Add(flyoutItem);
 

@@ -6,13 +6,14 @@ internal static class NativeMethods
 {
     internal const int WmHotkey = 0x0312;
     internal const int WmClipboardUpdate = 0x031D;
+    internal const int WmAppRegisterHotkey = 0x8001;
+    internal const int WmAppDisposeHotkeyWindow = 0x8002;
     internal const uint ModAlt = 0x0001;
     internal const uint ModControl = 0x0002;
     internal const uint ModShift = 0x0004;
     internal const uint ModWin = 0x0008;
     internal const byte VkControl = 0x11;
     internal const byte VkV = 0x56;
-    internal const byte VkDownByte = 0x28;
     internal const int VkReturn = 0x0D;
     internal const int VkEscape = 0x1B;
     internal const int VkBack = 0x08;
@@ -55,6 +56,10 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     internal static extern IntPtr GetForegroundWindow();
 
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool PostMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool SetForegroundWindow(IntPtr hWnd);
@@ -88,6 +93,9 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     internal static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    internal static extern short GetAsyncKeyState(int vKey);
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
     internal static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);

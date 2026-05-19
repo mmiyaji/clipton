@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Clipton.Core;
 using Forms = System.Windows.Forms;
 
@@ -7,18 +8,18 @@ public sealed class HotkeyMessageWindow : IDisposable
 {
     private readonly ManualResetEventSlim _ready = new();
     private readonly Thread _thread;
-    private MessageForm? _form;
+    private MessageWindow? _window;
     private bool _disposed;
 
     public HotkeyMessageWindow(Action<IntPtr> onHotkey, Action onClipboardChanged)
     {
         _thread = new Thread(() =>
         {
-            using var form = new MessageForm(onHotkey, onClipboardChanged);
-            _ = form.Handle;
-            _form = form;
+            using var window = new MessageWindow(onHotkey, onClipboardChanged);
+            window.Create();
+            _window = window;
             _ready.Set();
-            Forms.Application.Run(new Forms.ApplicationContext());
+            Forms.Application.Run();
         })
         {
             IsBackground = true,
@@ -31,12 +32,12 @@ public sealed class HotkeyMessageWindow : IDisposable
 
     public void Register(HotkeyGesture gesture)
     {
-        if (_disposed || _form is null)
+        if (_disposed || _window is null)
         {
             return;
         }
 
-        _form.BeginInvoke(() => _form.Register(gesture));
+        _window.RequestRegister(gesture);
     }
 
     public void Dispose()
@@ -47,76 +48,125 @@ public sealed class HotkeyMessageWindow : IDisposable
         }
 
         _disposed = true;
-        if (_form is not null && !_form.IsDisposed)
-        {
-            _form.BeginInvoke(() =>
-            {
-                _form.Dispose();
-                Forms.Application.ExitThread();
-            });
-        }
-
+        _window?.RequestDispose();
         if (!_thread.Join(TimeSpan.FromSeconds(2)))
         {
             _thread.Interrupt();
         }
     }
 
-    private sealed class MessageForm : Forms.Form
+    private sealed class MessageWindow : Forms.NativeWindow, IDisposable
     {
         private const int HotkeyId = 0x434C;
         private readonly Action<IntPtr> _onHotkey;
         private readonly Action _onClipboardChanged;
+        private readonly object _registrationLock = new();
+        private readonly NativeMethods.LowLevelKeyboardProc _keyboardProc;
+        private HotkeyGesture? _pendingGesture;
+        private ManualResetEventSlim? _pendingRegistrationSignal;
+        private HotkeyGesture? _activeGesture;
+        private IntPtr _keyboardHook;
+        private long _lastHotkeyTick;
         private bool _registered;
+        private bool _disposed;
 
-        public MessageForm(Action<IntPtr> onHotkey, Action onClipboardChanged)
+        public MessageWindow(Action<IntPtr> onHotkey, Action onClipboardChanged)
         {
             _onHotkey = onHotkey;
             _onClipboardChanged = onClipboardChanged;
-            ShowInTaskbar = false;
-            FormBorderStyle = Forms.FormBorderStyle.None;
-            StartPosition = Forms.FormStartPosition.Manual;
-            Location = new System.Drawing.Point(-32000, -32000);
-            Size = new System.Drawing.Size(1, 1);
-            Opacity = 0;
+            _keyboardProc = OnKeyboardHook;
         }
 
-        protected override void SetVisibleCore(bool value)
+        public void Create()
         {
-            base.SetVisibleCore(false);
-        }
-
-        protected override void OnHandleCreated(EventArgs e)
-        {
-            base.OnHandleCreated(e);
+            CreateHandle(new Forms.CreateParams
+            {
+                Caption = "CliptonHotkeyMessageWindow",
+                X = -32000,
+                Y = -32000,
+                Width = 1,
+                Height = 1
+            });
             NativeMethods.AddClipboardFormatListener(Handle);
+            _keyboardHook = NativeMethods.SetWindowsHookEx(
+                NativeMethods.WhKeyboardLl,
+                _keyboardProc,
+                NativeMethods.GetModuleHandle(null),
+                0);
         }
 
-        protected override void OnHandleDestroyed(EventArgs e)
+        public void RequestRegister(HotkeyGesture gesture)
         {
+            using var signal = new ManualResetEventSlim();
+            lock (_registrationLock)
+            {
+                _pendingGesture = gesture;
+                _pendingRegistrationSignal = signal;
+            }
+
+            NativeMethods.PostMessage(Handle, NativeMethods.WmAppRegisterHotkey, IntPtr.Zero, IntPtr.Zero);
+            signal.Wait(TimeSpan.FromSeconds(1));
+        }
+
+        public void RequestDispose()
+        {
+            NativeMethods.PostMessage(Handle, NativeMethods.WmAppDisposeHotkeyWindow, IntPtr.Zero, IntPtr.Zero);
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
             if (_registered)
             {
                 NativeMethods.UnregisterHotKey(Handle, HotkeyId);
                 _registered = false;
+            }
+
+            if (_keyboardHook != IntPtr.Zero)
+            {
+                NativeMethods.UnhookWindowsHookEx(_keyboardHook);
+                _keyboardHook = IntPtr.Zero;
             }
 
             NativeMethods.RemoveClipboardFormatListener(Handle);
-            base.OnHandleDestroyed(e);
-        }
-
-        public void Register(HotkeyGesture gesture)
-        {
-            if (_registered)
-            {
-                NativeMethods.UnregisterHotKey(Handle, HotkeyId);
-                _registered = false;
-            }
-
-            _registered = NativeMethods.RegisterHotKey(Handle, HotkeyId, ToNativeModifiers(gesture.Modifiers), ToVirtualKey(gesture.Key));
+            DestroyHandle();
         }
 
         protected override void WndProc(ref Forms.Message m)
         {
+            if (m.Msg == NativeMethods.WmAppRegisterHotkey)
+            {
+                HotkeyGesture? gesture;
+                ManualResetEventSlim? signal;
+                lock (_registrationLock)
+                {
+                    gesture = _pendingGesture;
+                    _pendingGesture = null;
+                    signal = _pendingRegistrationSignal;
+                    _pendingRegistrationSignal = null;
+                }
+
+                if (gesture is not null)
+                {
+                    Register(gesture);
+                }
+
+                signal?.Set();
+                return;
+            }
+
+            if (m.Msg == NativeMethods.WmAppDisposeHotkeyWindow)
+            {
+                Dispose();
+                Forms.Application.ExitThread();
+                return;
+            }
+
             if (m.Msg == NativeMethods.WmHotkey && m.WParam.ToInt32() == HotkeyId)
             {
                 _onHotkey(NativeMethods.GetForegroundWindow());
@@ -130,6 +180,60 @@ public sealed class HotkeyMessageWindow : IDisposable
             }
 
             base.WndProc(ref m);
+        }
+
+        private void Register(HotkeyGesture gesture)
+        {
+            if (_registered)
+            {
+                NativeMethods.UnregisterHotKey(Handle, HotkeyId);
+                _registered = false;
+            }
+
+            _registered = NativeMethods.RegisterHotKey(Handle, HotkeyId, ToNativeModifiers(gesture.Modifiers), ToVirtualKey(gesture.Key));
+            _activeGesture = gesture;
+        }
+
+        private IntPtr OnKeyboardHook(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode < 0 || (wParam.ToInt32() != NativeMethods.WmKeydown && wParam.ToInt32() != NativeMethods.WmSyskeydown))
+            {
+                return NativeMethods.CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
+            }
+
+            var gesture = _activeGesture;
+            if (gesture is null)
+            {
+                return NativeMethods.CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
+            }
+
+            var key = Marshal.ReadInt32(lParam);
+            if (key == ToVirtualKey(gesture.Key) && ModifiersPressed(gesture.Modifiers))
+            {
+                var now = Environment.TickCount64;
+                if (now - _lastHotkeyTick > 250)
+                {
+                    _lastHotkeyTick = now;
+                    _onHotkey(NativeMethods.GetForegroundWindow());
+                }
+
+                return 1;
+            }
+
+            return NativeMethods.CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
+        }
+
+        private static bool ModifiersPressed(HotkeyModifiers modifiers)
+        {
+            return (!modifiers.HasFlag(HotkeyModifiers.Control) || IsKeyDown(0x11))
+                && (!modifiers.HasFlag(HotkeyModifiers.Shift) || IsKeyDown(0x10))
+                && (!modifiers.HasFlag(HotkeyModifiers.Alt) || IsKeyDown(0x12))
+                && (!modifiers.HasFlag(HotkeyModifiers.Windows) || IsKeyDown(0x5B) || IsKeyDown(0x5C));
+        }
+
+        private static bool IsKeyDown(int key)
+        {
+            return (NativeMethods.GetAsyncKeyState(key) & unchecked((short)0x8000)) != 0;
         }
 
         private static uint ToNativeModifiers(HotkeyModifiers modifiers)
