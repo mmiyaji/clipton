@@ -15,7 +15,7 @@ namespace Clipton.WinUI;
 
 public sealed class QuickMenuWindow : Window
 {
-    private const int MaxMenuTextLength = 56;
+    private const int MaxMenuLineLength = 34;
     private readonly QuickMenuNavigator _navigator;
     private readonly Grid _host = new();
     private readonly MenuFlyout _flyout = new();
@@ -266,7 +266,7 @@ public sealed class QuickMenuWindow : Window
             {
                 var subItem = new MenuFlyoutSubItem
                 {
-                    Text = TrimForMenu(item.Title),
+                    Text = FormatMenuText(item.Title),
                     Icon = new FontIcon
                     {
                         Glyph = "\uE8B7",
@@ -288,7 +288,7 @@ public sealed class QuickMenuWindow : Window
 
             var flyoutItem = new MenuFlyoutItem
             {
-                Text = TrimForMenu(item.Title),
+                Text = FormatMenuText(item.Title),
                 KeyboardAcceleratorTextOverride = item.CommandHint
             };
             focusableItems.Add(flyoutItem);
@@ -463,12 +463,21 @@ public sealed class QuickMenuWindow : Window
         NativeMethods.SetForegroundWindow(_hwnd);
     }
 
-    private static string TrimForMenu(string text)
+    private static string FormatMenuText(string text)
     {
         var normalized = string.Join(" ", text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-        return normalized.Length <= MaxMenuTextLength
-            ? normalized
-            : $"{normalized[..(MaxMenuTextLength - 1)]}\u2026";
+        if (normalized.Length <= MaxMenuLineLength)
+        {
+            return normalized;
+        }
+
+        var line1 = normalized[..MaxMenuLineLength].TrimEnd();
+        var remaining = normalized[MaxMenuLineLength..].TrimStart();
+        var line2 = remaining.Length <= MaxMenuLineLength
+            ? remaining
+            : $"{remaining[..(MaxMenuLineLength - 1)].TrimEnd()}\u2026";
+
+        return $"{line1}{Environment.NewLine}{line2}";
     }
 
     private void MakeHostWindowTransparent()
