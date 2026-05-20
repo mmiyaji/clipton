@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
 using WinRT.Interop;
 using Forms = System.Windows.Forms;
@@ -471,6 +472,7 @@ public sealed class MainWindow : Window
         using var form = new Forms.Form
         {
             Text = _runtime.Translate("SnippetEditor"),
+            Icon = AppAssets.LoadAppIcon(),
             Width = 560,
             Height = 460,
             MinimizeBox = false,
@@ -573,6 +575,7 @@ public sealed class MainWindow : Window
         using var form = new Forms.Form
         {
             Text = title,
+            Icon = AppAssets.LoadAppIcon(),
             Width = 440,
             Height = 170,
             MinimizeBox = false,
@@ -714,6 +717,7 @@ public sealed class MainWindow : Window
         using var form = new Forms.Form
         {
             Text = title,
+            Icon = AppAssets.LoadAppIcon(),
             Width = 640,
             Height = 520,
             MinimizeBox = false,
@@ -776,8 +780,8 @@ public sealed class MainWindow : Window
             Width = 42,
             Height = 42,
             CornerRadius = new CornerRadius(9),
-            Background = AccentBrush(48),
-            Child = new FontIcon { Glyph = "\uE8D5", FontFamily = new FontFamily("Segoe Fluent Icons"), FontSize = 20 }
+            Background = AccentBrush(24),
+            Child = CreateAppLogoImage(32)
         });
         Grid.SetColumn(_titleText, 1);
         _titleText.VerticalAlignment = VerticalAlignment.Center;
@@ -832,6 +836,11 @@ public sealed class MainWindow : Window
         var hwnd = WindowNative.GetWindowHandle(this);
         var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
         var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
+        if (File.Exists(AppAssets.AppIconPath))
+        {
+            appWindow.SetIcon(AppAssets.AppIconPath);
+        }
+
         appWindow.Resize(new SizeInt32(1120, 760));
     }
 
@@ -914,6 +923,15 @@ public sealed class MainWindow : Window
         MinWidth = 72,
         OnContent = string.Empty,
         OffContent = string.Empty
+    };
+
+    private static Image CreateAppLogoImage(double size) => new()
+    {
+        Width = size,
+        Height = size,
+        Source = File.Exists(AppAssets.AppImagePath)
+            ? new BitmapImage(new Uri(AppAssets.AppImagePath))
+            : null
     };
 
     private static void SetComboSelection(ComboBox comboBox, string tag)

@@ -320,7 +320,7 @@ public sealed class CliptonRuntime : IDisposable
     {
         _notifyIcon = new Forms.NotifyIcon
         {
-            Icon = LoadTrayIcon(),
+            Icon = AppAssets.LoadTrayIcon(),
             Text = "Clipton",
             Visible = true
         };
@@ -347,14 +347,6 @@ public sealed class CliptonRuntime : IDisposable
         menu.Items.Add(Translate("Settings"), null, (_, _) => _dispatcherQueue.TryEnqueue(ShowMainWindow));
         menu.Items.Add(Translate("Exit"), null, (_, _) => _dispatcherQueue.TryEnqueue(Application.Current.Exit));
         _notifyIcon.ContextMenuStrip = menu;
-    }
-
-    private static System.Drawing.Icon LoadTrayIcon()
-    {
-        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "CliptonTray.ico");
-        return File.Exists(iconPath)
-            ? new System.Drawing.Icon(iconPath)
-            : System.Drawing.SystemIcons.Application;
     }
 
     private void ShowQuickMenu()
