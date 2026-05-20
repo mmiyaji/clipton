@@ -16,8 +16,9 @@ public static class StartupRegistration
             return await SetPackagedStartupAsync(enabled);
         }
 
-        SetRegistryStartup(enabled);
-        return StartupRegistrationResult.Enabled;
+        return SetRegistryStartup(enabled)
+            ? enabled ? StartupRegistrationResult.Enabled : StartupRegistrationResult.Disabled
+            : StartupRegistrationResult.Unsupported;
     }
 
     private static async Task<StartupRegistrationResult> SetPackagedStartupAsync(bool enabled)
@@ -47,27 +48,40 @@ public static class StartupRegistration
         }
     }
 
-    private static void SetRegistryStartup(bool enabled)
+    private static bool SetRegistryStartup(bool enabled)
     {
-        using var key = Registry.CurrentUser.OpenSubKey(RunKey, writable: true);
-        if (key is null)
+        try
         {
-            return;
-        }
-
-        if (enabled)
-        {
-            var processPath = Environment.ProcessPath;
-            if (string.IsNullOrWhiteSpace(processPath))
+            using var key = Registry.CurrentUser.CreateSubKey(RunKey, writable: true);
+            if (key is null)
             {
-                return;
+                return false;
             }
 
-            key.SetValue(ValueName, $"\"{processPath}\"");
+            if (enabled)
+            {
+                var processPath = Environment.ProcessPath;
+                if (string.IsNullOrWhiteSpace(processPath) || !File.Exists(processPath))
+                {
+                    return false;
+                }
+
+                key.SetValue(ValueName, $"\"{processPath}\"");
+            }
+            else
+            {
+                key.DeleteValue(ValueName, throwOnMissingValue: false);
+            }
+
+            return true;
         }
-        else
+        catch (UnauthorizedAccessException)
         {
-            key.DeleteValue(ValueName, throwOnMissingValue: false);
+            return false;
+        }
+        catch (IOException)
+        {
+            return false;
         }
     }
 

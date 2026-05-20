@@ -121,11 +121,16 @@ public sealed class CliptonRuntime : IDisposable
 
     public async Task SetStartWithWindowsAsync(bool enabled)
     {
+        var previous = Settings.StartWithWindows;
         Settings.StartWithWindows = enabled;
         var result = await StartupRegistration.SetEnabledAsync(enabled);
         if (enabled && result is StartupRegistrationResult.Disabled or StartupRegistrationResult.DisabledByPolicy or StartupRegistrationResult.DisabledByUser or StartupRegistrationResult.Unsupported)
         {
             Settings.StartWithWindows = false;
+        }
+        else if (!enabled && result is StartupRegistrationResult.Unsupported)
+        {
+            Settings.StartWithWindows = previous;
         }
 
         SaveSettings();
