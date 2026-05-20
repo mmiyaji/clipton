@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Reflection;
 using Clipton.Core;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
@@ -64,6 +65,10 @@ public sealed class CliptonRuntime : IDisposable
     public string EffectiveTheme => ResolveTheme(Settings.Theme);
 
     public string Translate(string key) => _localization.Translate(EffectiveLocale, key);
+
+    public string AppVersion => GetAppVersion();
+
+    public string PackageStatus => GetPackageStatus();
 
     public void Start()
     {
@@ -496,6 +501,31 @@ public sealed class CliptonRuntime : IDisposable
         catch
         {
             return false;
+        }
+    }
+
+    private static string GetAppVersion()
+    {
+        var assembly = typeof(CliptonRuntime).Assembly;
+        var informationalVersion = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        if (!string.IsNullOrWhiteSpace(informationalVersion))
+        {
+            return informationalVersion;
+        }
+
+        return assembly.GetName().Version?.ToString() ?? "0.0.0";
+    }
+
+    private static string GetPackageStatus()
+    {
+        try
+        {
+            var id = Windows.ApplicationModel.Package.Current.Id;
+            return $"{id.Name} {id.Version.Major}.{id.Version.Minor}.{id.Version.Build}.{id.Version.Revision}";
+        }
+        catch (InvalidOperationException)
+        {
+            return "Unpackaged";
         }
     }
 

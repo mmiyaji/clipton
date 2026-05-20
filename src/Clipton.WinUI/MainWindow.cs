@@ -19,6 +19,7 @@ public sealed class MainWindow : Window
     private readonly StackPanel _generalPage = new() { Spacing = 18, MaxWidth = 920 };
     private readonly StackPanel _historyPage = new() { Spacing = 18, MaxWidth = 920 };
     private readonly StackPanel _snippetPage = new() { Spacing = 18, MaxWidth = 920 };
+    private readonly StackPanel _aboutPage = new() { Spacing = 18, MaxWidth = 920 };
     private readonly StackPanel _historyItemsPanel = new() { Spacing = 6 };
     private readonly StackPanel _snippetItemsPanel = new() { Spacing = 6 };
     private readonly List<Border> _cards = [];
@@ -26,6 +27,7 @@ public sealed class MainWindow : Window
     private readonly Button _generalNavButton = new();
     private readonly Button _historyNavButton = new();
     private readonly Button _snippetNavButton = new();
+    private readonly Button _aboutNavButton = new();
     private readonly TextBlock _titleText = Header(20);
     private readonly TextBlock _hotkeyText = Description();
     private readonly TextBlock _generalHeaderText = Header();
@@ -35,6 +37,8 @@ public sealed class MainWindow : Window
     private readonly TextBlock _snippetHeaderText = Header();
     private readonly TextBlock _snippetDescriptionText = Description();
     private readonly TextBlock _snippetFormTitle = Header(18);
+    private readonly TextBlock _aboutHeaderText = Header();
+    private readonly TextBlock _aboutDescriptionText = Description();
     private readonly ComboBox _hotkeyBox = new();
     private readonly ComboBox _themeBox = new();
     private readonly ComboBox _localeBox = new();
@@ -55,6 +59,8 @@ public sealed class MainWindow : Window
     private readonly Button _saveSnippetButton = new();
     private readonly Button _pasteSnippetButton = new();
     private readonly Button _deleteSnippetButton = new();
+    private readonly Button _termsButton = new();
+    private readonly Button _privacyButton = new();
     private string? _selectedHistoryId;
     private SnippetItemViewModel? _selectedSnippet;
     private string _historySearchQuery = string.Empty;
@@ -125,6 +131,7 @@ public sealed class MainWindow : Window
         _generalNavButton.Content = t("General");
         _historyNavButton.Content = t("History");
         _snippetNavButton.Content = t("Snippets");
+        _aboutNavButton.Content = t("About");
         _generalHeaderText.Text = t("General");
         _generalDescriptionText.Text = t("GeneralDescription");
         _historyHeaderText.Text = t("History");
@@ -132,6 +139,8 @@ public sealed class MainWindow : Window
         _snippetHeaderText.Text = t("Snippets");
         _snippetDescriptionText.Text = t("SnippetDescription");
         _snippetFormTitle.Text = t("SnippetEditor");
+        _aboutHeaderText.Text = t("About");
+        _aboutDescriptionText.Text = t("AboutDescription");
         _registerFromHistoryButton.Content = t("RegisterFromHistory");
         _clearButton.Content = t("ClearHistory");
         _searchHistoryButton.Content = t("Search");
@@ -141,6 +150,8 @@ public sealed class MainWindow : Window
         _saveSnippetButton.Content = t("EditSnippet");
         _pasteSnippetButton.Content = t("Paste");
         _deleteSnippetButton.Content = t("Delete");
+        _termsButton.Content = t("TermsOfUse");
+        _privacyButton.Content = t("PrivacyPolicy");
         SetComboBoxText(_themeBox, "system", t("ThemeSystem"));
         SetComboBoxText(_themeBox, "light", t("ThemeLight"));
         SetComboBoxText(_themeBox, "dark", t("ThemeDark"));
@@ -172,7 +183,8 @@ public sealed class MainWindow : Window
         _generalNavButton.Click += (_, _) => SelectPage(0);
         _historyNavButton.Click += (_, _) => SelectPage(1);
         _snippetNavButton.Click += (_, _) => SelectPage(2);
-        _navButtons.AddRange([_generalNavButton, _historyNavButton, _snippetNavButton]);
+        _aboutNavButton.Click += (_, _) => SelectPage(3);
+        _navButtons.AddRange([_generalNavButton, _historyNavButton, _snippetNavButton, _aboutNavButton]);
         foreach (var button in _navButtons)
         {
             button.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -183,6 +195,7 @@ public sealed class MainWindow : Window
         _sidebar.Children.Add(_generalNavButton);
         _sidebar.Children.Add(_historyNavButton);
         _sidebar.Children.Add(_snippetNavButton);
+        _sidebar.Children.Add(_aboutNavButton);
         _root.Children.Add(_sidebar);
 
         var scroller = new ScrollViewer { Padding = new Thickness(36, 30, 36, 42), VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
@@ -192,11 +205,13 @@ public sealed class MainWindow : Window
         contentHost.Children.Add(_generalPage);
         contentHost.Children.Add(_historyPage);
         contentHost.Children.Add(_snippetPage);
+        contentHost.Children.Add(_aboutPage);
         _root.Children.Add(scroller);
 
         BuildGeneralPage();
         BuildHistoryPage();
         BuildSnippetPage();
+        BuildAboutPage();
         SelectPage(0);
     }
 
@@ -380,6 +395,35 @@ public sealed class MainWindow : Window
         Grid.SetColumn(detailsCard, 1);
         grid.Children.Add(detailsCard);
         _snippetPage.Children.Add(grid);
+    }
+
+    private void BuildAboutPage()
+    {
+        _aboutPage.Children.Add(PageHeader(_aboutHeaderText, _aboutDescriptionText));
+
+        var info = new StackPanel { Spacing = 10 };
+        info.Children.Add(InfoRow("Product", "Clipton"));
+        info.Children.Add(InfoRow("Version", _runtime.AppVersion));
+        info.Children.Add(InfoRow("Package", _runtime.PackageStatus));
+        info.Children.Add(InfoRow("Publisher", "Clipton"));
+        info.Children.Add(InfoRow("Author", "Clipton contributors"));
+        info.Children.Add(InfoRow("License", _runtime.Translate("LicenseValue")));
+        _aboutPage.Children.Add(Card(info));
+
+        var documents = new StackPanel { Spacing = 10 };
+        documents.Children.Add(new TextBlock
+        {
+            Text = _runtime.Translate("LegalDescription"),
+            Foreground = DescriptionBrush(),
+            TextWrapping = TextWrapping.Wrap
+        });
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Spacing = 8 };
+        _termsButton.Click += (_, _) => ShowDocumentDialog(_runtime.Translate("TermsOfUse"), _runtime.Translate("TermsText"));
+        _privacyButton.Click += (_, _) => ShowDocumentDialog(_runtime.Translate("PrivacyPolicy"), _runtime.Translate("PrivacyText"));
+        buttons.Children.Add(_termsButton);
+        buttons.Children.Add(_privacyButton);
+        documents.Children.Add(buttons);
+        _aboutPage.Children.Add(Card(documents));
     }
 
     private async Task SetStartupAsync()
@@ -583,6 +627,7 @@ public sealed class MainWindow : Window
         _generalPage.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
         _historyPage.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
         _snippetPage.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
+        _aboutPage.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed;
         for (var i = 0; i < _navButtons.Count; i++)
         {
             _navButtons[i].Background = i == index ? AccentBrush(34) : Brush("#00FFFFFF");
@@ -641,6 +686,65 @@ public sealed class MainWindow : Window
         Grid.SetColumn(control, 2);
         grid.Children.Add(control);
         return Card(grid);
+    }
+
+    private UIElement InfoRow(string labelKey, string value)
+    {
+        var grid = new Grid { ColumnSpacing = 16 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.Children.Add(new TextBlock
+        {
+            Text = _runtime.Translate(labelKey),
+            Foreground = DescriptionBrush(),
+            TextWrapping = TextWrapping.Wrap
+        });
+        var valueText = new TextBlock
+        {
+            Text = value,
+            TextWrapping = TextWrapping.Wrap
+        };
+        Grid.SetColumn(valueText, 1);
+        grid.Children.Add(valueText);
+        return grid;
+    }
+
+    private void ShowDocumentDialog(string title, string text)
+    {
+        using var form = new Forms.Form
+        {
+            Text = title,
+            Width = 640,
+            Height = 520,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            FormBorderStyle = Forms.FormBorderStyle.FixedDialog,
+            StartPosition = Forms.FormStartPosition.CenterScreen,
+            BackColor = IsDark ? System.Drawing.Color.FromArgb(32, 32, 32) : System.Drawing.Color.White,
+            ForeColor = IsDark ? System.Drawing.Color.White : System.Drawing.Color.Black
+        };
+
+        var textBox = DialogTextBox(text);
+        textBox.Multiline = true;
+        textBox.ReadOnly = true;
+        textBox.ScrollBars = Forms.ScrollBars.Vertical;
+        textBox.Dock = Forms.DockStyle.Fill;
+        textBox.BorderStyle = Forms.BorderStyle.None;
+        var closeButton = new Forms.Button { Text = _runtime.Translate("Close"), DialogResult = Forms.DialogResult.OK, Width = 96 };
+        var buttons = new Forms.FlowLayoutPanel
+        {
+            FlowDirection = Forms.FlowDirection.RightToLeft,
+            Dock = Forms.DockStyle.Bottom,
+            Height = 48,
+            Padding = new Forms.Padding(0, 8, 12, 8)
+        };
+        buttons.Controls.Add(closeButton);
+        form.Controls.Add(textBox);
+        form.Controls.Add(buttons);
+        form.AcceptButton = closeButton;
+        form.CancelButton = closeButton;
+        form.Shown += (_, _) => ApplyFormTitleBarTheme(form);
+        form.ShowDialog();
     }
 
     private Button ItemButton(string title, string subtitle)
