@@ -208,14 +208,29 @@ public sealed class CliptonRuntime : IDisposable
         _mainWindow?.RefreshItems();
     }
 
-    public void SetHotkey(string hotkey)
+    public bool SetHotkey(string hotkey)
     {
-        if (HotkeyGesture.TryParse(hotkey, out var gesture))
+        if (!HotkeyGesture.TryParse(hotkey, out var gesture))
         {
-            Settings.Hotkey = gesture.ToString();
-            RegisterHotkey();
-            SaveSettings();
+            return false;
         }
+
+        var previousHotkey = Settings.Hotkey;
+        Settings.Hotkey = gesture.ToString();
+        if (!RegisterHotkey())
+        {
+            Settings.Hotkey = previousHotkey;
+            RegisterHotkey();
+            return false;
+        }
+
+        SaveSettings();
+        return true;
+    }
+
+    public bool ResetHotkey()
+    {
+        return SetHotkey(HotkeyGesture.Default.ToString());
     }
 
     public void SetLocale(string locale)
@@ -301,11 +316,11 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
-    private void RegisterHotkey()
+    private bool RegisterHotkey()
     {
         if (_messageWindow is null)
         {
-            return;
+            return false;
         }
 
         if (!HotkeyGesture.TryParse(Settings.Hotkey, out var gesture))
@@ -313,7 +328,7 @@ public sealed class CliptonRuntime : IDisposable
             gesture = HotkeyGesture.Default;
         }
 
-        _messageWindow.Register(gesture);
+        return _messageWindow.Register(gesture);
     }
 
     private void CreateTrayIcon()

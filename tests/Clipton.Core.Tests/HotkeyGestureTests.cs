@@ -19,6 +19,8 @@ public sealed class HotkeyGestureTests
     [InlineData("")]
     [InlineData("V")]
     [InlineData("Ctrl")]
+    [InlineData("Shift+V")]
+    [InlineData("Ctrl+Escape")]
     public void TryParse_RejectsInvalidGestures(string value)
     {
         Assert.False(HotkeyGesture.TryParse(value, out _));

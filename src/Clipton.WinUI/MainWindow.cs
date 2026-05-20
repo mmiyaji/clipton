@@ -41,6 +41,8 @@ public sealed class MainWindow : Window
     private readonly TextBlock _aboutHeaderText = Header();
     private readonly TextBlock _aboutDescriptionText = Description();
     private readonly ComboBox _hotkeyBox = new();
+    private readonly Button _captureHotkeyButton = new();
+    private readonly Button _resetHotkeyButton = new();
     private readonly ComboBox _themeBox = new();
     private readonly ComboBox _localeBox = new();
     private readonly ToggleSwitch _startupToggle = CompactToggle();
@@ -153,6 +155,8 @@ public sealed class MainWindow : Window
         _deleteSnippetButton.Content = t("Delete");
         _termsButton.Content = t("TermsOfUse");
         _privacyButton.Content = t("PrivacyPolicy");
+        _captureHotkeyButton.Content = t("CaptureHotkey");
+        _resetHotkeyButton.Content = t("ResetHotkey");
         SetComboBoxText(_themeBox, "system", t("ThemeSystem"));
         SetComboBoxText(_themeBox, "light", t("ThemeLight"));
         SetComboBoxText(_themeBox, "dark", t("ThemeDark"));
@@ -163,6 +167,7 @@ public sealed class MainWindow : Window
         _maskSensitiveContentToggle.IsOn = _runtime.Settings.MaskSensitiveContent;
         _folderModeToggle.IsOn = _runtime.Settings.FolderMode;
         _simpleContextMenuToggle.IsOn = _runtime.Settings.SimpleContextMenuMode;
+        EnsureHotkeyComboItem(_runtime.Settings.Hotkey);
         SetComboSelection(_hotkeyBox, _runtime.Settings.Hotkey);
         SetComboSelection(_themeBox, _runtime.Settings.Theme);
         SetComboSelection(_localeBox, _runtime.Settings.Locale);
@@ -228,10 +233,16 @@ public sealed class MainWindow : Window
         _hotkeyBox.SelectionChanged += (_, _) =>
         {
             if (_loading || (_hotkeyBox.SelectedItem as ComboBoxItem)?.Tag is not string hotkey) return;
-            _runtime.SetHotkey(hotkey);
-            RefreshTexts();
+            TryApplyHotkey(hotkey);
         };
-        _generalPage.Children.Add(SettingCard("\uE765", "Hotkey", "HotkeyDescription", _hotkeyBox));
+        _captureHotkeyButton.Click += (_, _) => CaptureCustomHotkey();
+        _resetHotkeyButton.Click += (_, _) => TryApplyHotkey(HotkeyGesture.Default.ToString());
+        var hotkeyControls = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
+        _hotkeyBox.MinWidth = 180;
+        hotkeyControls.Children.Add(_hotkeyBox);
+        hotkeyControls.Children.Add(_captureHotkeyButton);
+        hotkeyControls.Children.Add(_resetHotkeyButton);
+        _generalPage.Children.Add(SettingCard("\uE765", "Hotkey", "HotkeyDescription", hotkeyControls));
 
         _themeBox.Items.Add(new ComboBoxItem { Tag = "system" });
         _themeBox.Items.Add(new ComboBoxItem { Tag = "light" });
@@ -434,6 +445,36 @@ public sealed class MainWindow : Window
         RefreshTexts();
     }
 
+    private void TryApplyHotkey(string hotkey)
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        if (_runtime.SetHotkey(hotkey))
+        {
+            RefreshTexts();
+            return;
+        }
+
+        Forms.MessageBox.Show(
+            _runtime.Translate("HotkeyUnavailable"),
+            _runtime.Translate("Hotkey"),
+            Forms.MessageBoxButtons.OK,
+            Forms.MessageBoxIcon.Warning);
+        RefreshTexts();
+    }
+
+    private void CaptureCustomHotkey()
+    {
+        var hotkey = PromptForHotkey();
+        if (hotkey is not null)
+        {
+            TryApplyHotkey(hotkey);
+        }
+    }
+
     private void SaveHistoryOptions()
     {
         if (_loading) return;
@@ -624,6 +665,106 @@ public sealed class MainWindow : Window
         return form.ShowDialog() == Forms.DialogResult.OK ? input.Text : null;
     }
 
+    private string? PromptForHotkey()
+    {
+        using var form = new Forms.Form
+        {
+            Text = _runtime.Translate("CaptureHotkey"),
+            Icon = AppAssets.LoadAppIcon(),
+            Width = 460,
+            Height = 180,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            FormBorderStyle = Forms.FormBorderStyle.FixedDialog,
+            StartPosition = Forms.FormStartPosition.CenterScreen,
+            KeyPreview = true,
+            BackColor = IsDark ? System.Drawing.Color.FromArgb(32, 32, 32) : System.Drawing.Color.White,
+            ForeColor = IsDark ? System.Drawing.Color.White : System.Drawing.Color.Black
+        };
+
+        var layout = new Forms.TableLayoutPanel
+        {
+            Dock = Forms.DockStyle.Fill,
+            Padding = new Forms.Padding(16),
+            ColumnCount = 1,
+            RowCount = 3
+        };
+        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 34));
+        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 36));
+        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 44));
+
+        var captured = string.Empty;
+        var preview = DialogTextBox(string.Empty);
+        preview.ReadOnly = true;
+        preview.TextAlign = Forms.HorizontalAlignment.Center;
+        var okButton = new Forms.Button { Text = _runtime.Translate("Save"), DialogResult = Forms.DialogResult.OK, Width = 96, Enabled = false };
+        var cancelButton = new Forms.Button { Text = _runtime.Translate("Cancel"), DialogResult = Forms.DialogResult.Cancel, Width = 96 };
+        var buttons = new Forms.FlowLayoutPanel
+        {
+            FlowDirection = Forms.FlowDirection.RightToLeft,
+            Dock = Forms.DockStyle.Fill
+        };
+        buttons.Controls.Add(okButton);
+        buttons.Controls.Add(cancelButton);
+
+        form.KeyDown += (_, e) =>
+        {
+            e.SuppressKeyPress = true;
+            var hotkey = BuildHotkeyFromKeyEvent(e);
+            if (hotkey is null)
+            {
+                preview.Text = _runtime.Translate("HotkeyInvalid");
+                okButton.Enabled = false;
+                captured = string.Empty;
+                return;
+            }
+
+            preview.Text = hotkey;
+            captured = hotkey;
+            okButton.Enabled = true;
+        };
+
+        layout.Controls.Add(DialogLabel(_runtime.Translate("CaptureHotkeyPrompt")), 0, 0);
+        layout.Controls.Add(preview, 0, 1);
+        layout.Controls.Add(buttons, 0, 2);
+        form.Controls.Add(layout);
+        form.AcceptButton = okButton;
+        form.CancelButton = cancelButton;
+        form.Shown += (_, _) =>
+        {
+            ApplyFormTitleBarTheme(form);
+            preview.Focus();
+        };
+
+        return form.ShowDialog() == Forms.DialogResult.OK && !string.IsNullOrWhiteSpace(captured) ? captured : null;
+    }
+
+    private static string? BuildHotkeyFromKeyEvent(Forms.KeyEventArgs e)
+    {
+        var parts = new List<string>();
+        if (e.Control) parts.Add("Ctrl");
+        if (e.Shift) parts.Add("Shift");
+        if (e.Alt) parts.Add("Alt");
+
+        var key = e.KeyCode switch
+        {
+            Forms.Keys.ControlKey or Forms.Keys.ShiftKey or Forms.Keys.Menu or Forms.Keys.LControlKey or Forms.Keys.RControlKey or Forms.Keys.LShiftKey or Forms.Keys.RShiftKey or Forms.Keys.LMenu or Forms.Keys.RMenu => null,
+            Forms.Keys.Space => "Space",
+            >= Forms.Keys.A and <= Forms.Keys.Z => e.KeyCode.ToString(),
+            >= Forms.Keys.D0 and <= Forms.Keys.D9 => ((char)('0' + e.KeyCode - Forms.Keys.D0)).ToString(),
+            >= Forms.Keys.F1 and <= Forms.Keys.F24 => e.KeyCode.ToString(),
+            _ => null
+        };
+
+        if (key is null || !parts.Any(part => part is "Ctrl" or "Alt"))
+        {
+            return null;
+        }
+
+        parts.Add(key);
+        return string.Join("+", parts);
+    }
+
     private void SelectPage(int index)
     {
         _selectedPageIndex = index;
@@ -670,9 +811,13 @@ public sealed class MainWindow : Window
         return card;
     }
 
-    private UIElement SettingCard(string glyph, string titleKey, string descriptionKey, Control control)
+    private UIElement SettingCard(string glyph, string titleKey, string descriptionKey, FrameworkElement control)
     {
-        control.MinWidth = control is ToggleSwitch ? 0 : 220;
+        if (control is Control controlElement)
+        {
+            controlElement.MinWidth = control is ToggleSwitch ? 0 : 220;
+        }
+
         control.HorizontalAlignment = HorizontalAlignment.Right;
 
         var grid = new Grid { ColumnSpacing = 14, VerticalAlignment = VerticalAlignment.Center };
@@ -956,6 +1101,20 @@ public sealed class MainWindow : Window
                 return;
             }
         }
+    }
+
+    private void EnsureHotkeyComboItem(string hotkey)
+    {
+        foreach (ComboBoxItem item in _hotkeyBox.Items)
+        {
+            if (Equals(item.Tag, hotkey))
+            {
+                item.Content = hotkey;
+                return;
+            }
+        }
+
+        _hotkeyBox.Items.Add(new ComboBoxItem { Content = hotkey, Tag = hotkey });
     }
 
     private static string CreateSnippetName(string text)

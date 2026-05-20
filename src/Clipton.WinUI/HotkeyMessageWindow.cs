@@ -29,14 +29,14 @@ public sealed class HotkeyMessageWindow : IDisposable
         _ready.Wait();
     }
 
-    public void Register(HotkeyGesture gesture)
+    public bool Register(HotkeyGesture gesture)
     {
         if (_disposed || _window is null)
         {
-            return;
+            return false;
         }
 
-        _window.RequestRegister(gesture);
+        return _window.RequestRegister(gesture);
     }
 
     public void Dispose()
@@ -60,9 +60,9 @@ public sealed class HotkeyMessageWindow : IDisposable
         private readonly Action<IntPtr> _onHotkey;
         private readonly Action _onClipboardChanged;
         private readonly object _registrationLock = new();
-        private HotkeyGesture? _pendingGesture;
-        private ManualResetEventSlim? _pendingRegistrationSignal;
+        private RegistrationRequest? _pendingRegistration;
         private bool _registered;
+        private HotkeyGesture? _registeredGesture;
         private bool _disposed;
 
         public MessageWindow(Action<IntPtr> onHotkey, Action onClipboardChanged)
@@ -84,17 +84,16 @@ public sealed class HotkeyMessageWindow : IDisposable
             NativeMethods.AddClipboardFormatListener(Handle);
         }
 
-        public void RequestRegister(HotkeyGesture gesture)
+        public bool RequestRegister(HotkeyGesture gesture)
         {
-            using var signal = new ManualResetEventSlim();
+            var request = new RegistrationRequest(gesture);
             lock (_registrationLock)
             {
-                _pendingGesture = gesture;
-                _pendingRegistrationSignal = signal;
+                _pendingRegistration = request;
             }
 
             NativeMethods.PostMessage(Handle, NativeMethods.WmAppRegisterHotkey, IntPtr.Zero, IntPtr.Zero);
-            signal.Wait(TimeSpan.FromSeconds(1));
+            return request.Wait();
         }
 
         public void RequestDispose()
@@ -124,22 +123,17 @@ public sealed class HotkeyMessageWindow : IDisposable
         {
             if (m.Msg == NativeMethods.WmAppRegisterHotkey)
             {
-                HotkeyGesture? gesture;
-                ManualResetEventSlim? signal;
+                RegistrationRequest? request;
                 lock (_registrationLock)
                 {
-                    gesture = _pendingGesture;
-                    _pendingGesture = null;
-                    signal = _pendingRegistrationSignal;
-                    _pendingRegistrationSignal = null;
+                    request = _pendingRegistration;
+                    _pendingRegistration = null;
                 }
 
-                if (gesture is not null)
+                if (request is not null)
                 {
-                    Register(gesture);
+                    request.SetResult(Register(request.Gesture));
                 }
-
-                signal?.Set();
                 return;
             }
 
@@ -165,15 +159,25 @@ public sealed class HotkeyMessageWindow : IDisposable
             base.WndProc(ref m);
         }
 
-        private void Register(HotkeyGesture gesture)
+        private bool Register(HotkeyGesture gesture)
         {
+            var previousGesture = _registeredGesture;
             if (_registered)
             {
                 NativeMethods.UnregisterHotKey(Handle, HotkeyId);
                 _registered = false;
             }
 
-            _registered = NativeMethods.RegisterHotKey(Handle, HotkeyId, ToNativeModifiers(gesture.Modifiers), ToVirtualKey(gesture.Key));
+            var requestedRegistered = NativeMethods.RegisterHotKey(Handle, HotkeyId, ToNativeModifiers(gesture.Modifiers), ToVirtualKey(gesture.Key));
+            _registered = requestedRegistered;
+            _registeredGesture = requestedRegistered ? gesture : null;
+            if (!requestedRegistered && previousGesture is not null)
+            {
+                _registered = NativeMethods.RegisterHotKey(Handle, HotkeyId, ToNativeModifiers(previousGesture.Modifiers), ToVirtualKey(previousGesture.Key));
+                _registeredGesture = _registered ? previousGesture : null;
+            }
+
+            return requestedRegistered;
         }
 
         private static uint ToNativeModifiers(HotkeyModifiers modifiers)
@@ -202,7 +206,36 @@ public sealed class HotkeyMessageWindow : IDisposable
                 return (uint)(0x70 + functionKey - 1);
             }
 
+            if (string.Equals(key, "SPACE", StringComparison.OrdinalIgnoreCase))
+            {
+                return 0x20;
+            }
+
             return NativeMethods.VkV;
+        }
+
+        private sealed class RegistrationRequest
+        {
+            private readonly ManualResetEventSlim _signal = new();
+            private bool _success;
+
+            public RegistrationRequest(HotkeyGesture gesture)
+            {
+                Gesture = gesture;
+            }
+
+            public HotkeyGesture Gesture { get; }
+
+            public void SetResult(bool success)
+            {
+                _success = success;
+                _signal.Set();
+            }
+
+            public bool Wait()
+            {
+                return _signal.Wait(TimeSpan.FromSeconds(1)) && _success;
+            }
         }
     }
 }
