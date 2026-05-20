@@ -346,7 +346,7 @@ public sealed class CliptonRuntime : IDisposable
 
     private static System.Drawing.Icon LoadTrayIcon()
     {
-        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Clipton.ico");
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "CliptonTray.ico");
         return File.Exists(iconPath)
             ? new System.Drawing.Icon(iconPath)
             : System.Drawing.SystemIcons.Application;
