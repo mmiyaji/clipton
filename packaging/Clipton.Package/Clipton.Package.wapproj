@@ -17,7 +17,7 @@
     <AppxBundle>Always</AppxBundle>
     <AppxBundlePlatforms>x64</AppxBundlePlatforms>
     <AppxPackageDir>$(OutputPath)AppPackages\</AppxPackageDir>
-    <EntryPointProjectUniqueName>..\..\src\Clipton.App\Clipton.App.csproj</EntryPointProjectUniqueName>
+    <EntryPointProjectUniqueName>..\..\src\Clipton.WinUI\Clipton.WinUI.csproj</EntryPointProjectUniqueName>
     <TargetPlatformIdentifier>UAP</TargetPlatformIdentifier>
     <TargetPlatformVersion>10.0.22621.0</TargetPlatformVersion>
     <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
@@ -38,9 +38,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Clipton.App\Clipton.App.csproj">
-      <Project>{A9DD64EE-D1CE-4AD9-B977-BA990A80D7F4}</Project>
-      <Name>Clipton.App</Name>
+    <ProjectReference Include="..\..\src\Clipton.WinUI\Clipton.WinUI.csproj">
+      <Project>{5F3EEEB5-80B2-4DF4-8E3F-8DCFA71EB90D}</Project>
+      <Name>Clipton.WinUI</Name>
       <Private>false</Private>
       <SkipGetTargetFrameworkProperties>true</SkipGetTargetFrameworkProperties>
       <TrustLevel>Full</TrustLevel>

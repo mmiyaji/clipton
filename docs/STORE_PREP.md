@@ -1,12 +1,12 @@
 # Microsoft Store Preparation
 
-Last updated: 2026-05-16
+Last updated: 2026-05-21
 
 ## Required Before Store Submission
 
 - Use `packaging/Clipton.Package/Clipton.Package.wapproj` as the Windows Application Packaging Project.
 - Generate a Release `.msixupload` or `.appxupload` package for Partner Center.
-- Declare only required capabilities. WPF packaged desktop apps normally require `runFullTrust`.
+- Declare only required capabilities. The packaged WinUI desktop app currently requires `runFullTrust` for the global hotkey, tray resident behavior, and clipboard integration.
 - Keep `internetClient` absent until network features exist.
 - Move persistent app data to user-writable app data locations only.
 - Add Store metadata in English and Japanese.
@@ -24,11 +24,12 @@ Last updated: 2026-05-16
 
 ## Packaging Notes
 
-WPF does not produce MSIX by default. The intended release shape is:
+WinUI is the active release target. The intended release shape is:
 
-- `Clipton.App`: WPF desktop app.
+- `Clipton.WinUI`: WinUI desktop app.
 - Packaging project: MSIX/App Installer package with desktop bridge/full trust declaration.
 - Manifest startup task: `CliptonStartup`, disabled by default and controlled by the user.
+- Store listing assets are under `packaging/Clipton.Package/Images`.
 
 ## Local Build
 
@@ -41,3 +42,12 @@ msbuild packaging\Clipton.Package\Clipton.Package.wapproj /p:Configuration=Relea
 Production Store submission still requires Partner Center identity association and signing.
 
 Current source uses the packaged `StartupTask` API when Clipton has package identity, and falls back to the registry `Run` key only for unpackaged development builds.
+
+## Release Validation Checklist
+
+- Build and run `Clipton.WinUI` in Release configuration.
+- Build the MSIX package from `packaging/Clipton.Package`.
+- Install the package on a clean Windows user profile and verify first launch.
+- Verify tray icon visibility, settings launch, global hotkey, search, paste, startup toggle, and encrypted history persistence.
+- Verify Store screenshots and descriptions match the WinUI UI, not the previous WPF UI.
+- Confirm privacy policy and terms URLs are publicly reachable before Partner Center submission.

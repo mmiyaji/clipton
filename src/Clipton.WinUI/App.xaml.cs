@@ -8,13 +8,38 @@ public sealed class App : Application
 
     public static string[] LaunchArgs { get; set; } = [];
 
+    public App()
+    {
+        UnhandledException += (_, e) => AppDiagnostics.Log(e.Exception, "WinUI unhandled exception");
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            if (e.ExceptionObject is Exception exception)
+            {
+                AppDiagnostics.Log(exception, "AppDomain unhandled exception");
+            }
+        };
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            AppDiagnostics.Log(e.Exception, "Unobserved task exception");
+            e.SetObserved();
+        };
+    }
+
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        _runtime = new CliptonRuntime();
-        _runtime.Start();
-        if (LaunchArgs.Contains("--settings", StringComparer.OrdinalIgnoreCase))
+        try
         {
-            _runtime.ShowMainWindow();
+            _runtime = new CliptonRuntime();
+            _runtime.Start();
+            if (LaunchArgs.Contains("--settings", StringComparer.OrdinalIgnoreCase))
+            {
+                _runtime.ShowMainWindow();
+            }
+        }
+        catch (Exception exception)
+        {
+            AppDiagnostics.Log(exception, "Launch");
+            throw;
         }
     }
 }

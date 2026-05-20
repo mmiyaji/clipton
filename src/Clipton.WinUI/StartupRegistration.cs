@@ -57,7 +57,13 @@ public static class StartupRegistration
 
         if (enabled)
         {
-            key.SetValue(ValueName, Environment.ProcessPath ?? string.Empty);
+            var processPath = Environment.ProcessPath;
+            if (string.IsNullOrWhiteSpace(processPath))
+            {
+                return;
+            }
+
+            key.SetValue(ValueName, $"\"{processPath}\"");
         }
         else
         {

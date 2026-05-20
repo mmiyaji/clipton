@@ -28,7 +28,8 @@ public sealed class JsonSettingsStore
         }
 
         settings.MaxHistoryItems = Math.Clamp(Math.Max(settings.MaxHistoryItems, 200), 1, 500);
-        settings.Locale = string.IsNullOrWhiteSpace(settings.Locale) ? "en" : settings.Locale;
+        settings.Locale = NormalizeLocale(settings.Locale);
+        settings.Theme = NormalizeTheme(settings.Theme);
         return settings;
     }
 
@@ -41,5 +42,25 @@ public sealed class JsonSettingsStore
         }
 
         File.WriteAllText(_path, JsonSerializer.Serialize(settings, Options));
+    }
+
+    private static string NormalizeLocale(string? locale)
+    {
+        if (string.Equals(locale, "system", StringComparison.OrdinalIgnoreCase))
+        {
+            return "system";
+        }
+
+        return string.Equals(locale, "ja", StringComparison.OrdinalIgnoreCase) ? "ja" : "en";
+    }
+
+    private static string NormalizeTheme(string? theme)
+    {
+        if (string.Equals(theme, "system", StringComparison.OrdinalIgnoreCase))
+        {
+            return "system";
+        }
+
+        return string.Equals(theme, "dark", StringComparison.OrdinalIgnoreCase) ? "dark" : "light";
     }
 }
