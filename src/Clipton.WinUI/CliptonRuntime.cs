@@ -13,6 +13,7 @@ namespace Clipton.WinUI;
 public sealed class CliptonRuntime : IDisposable
 {
     private const int HistorySaveDebounceMilliseconds = 500;
+    private const int QuickMenuHotkeyDebounceMilliseconds = 160;
     private readonly DispatcherQueue _dispatcherQueue;
     private readonly LocalizationCatalog _localization = new();
     private readonly JsonSettingsStore _settingsStore;
@@ -27,6 +28,8 @@ public sealed class CliptonRuntime : IDisposable
     private MainWindow? _mainWindow;
     private QuickMenuWindow? _quickMenuWindow;
     private IntPtr _pasteTargetWindow;
+    private long _lastQuickMenuRequestTick;
+    private int _quickMenuRequestPending;
 
     public CliptonRuntime()
     {
@@ -233,8 +236,39 @@ public sealed class CliptonRuntime : IDisposable
 
     private void ShowQuickMenuOnUiThread(IntPtr pasteTargetWindow)
     {
+        var now = Environment.TickCount64;
+        if (now - Volatile.Read(ref _lastQuickMenuRequestTick) < QuickMenuHotkeyDebounceMilliseconds)
+        {
+            return;
+        }
+
+        if (Interlocked.Exchange(ref _quickMenuRequestPending, 1) == 1)
+        {
+            return;
+        }
+
         _pasteTargetWindow = pasteTargetWindow;
-        _dispatcherQueue.TryEnqueue(ShowQuickMenu);
+        if (!_dispatcherQueue.TryEnqueue(() =>
+        {
+            try
+            {
+                Volatile.Write(ref _lastQuickMenuRequestTick, Environment.TickCount64);
+                if (_quickMenuWindow is not null)
+                {
+                    _quickMenuWindow.FocusMenu();
+                    return;
+                }
+
+                ShowQuickMenu();
+            }
+            finally
+            {
+                Volatile.Write(ref _quickMenuRequestPending, 0);
+            }
+        }))
+        {
+            Volatile.Write(ref _quickMenuRequestPending, 0);
+        }
     }
 
     private void CaptureClipboard()
