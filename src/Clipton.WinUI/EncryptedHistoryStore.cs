@@ -7,6 +7,7 @@ namespace Clipton.WinUI;
 public sealed class EncryptedHistoryStore
 {
     private readonly string _path;
+    private readonly object _syncRoot = new();
 
     public EncryptedHistoryStore(string path)
     {
@@ -15,47 +16,58 @@ public sealed class EncryptedHistoryStore
 
     public IReadOnlyList<ClipboardSnapshot> Load()
     {
-        if (!File.Exists(_path))
+        lock (_syncRoot)
         {
-            return [];
-        }
+            if (!File.Exists(_path))
+            {
+                return [];
+            }
 
-        try
-        {
-            var encrypted = File.ReadAllBytes(_path);
-            var json = ProtectedData.Unprotect(encrypted, optionalEntropy: null, DataProtectionScope.CurrentUser);
-            var dto = JsonSerializer.Deserialize<ClipboardSnapshotDto[]>(json) ?? [];
-            return dto.Select(item => item.ToSnapshot()).ToArray();
-        }
-        catch (CryptographicException)
-        {
-            return [];
-        }
-        catch (JsonException)
-        {
-            return [];
+            try
+            {
+                var encrypted = File.ReadAllBytes(_path);
+                var json = ProtectedData.Unprotect(encrypted, optionalEntropy: null, DataProtectionScope.CurrentUser);
+                var dto = JsonSerializer.Deserialize<ClipboardSnapshotDto[]>(json) ?? [];
+                return dto.Select(item => item.ToSnapshot()).ToArray();
+            }
+            catch (CryptographicException)
+            {
+                return [];
+            }
+            catch (JsonException)
+            {
+                return [];
+            }
         }
     }
 
     public void Save(IEnumerable<ClipboardSnapshot> snapshots)
     {
-        var directory = Path.GetDirectoryName(_path);
-        if (!string.IsNullOrWhiteSpace(directory))
+        lock (_syncRoot)
         {
-            Directory.CreateDirectory(directory);
-        }
+            var directory = Path.GetDirectoryName(_path);
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
 
-        var dto = snapshots.Select(ClipboardSnapshotDto.FromSnapshot).ToArray();
-        var json = JsonSerializer.SerializeToUtf8Bytes(dto, new JsonSerializerOptions { WriteIndented = true });
-        var encrypted = ProtectedData.Protect(json, optionalEntropy: null, DataProtectionScope.CurrentUser);
-        File.WriteAllBytes(_path, encrypted);
+            var dto = snapshots.Select(ClipboardSnapshotDto.FromSnapshot).ToArray();
+            var json = JsonSerializer.SerializeToUtf8Bytes(dto, new JsonSerializerOptions { WriteIndented = true });
+            var encrypted = ProtectedData.Protect(json, optionalEntropy: null, DataProtectionScope.CurrentUser);
+            var tempPath = Path.Combine(directory ?? string.Empty, $"{Path.GetFileName(_path)}.{Guid.NewGuid():N}.tmp");
+            File.WriteAllBytes(tempPath, encrypted);
+            File.Move(tempPath, _path, overwrite: true);
+        }
     }
 
     public void Delete()
     {
-        if (File.Exists(_path))
+        lock (_syncRoot)
         {
-            File.Delete(_path);
+            if (File.Exists(_path))
+            {
+                File.Delete(_path);
+            }
         }
     }
 

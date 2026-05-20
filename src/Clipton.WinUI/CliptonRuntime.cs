@@ -12,12 +12,16 @@ namespace Clipton.WinUI;
 
 public sealed class CliptonRuntime : IDisposable
 {
+    private const int HistorySaveDebounceMilliseconds = 500;
     private readonly DispatcherQueue _dispatcherQueue;
     private readonly LocalizationCatalog _localization = new();
     private readonly JsonSettingsStore _settingsStore;
     private readonly EncryptedHistoryStore _historyStore;
     private readonly string _snippetPath;
     private readonly string _thumbnailPath;
+    private readonly object _historySaveGate = new();
+    private CancellationTokenSource? _historySaveDebounce;
+    private long _historySaveVersion;
     private HotkeyMessageWindow? _messageWindow;
     private Forms.NotifyIcon? _notifyIcon;
     private MainWindow? _mainWindow;
@@ -158,7 +162,7 @@ public sealed class CliptonRuntime : IDisposable
     {
         if (History.Remove(id))
         {
-            SaveHistory();
+            QueueHistorySave();
             _mainWindow?.RefreshItems();
         }
     }
@@ -248,7 +252,7 @@ public sealed class CliptonRuntime : IDisposable
 
         if (History.Add(snapshot))
         {
-            SaveHistory();
+            QueueHistorySave();
             _mainWindow?.RefreshItems();
         }
     }
@@ -403,14 +407,68 @@ public sealed class CliptonRuntime : IDisposable
 
     private void SaveHistory()
     {
+        Interlocked.Increment(ref _historySaveVersion);
+        lock (_historySaveGate)
+        {
+            _historySaveDebounce?.Cancel();
+            _historySaveDebounce = null;
+        }
+
         if (Settings.PersistEncryptedHistory)
         {
-            _historyStore.Save(History.Items);
+            _historyStore.Save(History.Items.ToArray());
         }
         else
         {
             _historyStore.Delete();
         }
+    }
+
+    private void QueueHistorySave()
+    {
+        if (!Settings.PersistEncryptedHistory)
+        {
+            return;
+        }
+
+        var snapshots = History.Items.ToArray();
+        var version = Interlocked.Increment(ref _historySaveVersion);
+        var cts = new CancellationTokenSource();
+        CancellationTokenSource? previous;
+        lock (_historySaveGate)
+        {
+            previous = _historySaveDebounce;
+            _historySaveDebounce = cts;
+        }
+
+        previous?.Cancel();
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(HistorySaveDebounceMilliseconds, cts.Token);
+                if (version == Volatile.Read(ref _historySaveVersion))
+                {
+                    _historyStore.Save(snapshots);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                lock (_historySaveGate)
+                {
+                    if (ReferenceEquals(_historySaveDebounce, cts))
+                    {
+                        _historySaveDebounce = null;
+                    }
+                }
+
+                cts.Dispose();
+            }
+        });
     }
 
     private void EnsureDefaultSnippets()
