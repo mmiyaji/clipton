@@ -141,8 +141,10 @@ public sealed class MainWindow : Window
         _saveSnippetButton.Content = t("EditSnippet");
         _pasteSnippetButton.Content = t("Paste");
         _deleteSnippetButton.Content = t("Delete");
+        SetComboBoxText(_themeBox, "system", t("ThemeSystem"));
         SetComboBoxText(_themeBox, "light", t("ThemeLight"));
         SetComboBoxText(_themeBox, "dark", t("ThemeDark"));
+        SetComboBoxText(_localeBox, "system", t("LanguageSystem"));
         _startupToggle.IsOn = _runtime.Settings.StartWithWindows;
         _pauseCaptureToggle.IsOn = _runtime.Settings.PauseCapture;
         _persistHistoryToggle.IsOn = _runtime.Settings.PersistEncryptedHistory;
@@ -215,6 +217,7 @@ public sealed class MainWindow : Window
         };
         _generalPage.Children.Add(SettingCard("\uE765", "Hotkey", "HotkeyDescription", _hotkeyBox));
 
+        _themeBox.Items.Add(new ComboBoxItem { Tag = "system" });
         _themeBox.Items.Add(new ComboBoxItem { Tag = "light" });
         _themeBox.Items.Add(new ComboBoxItem { Tag = "dark" });
         _themeBox.SelectionChanged += (_, _) =>
@@ -225,6 +228,7 @@ public sealed class MainWindow : Window
         };
         _generalPage.Children.Add(SettingCard("\uE790", "Theme", "ThemeDescription", _themeBox));
 
+        _localeBox.Items.Add(new ComboBoxItem { Tag = "system" });
         _localeBox.Items.Add(new ComboBoxItem { Content = "English", Tag = "en" });
         _localeBox.Items.Add(new ComboBoxItem { Content = "Japanese", Tag = "ja" });
         _localeBox.SelectionChanged += (_, _) =>
@@ -601,7 +605,7 @@ public sealed class MainWindow : Window
         SelectPage(_selectedPageIndex);
     }
 
-    private bool IsDark => string.Equals(_runtime.Settings.Theme, "dark", StringComparison.OrdinalIgnoreCase);
+    private bool IsDark => string.Equals(_runtime.EffectiveTheme, "dark", StringComparison.OrdinalIgnoreCase);
 
     private Border Card(UIElement child)
     {

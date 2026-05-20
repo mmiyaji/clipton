@@ -69,8 +69,10 @@ public sealed class LocalizationCatalog
                     ["HotkeyDescription"] = "Shortcut used to open the quick paste menu.",
                     ["Language"] = "Language",
                     ["LanguageDescription"] = "Choose the display language for Clipton.",
+                    ["LanguageSystem"] = "Use system setting",
                     ["Theme"] = "Theme",
                     ["ThemeDescription"] = "Choose the window color theme.",
+                    ["ThemeSystem"] = "Use system setting",
                     ["ThemeLight"] = "Light",
                     ["ThemeDark"] = "Dark"
                 }),
@@ -132,8 +134,10 @@ public sealed class LocalizationCatalog
                     ["HotkeyDescription"] = "\u30AF\u30A4\u30C3\u30AF\u8CBC\u308A\u4ED8\u3051\u30E1\u30CB\u30E5\u30FC\u3092\u958B\u304F\u30B7\u30E7\u30FC\u30C8\u30AB\u30C3\u30C8\u3067\u3059\u3002",
                     ["Language"] = "\u8A00\u8A9E",
                     ["LanguageDescription"] = "Clipton \u306E\u8868\u793A\u8A00\u8A9E\u3092\u9078\u629E\u3057\u307E\u3059\u3002",
+                    ["LanguageSystem"] = "\u30B7\u30B9\u30C6\u30E0\u8A2D\u5B9A\u3092\u4F7F\u7528",
                     ["Theme"] = "\u30C6\u30FC\u30DE",
                     ["ThemeDescription"] = "\u30A6\u30A3\u30F3\u30C9\u30A6\u306E\u8272\u30C6\u30FC\u30DE\u3092\u9078\u629E\u3057\u307E\u3059\u3002",
+                    ["ThemeSystem"] = "\u30B7\u30B9\u30C6\u30E0\u8A2D\u5B9A\u3092\u4F7F\u7528",
                     ["ThemeLight"] = "\u30E9\u30A4\u30C8",
                     ["ThemeDark"] = "\u30C0\u30FC\u30AF"
                 })

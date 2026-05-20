@@ -3,6 +3,7 @@ using Clipton.Core;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Microsoft.Win32;
 using Drawing = System.Drawing;
 using Drawing2D = System.Drawing.Drawing2D;
 using Imaging = System.Drawing.Imaging;
@@ -58,7 +59,11 @@ public sealed class CliptonRuntime : IDisposable
 
     public SnippetCatalog Snippets { get; }
 
-    public string Translate(string key) => _localization.Translate(Settings.Locale, key);
+    public string EffectiveLocale => ResolveLocale(Settings.Locale);
+
+    public string EffectiveTheme => ResolveTheme(Settings.Theme);
+
+    public string Translate(string key) => _localization.Translate(EffectiveLocale, key);
 
     public void Start()
     {
@@ -210,14 +215,14 @@ public sealed class CliptonRuntime : IDisposable
 
     public void SetLocale(string locale)
     {
-        Settings.Locale = locale;
+        Settings.Locale = NormalizeLocale(locale);
         SaveSettings();
         RefreshTrayText();
     }
 
     public void SetTheme(string theme)
     {
-        Settings.Theme = string.Equals(theme, "dark", StringComparison.OrdinalIgnoreCase) ? "dark" : "light";
+        Settings.Theme = NormalizeTheme(theme);
         SaveSettings();
     }
 
@@ -416,7 +421,7 @@ public sealed class CliptonRuntime : IDisposable
         var quickMenuWindow = new QuickMenuWindow(
             Translate("History"),
             menuItems,
-            Settings.Theme,
+            EffectiveTheme,
             Settings.SimpleContextMenuMode,
             Translate("Search"),
             Translate("SearchPrompt"),
@@ -437,6 +442,61 @@ public sealed class CliptonRuntime : IDisposable
     private void SaveSettings()
     {
         _settingsStore.Save(Settings);
+    }
+
+    private static string NormalizeLocale(string locale)
+    {
+        if (string.Equals(locale, "system", StringComparison.OrdinalIgnoreCase))
+        {
+            return "system";
+        }
+
+        return string.Equals(locale, "ja", StringComparison.OrdinalIgnoreCase) ? "ja" : "en";
+    }
+
+    private static string NormalizeTheme(string theme)
+    {
+        if (string.Equals(theme, "system", StringComparison.OrdinalIgnoreCase))
+        {
+            return "system";
+        }
+
+        return string.Equals(theme, "dark", StringComparison.OrdinalIgnoreCase) ? "dark" : "light";
+    }
+
+    private static string ResolveLocale(string locale)
+    {
+        if (!string.Equals(locale, "system", StringComparison.OrdinalIgnoreCase))
+        {
+            return NormalizeLocale(locale);
+        }
+
+        return string.Equals(System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName, "ja", StringComparison.OrdinalIgnoreCase)
+            ? "ja"
+            : "en";
+    }
+
+    private static string ResolveTheme(string theme)
+    {
+        if (!string.Equals(theme, "system", StringComparison.OrdinalIgnoreCase))
+        {
+            return NormalizeTheme(theme);
+        }
+
+        return IsWindowsAppThemeDark() ? "dark" : "light";
+    }
+
+    private static bool IsWindowsAppThemeDark()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return key?.GetValue("AppsUseLightTheme") is int value && value == 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private void SaveHistory()
