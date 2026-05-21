@@ -4,11 +4,9 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
-using Windows.System;
 using WinRT.Interop;
 using Forms = System.Windows.Forms;
 
@@ -55,7 +53,7 @@ public sealed class MainWindow : Window
     private readonly ToggleSwitch _pauseCaptureToggle = CompactToggle();
     private readonly ToggleSwitch _persistHistoryToggle = CompactToggle();
     private readonly ToggleSwitch _maskSensitiveContentToggle = CompactToggle();
-    private readonly TextBox _maxHistoryItemsBox = new();
+    private readonly Button _maxHistoryItemsButton = new();
     private readonly ToggleSwitch _folderModeToggle = CompactToggle();
     private readonly ToggleSwitch _simpleContextMenuToggle = CompactToggle();
     private readonly Button _registerFromHistoryButton = new();
@@ -172,7 +170,7 @@ public sealed class MainWindow : Window
         _pauseCaptureToggle.IsOn = _runtime.Settings.PauseCapture;
         _persistHistoryToggle.IsOn = _runtime.Settings.PersistEncryptedHistory;
         _maskSensitiveContentToggle.IsOn = _runtime.Settings.MaskSensitiveContent;
-        _maxHistoryItemsBox.Text = _runtime.Settings.MaxHistoryItems.ToString();
+        _maxHistoryItemsButton.Content = _runtime.Settings.MaxHistoryItems.ToString();
         _folderModeToggle.IsOn = _runtime.Settings.FolderMode;
         _simpleContextMenuToggle.IsOn = _runtime.Settings.SimpleContextMenuMode;
         EnsureHotkeyComboItem(_runtime.Settings.Hotkey);
@@ -295,21 +293,9 @@ public sealed class MainWindow : Window
 
         _historyPage.Children.Add(SettingCard("\uE769", "PauseCapture", "PauseCaptureDescription", _pauseCaptureToggle));
         _historyPage.Children.Add(SettingCard("\uE72E", "PersistHistory", "PersistHistoryDescription", _persistHistoryToggle));
-        _maxHistoryItemsBox.Width = 120;
-        _maxHistoryItemsBox.InputScope = new InputScope
-        {
-            Names = { new InputScopeName(InputScopeNameValue.Number) }
-        };
-        _maxHistoryItemsBox.LostFocus += (_, _) => SaveMaxHistoryItems();
-        _maxHistoryItemsBox.KeyDown += (_, args) =>
-        {
-            if (args.Key == VirtualKey.Enter)
-            {
-                SaveMaxHistoryItems();
-                args.Handled = true;
-            }
-        };
-        _historyPage.Children.Add(SettingCard("\uE81C", "MaxHistoryItems", "MaxHistoryItemsDescription", _maxHistoryItemsBox));
+        _maxHistoryItemsButton.MinWidth = 120;
+        _maxHistoryItemsButton.Click += (_, _) => ChangeMaxHistoryItems();
+        _historyPage.Children.Add(SettingCard("\uE81C", "MaxHistoryItems", "MaxHistoryItemsDescription", _maxHistoryItemsButton));
         _historyPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", _maskSensitiveContentToggle));
 
         _historyPage.Children.Add(SectionHeader("HistorySection"));
@@ -525,27 +511,21 @@ public sealed class MainWindow : Window
         RefreshItems();
     }
 
-    private void SaveMaxHistoryItems()
+    private void ChangeMaxHistoryItems()
     {
         if (_loading)
         {
             return;
         }
 
-        if (!int.TryParse(_maxHistoryItemsBox.Text.Trim(), out var count))
-        {
-            _maxHistoryItemsBox.Text = _runtime.Settings.MaxHistoryItems.ToString();
-            return;
-        }
-
-        count = Math.Clamp(count, 1, 1000);
-        _maxHistoryItemsBox.Text = count.ToString();
-        if (_runtime.Settings.MaxHistoryItems == count)
+        var count = PromptForHistoryLimit();
+        if (count is null || _runtime.Settings.MaxHistoryItems == count.Value)
         {
             return;
         }
 
-        _runtime.SetMaxHistoryItems(count);
+        _runtime.SetMaxHistoryItems(count.Value);
+        _maxHistoryItemsButton.Content = count.Value.ToString();
     }
 
     private void RegisterSelectedHistory()
@@ -672,6 +652,71 @@ public sealed class MainWindow : Window
         ForeColor = IsDark ? System.Drawing.Color.White : System.Drawing.Color.Black,
         BorderStyle = Forms.BorderStyle.FixedSingle
     };
+
+    private int? PromptForHistoryLimit()
+    {
+        using var form = new Forms.Form
+        {
+            Text = _runtime.Translate("MaxHistoryItems"),
+            Icon = AppAssets.LoadAppIcon(_runtime.EffectiveTheme),
+            Width = 380,
+            Height = 160,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            FormBorderStyle = Forms.FormBorderStyle.FixedDialog,
+            StartPosition = Forms.FormStartPosition.CenterScreen,
+            BackColor = IsDark ? System.Drawing.Color.FromArgb(32, 32, 32) : System.Drawing.Color.White,
+            ForeColor = IsDark ? System.Drawing.Color.White : System.Drawing.Color.Black
+        };
+
+        var layout = new Forms.TableLayoutPanel
+        {
+            Dock = Forms.DockStyle.Fill,
+            Padding = new Forms.Padding(16),
+            ColumnCount = 1,
+            RowCount = 3
+        };
+        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 32));
+        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 34));
+        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 44));
+
+        var input = new Forms.NumericUpDown
+        {
+            Minimum = 1,
+            Maximum = 1000,
+            Increment = 10,
+            Value = Math.Clamp(_runtime.Settings.MaxHistoryItems, 1, 1000),
+            Dock = Forms.DockStyle.Left,
+            Width = 120,
+            BackColor = IsDark ? System.Drawing.Color.FromArgb(43, 43, 43) : System.Drawing.Color.White,
+            ForeColor = IsDark ? System.Drawing.Color.White : System.Drawing.Color.Black
+        };
+
+        var buttons = new Forms.FlowLayoutPanel
+        {
+            FlowDirection = Forms.FlowDirection.RightToLeft,
+            Dock = Forms.DockStyle.Fill
+        };
+        var okButton = new Forms.Button { Text = _runtime.Translate("Save"), DialogResult = Forms.DialogResult.OK, Width = 96 };
+        var cancelButton = new Forms.Button { Text = _runtime.Translate("Cancel"), DialogResult = Forms.DialogResult.Cancel, Width = 96 };
+        buttons.Controls.Add(okButton);
+        buttons.Controls.Add(cancelButton);
+
+        layout.Controls.Add(DialogLabel(_runtime.Translate("MaxHistoryItemsDescription")), 0, 0);
+        layout.Controls.Add(input, 0, 1);
+        layout.Controls.Add(buttons, 0, 2);
+        form.Controls.Add(layout);
+        form.AcceptButton = okButton;
+        form.CancelButton = cancelButton;
+        form.Shown += (_, _) =>
+        {
+            ApplyFormTitleBarTheme(form);
+            input.Focus();
+            input.Select(0, input.Text.Length);
+        };
+
+        return form.ShowDialog() == Forms.DialogResult.OK ? (int)input.Value : null;
+    }
 
     private string? PromptForText(string title, string message, string initialValue)
     {
@@ -1054,12 +1099,6 @@ public sealed class MainWindow : Window
         var hwnd = WindowNative.GetWindowHandle(this);
         var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
         var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
-        var iconPath = AppAssets.GetAppIconPath(_runtime.EffectiveTheme);
-        if (File.Exists(iconPath))
-        {
-            appWindow.SetIcon(iconPath);
-        }
-
         appWindow.Resize(new SizeInt32(1120, 760));
     }
 

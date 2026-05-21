@@ -715,12 +715,6 @@ public sealed class QuickMenuWindow : Window
         _hwnd = WindowNative.GetWindowHandle(this);
         var id = Win32Interop.GetWindowIdFromWindow(_hwnd);
         _appWindow = AppWindow.GetFromWindowId(id);
-        var iconPath = AppAssets.GetAppIconPath(_theme);
-        if (File.Exists(iconPath))
-        {
-            _appWindow.SetIcon(iconPath);
-        }
-
         MakeHostWindowTransparent();
         if (_appWindow.Presenter is OverlappedPresenter presenter)
         {

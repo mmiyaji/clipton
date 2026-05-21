@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using System.Runtime.InteropServices;
 
 namespace Clipton.WinUI;
 
@@ -10,7 +11,14 @@ public sealed class App : Application
 
     public App()
     {
-        UnhandledException += (_, e) => AppDiagnostics.Log(e.Exception, "WinUI unhandled exception");
+        UnhandledException += (_, e) =>
+        {
+            AppDiagnostics.Log(e.Exception, "WinUI unhandled exception");
+            if (e.Exception is COMException)
+            {
+                e.Handled = true;
+            }
+        };
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
         {
             if (e.ExceptionObject is Exception exception)
