@@ -1,5 +1,6 @@
 using Clipton.Core;
 using Microsoft.UI;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -15,6 +16,8 @@ public sealed class MainWindow : Window
 {
     private const int HistoryDisplayBatchSize = 50;
     private const string MaskedPreview = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
+    private const string TermsUrl = "https://mmiyaji.github.io/clipton/terms/";
+    private const string PrivacyUrl = "https://mmiyaji.github.io/clipton/privacy/";
     private readonly CliptonRuntime _runtime;
     private readonly Grid _root = new();
     private readonly StackPanel _sidebar = new() { Padding = new Thickness(18, 22, 14, 18), Spacing = 12 };
@@ -269,13 +272,19 @@ public sealed class MainWindow : Window
 
         _startupToggle.Toggled += async (_, _) => await SetStartupAsync();
         _generalPage.Children.Add(SettingCard("\uE7C3", "Startup", "StartupDescription", _startupToggle));
+
+        _generalPage.Children.Add(SectionHeader("QuickMenuSection"));
+        _folderModeToggle.Toggled += (_, _) => SaveHistoryOptions();
+        _simpleContextMenuToggle.Toggled += (_, _) => SaveHistoryOptions();
+        _generalPage.Children.Add(SettingCard("\uE8B7", "FolderMode", "FolderModeDescription", _folderModeToggle));
+        _generalPage.Children.Add(SettingCard("\uE8A5", "SimpleContextMenuMode", "SimpleContextMenuModeDescription", _simpleContextMenuToggle));
     }
 
     private void BuildHistoryPage()
     {
         _historyPage.Children.Add(PageHeader(_historyHeaderText, _historyDescriptionText));
         _historyPage.Children.Add(SectionHeader("CapturePrivacySection"));
-        foreach (var toggle in new[] { _pauseCaptureToggle, _persistHistoryToggle, _maskSensitiveContentToggle, _folderModeToggle, _simpleContextMenuToggle })
+        foreach (var toggle in new[] { _pauseCaptureToggle, _persistHistoryToggle, _maskSensitiveContentToggle })
         {
             toggle.Toggled += (_, _) => SaveHistoryOptions();
         }
@@ -283,8 +292,6 @@ public sealed class MainWindow : Window
         _historyPage.Children.Add(SettingCard("\uE769", "PauseCapture", "PauseCaptureDescription", _pauseCaptureToggle));
         _historyPage.Children.Add(SettingCard("\uE72E", "PersistHistory", "PersistHistoryDescription", _persistHistoryToggle));
         _historyPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", _maskSensitiveContentToggle));
-        _historyPage.Children.Add(SettingCard("\uE8B7", "FolderMode", "FolderModeDescription", _folderModeToggle));
-        _historyPage.Children.Add(SettingCard("\uE8A5", "SimpleContextMenuMode", "SimpleContextMenuModeDescription", _simpleContextMenuToggle));
 
         _historyPage.Children.Add(SectionHeader("HistorySection"));
         var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Spacing = 8 };
@@ -431,12 +438,24 @@ public sealed class MainWindow : Window
             TextWrapping = TextWrapping.Wrap
         });
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Spacing = 8 };
-        _termsButton.Click += (_, _) => ShowDocumentDialog(_runtime.Translate("TermsOfUse"), _runtime.Translate("TermsText"));
-        _privacyButton.Click += (_, _) => ShowDocumentDialog(_runtime.Translate("PrivacyPolicy"), _runtime.Translate("PrivacyText"));
+        _termsButton.Click += (_, _) => OpenExternalUrl(TermsUrl);
+        _privacyButton.Click += (_, _) => OpenExternalUrl(PrivacyUrl);
         buttons.Children.Add(_termsButton);
         buttons.Children.Add(_privacyButton);
         documents.Children.Add(buttons);
         _aboutPage.Children.Add(Card(documents));
+    }
+
+    private static void OpenExternalUrl(string url)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch
+        {
+            Forms.Clipboard.SetText(url);
+        }
     }
 
     private async Task SetStartupAsync()
