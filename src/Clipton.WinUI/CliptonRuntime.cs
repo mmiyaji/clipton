@@ -695,6 +695,9 @@ public sealed class CliptonRuntime : IDisposable
     {
         var display = CreateHistoryItemViewModel(item);
         var header = item.Formats.Contains(ClipboardFormatKind.Image) ? Translate("Image") : display.Preview;
+        var revealedHeader = IsMaskedHistoryItem(item) && !item.Formats.Contains(ClipboardFormatKind.Image)
+            ? item.Preview
+            : null;
         return new QuickMenuItem(
             header,
             display.FormatSummary,
@@ -704,7 +707,9 @@ public sealed class CliptonRuntime : IDisposable
             !string.IsNullOrEmpty(item.Text) ? () => PasteHistoryItem(item.Id, asPlainText: true) : null,
             IconGlyph: GetHistoryIconGlyph(item),
             IconFontFamily: GetHistoryIconFontFamily(item),
-            IconImagePath: SaveHistoryThumbnail(item));
+            IconImagePath: SaveHistoryThumbnail(item),
+            RevealedTitle: revealedHeader,
+            CapturedAt: item.CapturedAt);
     }
 
     private string GetHistoryIconGlyph(ClipboardSnapshot item)

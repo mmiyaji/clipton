@@ -46,6 +46,8 @@ public sealed class QuickMenuWindow : Window
     private long _focusToken;
     private IReadOnlyList<QuickMenuItem> _currentItems;
     private bool _rebuildingFlyout;
+    private bool _revealMaskedItems;
+    private bool _showCapturedAt;
     private QuickMenuWindow? _replacementWindow;
 
     public QuickMenuWindow(
@@ -227,6 +229,12 @@ public sealed class QuickMenuWindow : Window
                     }
                 });
                 break;
+            case NativeMethods.VkM:
+                DispatcherQueue.TryEnqueue(() => ToggleDisplayMode(revealMaskedItems: !_revealMaskedItems));
+                break;
+            case NativeMethods.VkD:
+                DispatcherQueue.TryEnqueue(() => ToggleDisplayMode(showCapturedAt: !_showCapturedAt));
+                break;
             case 'T':
                 DispatcherQueue.TryEnqueue(() =>
                 {
@@ -260,6 +268,38 @@ public sealed class QuickMenuWindow : Window
         _lastNavigationKey = key;
         _lastNavigationTick = now;
         return true;
+    }
+
+    private void ToggleDisplayMode(bool? revealMaskedItems = null, bool? showCapturedAt = null)
+    {
+        _revealMaskedItems = revealMaskedItems ?? _revealMaskedItems;
+        _showCapturedAt = showCapturedAt ?? _showCapturedAt;
+        RefreshVisibleText(_flyout.Items);
+    }
+
+    private void RefreshVisibleText(IList<MenuFlyoutItemBase> items)
+    {
+        foreach (var element in items)
+        {
+            switch (element)
+            {
+                case MenuFlyoutSubItem subItem:
+                    if (subItem.Tag is QuickMenuItem folder)
+                    {
+                        subItem.Text = BuildDisplayText(folder);
+                    }
+
+                    RefreshVisibleText(subItem.Items);
+                    break;
+                case MenuFlyoutItem flyoutItem:
+                    if (flyoutItem.Tag is QuickMenuItem item)
+                    {
+                        flyoutItem.Text = BuildDisplayText(item);
+                    }
+
+                    break;
+            }
+        }
     }
 
     private void BuildFlyout()
@@ -473,7 +513,7 @@ public sealed class QuickMenuWindow : Window
             {
                 var subItem = new MenuFlyoutSubItem
                 {
-                    Text = FormatMenuText(item.Title),
+                    Text = BuildDisplayText(item),
                     Icon = new FontIcon
                     {
                         Glyph = "\uE8B7",
@@ -495,7 +535,7 @@ public sealed class QuickMenuWindow : Window
 
             var flyoutItem = new MenuFlyoutItem
             {
-                Text = FormatMenuText(item.Title),
+                Text = BuildDisplayText(item),
                 KeyboardAcceleratorTextOverride = item.CommandHint,
                 Icon = CreateIcon(item)
             };
@@ -514,6 +554,20 @@ public sealed class QuickMenuWindow : Window
             flyoutItem.Click += (_, _) => Invoke(item, asPlainText: false);
             target.Add(flyoutItem);
         }
+    }
+
+    private string BuildDisplayText(QuickMenuItem item)
+    {
+        var title = _revealMaskedItems && !string.IsNullOrWhiteSpace(item.RevealedTitle)
+            ? item.RevealedTitle!
+            : item.Title;
+        var text = FormatMenuText(title);
+        if (_showCapturedAt && item.CapturedAt is { } capturedAt)
+        {
+            text = $"{text}{Environment.NewLine}{capturedAt.LocalDateTime:yyyy-MM-dd HH:mm:ss}";
+        }
+
+        return text;
     }
 
     private QuickMenuItem? GetFocusedMenuItem()
@@ -818,7 +872,9 @@ public sealed record QuickMenuItem(
     bool IsSeparator = false,
     string? IconGlyph = null,
     string? IconFontFamily = null,
-    string? IconImagePath = null)
+    string? IconImagePath = null,
+    string? RevealedTitle = null,
+    DateTimeOffset? CapturedAt = null)
 {
     private IReadOnlyList<QuickMenuItem>? _resolvedChildren = Children;
 
