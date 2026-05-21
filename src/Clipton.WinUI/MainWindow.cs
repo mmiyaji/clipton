@@ -4,9 +4,11 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
+using Windows.System;
 using WinRT.Interop;
 using Forms = System.Windows.Forms;
 
@@ -53,7 +55,7 @@ public sealed class MainWindow : Window
     private readonly ToggleSwitch _pauseCaptureToggle = CompactToggle();
     private readonly ToggleSwitch _persistHistoryToggle = CompactToggle();
     private readonly ToggleSwitch _maskSensitiveContentToggle = CompactToggle();
-    private readonly NumberBox _maxHistoryItemsBox = new();
+    private readonly TextBox _maxHistoryItemsBox = new();
     private readonly ToggleSwitch _folderModeToggle = CompactToggle();
     private readonly ToggleSwitch _simpleContextMenuToggle = CompactToggle();
     private readonly Button _registerFromHistoryButton = new();
@@ -170,7 +172,7 @@ public sealed class MainWindow : Window
         _pauseCaptureToggle.IsOn = _runtime.Settings.PauseCapture;
         _persistHistoryToggle.IsOn = _runtime.Settings.PersistEncryptedHistory;
         _maskSensitiveContentToggle.IsOn = _runtime.Settings.MaskSensitiveContent;
-        _maxHistoryItemsBox.Value = _runtime.Settings.MaxHistoryItems;
+        _maxHistoryItemsBox.Text = _runtime.Settings.MaxHistoryItems.ToString();
         _folderModeToggle.IsOn = _runtime.Settings.FolderMode;
         _simpleContextMenuToggle.IsOn = _runtime.Settings.SimpleContextMenuMode;
         EnsureHotkeyComboItem(_runtime.Settings.Hotkey);
@@ -293,12 +295,20 @@ public sealed class MainWindow : Window
 
         _historyPage.Children.Add(SettingCard("\uE769", "PauseCapture", "PauseCaptureDescription", _pauseCaptureToggle));
         _historyPage.Children.Add(SettingCard("\uE72E", "PersistHistory", "PersistHistoryDescription", _persistHistoryToggle));
-        _maxHistoryItemsBox.Minimum = 1;
-        _maxHistoryItemsBox.Maximum = 1000;
-        _maxHistoryItemsBox.SmallChange = 10;
-        _maxHistoryItemsBox.LargeChange = 50;
-        _maxHistoryItemsBox.SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline;
-        _maxHistoryItemsBox.ValueChanged += (_, args) => SaveMaxHistoryItems(args.NewValue);
+        _maxHistoryItemsBox.Width = 120;
+        _maxHistoryItemsBox.InputScope = new InputScope
+        {
+            Names = { new InputScopeName(InputScopeNameValue.Number) }
+        };
+        _maxHistoryItemsBox.LostFocus += (_, _) => SaveMaxHistoryItems();
+        _maxHistoryItemsBox.KeyDown += (_, args) =>
+        {
+            if (args.Key == VirtualKey.Enter)
+            {
+                SaveMaxHistoryItems();
+                args.Handled = true;
+            }
+        };
         _historyPage.Children.Add(SettingCard("\uE81C", "MaxHistoryItems", "MaxHistoryItemsDescription", _maxHistoryItemsBox));
         _historyPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", _maskSensitiveContentToggle));
 
@@ -515,14 +525,21 @@ public sealed class MainWindow : Window
         RefreshItems();
     }
 
-    private void SaveMaxHistoryItems(double value)
+    private void SaveMaxHistoryItems()
     {
-        if (_loading || double.IsNaN(value))
+        if (_loading)
         {
             return;
         }
 
-        var count = Math.Clamp((int)Math.Round(value), 1, 1000);
+        if (!int.TryParse(_maxHistoryItemsBox.Text.Trim(), out var count))
+        {
+            _maxHistoryItemsBox.Text = _runtime.Settings.MaxHistoryItems.ToString();
+            return;
+        }
+
+        count = Math.Clamp(count, 1, 1000);
+        _maxHistoryItemsBox.Text = count.ToString();
         if (_runtime.Settings.MaxHistoryItems == count)
         {
             return;
