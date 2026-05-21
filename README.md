@@ -1,19 +1,21 @@
 # Clipton
 
-Clipton is a Windows resident clipboard manager inspired by Clipy and CLCL.
+Clipton is a local-first clipboard manager for Windows. It keeps recent clipboard history, registered text snippets, and quick paste commands close to the keyboard while avoiding cloud sync, telemetry, and network dependencies.
 
-## Current features
+## Features
 
-- WinUI resident app with system tray icon.
+- WinUI resident app with a system tray icon.
 - Global hotkey menu, default `Ctrl+Shift+V`.
 - Clipboard history capture for text, RTF, HTML, images, and file drops.
-- Paste history items in the original clipboard format when possible.
-- Paste text items as plain text.
-- Snippet insertion and snippet add/update/delete with folder support.
-- Configurable hotkey, startup registration, theme, and UI language.
+- Keyboard-driven quick menu with folder navigation, search, plain-text paste, temporary mask reveal, and timestamp display.
+- Paste history items in their original clipboard format when possible.
+- Registered snippets with folder support.
+- Register snippets directly from history.
+- Configurable hotkey, startup registration, theme, language, and saved history limit.
 - Pause capture, clear history, sensitive-content masking, and encrypted local history.
+- Local-only privacy posture: no cloud sync, telemetry, crash reporting, ads, or third-party data sharing.
 - English and Japanese UI strings.
-- Core unit tests for history, hotkeys, settings, and localization.
+- Unit tests for history, hotkeys, settings, localization, clipboard bridge behavior, and encrypted persistence.
 
 ## Run
 
@@ -35,9 +37,24 @@ Settings and snippets are stored under `%APPDATA%\Clipton`.
 
 - `settings.json`: hotkey, startup, language, and history size settings.
 - `snippets.json`: registered text snippets.
+- `history\manifest.dat`, `history\base.dat`, `history\delta.dat`: encrypted clipboard history segments.
+- `thumbs\`: local image thumbnails used by the quick menu.
 
-Clipboard history is encrypted and persisted locally by default. Users can disable encrypted local history in the settings window; when enabled, it is protected with Windows user-scoped DPAPI and stored as `history.dat`.
+Clipboard history is encrypted and persisted locally by default. Users can disable encrypted local history in the settings window. When enabled, history payloads are protected with Windows user-scoped DPAPI. Older single-file history stores are migrated to the segmented format and backed up as `history.dat.legacy.bak`.
+
+See [docs/PERSISTENCE_PERFORMANCE.md](docs/PERSISTENCE_PERFORMANCE.md) for the persistence performance comparison.
+
+## Privacy
+
+Clipton reads clipboard content only to show recent clipboard history and paste selected items. The current version does not upload clipboard content, settings, snippets, or usage data to any server.
+
+- Privacy policy: <https://mmiyaji.github.io/clipton/privacy/>
+- Terms of use: <https://mmiyaji.github.io/clipton/terms/>
 
 ## Store readiness
 
-The WinUI app builds today, and the packaging project targets the WinUI executable. Microsoft Store submission still requires Partner Center identity association, signing, Store listing metadata, and clean-profile package validation. See [docs/STORE_PREP.md](docs/STORE_PREP.md).
+The WinUI app builds today, and the packaging project targets the WinUI executable. Microsoft Store submission still requires Partner Center identity association, signing, Store listing metadata, and clean-profile package validation.
+
+- Store preparation checklist: [docs/STORE_PREP.md](docs/STORE_PREP.md)
+- Store listing draft: [docs/STORE_LISTING.md](docs/STORE_LISTING.md)
+- Store screenshot assets: [artifacts/store](artifacts/store)

@@ -12,6 +12,8 @@ Last updated: 2026-05-21
 - Add Store metadata in English and Japanese.
 - Publish privacy policy and terms URLs for both English and Japanese.
 - Add screenshots for each Store listing language.
+- Use the listing draft in `docs/STORE_LISTING.md`.
+- Use the generated PC screenshots in `artifacts/store/` unless the UI changes before submission.
 - Validate Release package installation on a clean Windows user profile.
 
 ## App Data and Privacy Requirements
@@ -51,3 +53,27 @@ Current source uses the packaged `StartupTask` API when Clipton has package iden
 - Verify tray icon visibility, settings launch, global hotkey, search, paste, startup toggle, and encrypted history persistence.
 - Verify Store screenshots and descriptions match the WinUI UI, not the previous WPF UI.
 - Confirm privacy policy and terms URLs are publicly reachable before Partner Center submission.
+- Confirm Partner Center identity and publisher fields replace the development manifest values (`Clipton.ClipboardManager`, `CN=Clipton`) before final package upload.
+
+## Current Store Assets
+
+Generated PC screenshots:
+
+- `artifacts/store/01-quick-menu-en.png`
+- `artifacts/store/02-history-en.png`
+- `artifacts/store/03-snippets-en.png`
+- `artifacts/store/04-settings-en.png`
+- `artifacts/store/05-privacy-en.png`
+- `artifacts/store/01-quick-menu-ja.png`
+- `artifacts/store/02-history-ja.png`
+- `artifacts/store/03-snippets-ja.png`
+- `artifacts/store/04-settings-ja.png`
+- `artifacts/store/05-privacy-ja.png`
+
+All generated screenshots are 1920 x 1080 PNG files.
+
+Regenerate screenshots after visual or major feature changes:
+
+```powershell
+dotnet run --project tools\StoreScreenshots\StoreScreenshots.csproj
+```
