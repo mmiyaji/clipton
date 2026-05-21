@@ -714,11 +714,16 @@ public sealed class CliptonRuntime : IDisposable
 
     private string GetHistoryIconGlyph(ClipboardSnapshot item)
     {
-        if (IsMaskedHistoryItem(item))
+        return GetMaskedHistoryKind(item) switch
         {
-            return "\uE72E";
-        }
+            MaskedHistoryKind.RegisteredSnippet => "\uE8EC",
+            MaskedHistoryKind.Sensitive => "\uE72E",
+            _ => GetUnmaskedHistoryIconGlyph(item)
+        };
+    }
 
+    private static string GetUnmaskedHistoryIconGlyph(ClipboardSnapshot item)
+    {
         if (item.Formats.Contains(ClipboardFormatKind.FileDrop))
         {
             return "\uE8B7";
@@ -739,7 +744,9 @@ public sealed class CliptonRuntime : IDisposable
 
     private string GetHistoryIconFontFamily(ClipboardSnapshot item)
     {
-        return IsMaskedHistoryItem(item) || item.Formats.Contains(ClipboardFormatKind.FileDrop) || item.Formats.Contains(ClipboardFormatKind.Image)
+        return GetMaskedHistoryKind(item) != MaskedHistoryKind.None
+            || item.Formats.Contains(ClipboardFormatKind.FileDrop)
+            || item.Formats.Contains(ClipboardFormatKind.Image)
             ? "Segoe Fluent Icons"
             : "Segoe UI";
     }
@@ -788,7 +795,7 @@ public sealed class CliptonRuntime : IDisposable
         var snippet = Snippets.FindByText(snapshot.Text);
         if (snippet is not null)
         {
-            return new HistoryItemViewModel(snapshot.Id, MaskedPreview, $"{Translate("RegisteredSnippetMasked")}: {snippet.DisplayName} - {formats}");
+            return new HistoryItemViewModel(snapshot.Id, snippet.DisplayName, $"{Translate("RegisteredSnippetMasked")} - {formats}");
         }
 
         if (Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(snapshot.Text))
@@ -803,6 +810,18 @@ public sealed class CliptonRuntime : IDisposable
     {
         return Snippets.FindByText(snapshot.Text) is not null
             || (Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(snapshot.Text));
+    }
+
+    private MaskedHistoryKind GetMaskedHistoryKind(ClipboardSnapshot snapshot)
+    {
+        if (Snippets.FindByText(snapshot.Text) is not null)
+        {
+            return MaskedHistoryKind.RegisteredSnippet;
+        }
+
+        return Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(snapshot.Text)
+            ? MaskedHistoryKind.Sensitive
+            : MaskedHistoryKind.None;
     }
 
     private IReadOnlyList<QuickMenuItem> CreateSnippetMenuItems(IEnumerable<Snippet> snippets)
@@ -884,4 +903,11 @@ public sealed class CliptonRuntime : IDisposable
         var separator = normalized.IndexOf('/');
         return separator < 0 ? normalized : normalized[..separator];
     }
+}
+
+internal enum MaskedHistoryKind
+{
+    None,
+    Sensitive,
+    RegisteredSnippet
 }
