@@ -8,6 +8,7 @@ internal static class NativeMethods
     internal const int WmClipboardUpdate = 0x031D;
     internal const int WmAppRegisterHotkey = 0x8001;
     internal const int WmAppDisposeHotkeyWindow = 0x8002;
+    internal const int WmAppUnregisterHotkey = 0x8003;
     internal const uint ModAlt = 0x0001;
     internal const uint ModControl = 0x0002;
     internal const uint ModShift = 0x0004;

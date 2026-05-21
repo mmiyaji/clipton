@@ -39,6 +39,16 @@ public sealed class HotkeyMessageWindow : IDisposable
         return _window.RequestRegister(gesture);
     }
 
+    public void Unregister()
+    {
+        if (_disposed || _window is null)
+        {
+            return;
+        }
+
+        _window.RequestUnregister();
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -61,6 +71,7 @@ public sealed class HotkeyMessageWindow : IDisposable
         private readonly Action _onClipboardChanged;
         private readonly object _registrationLock = new();
         private RegistrationRequest? _pendingRegistration;
+        private ManualResetEventSlim? _pendingUnregistrationSignal;
         private bool _registered;
         private HotkeyGesture? _registeredGesture;
         private bool _disposed;
@@ -99,6 +110,18 @@ public sealed class HotkeyMessageWindow : IDisposable
         public void RequestDispose()
         {
             NativeMethods.PostMessage(Handle, NativeMethods.WmAppDisposeHotkeyWindow, IntPtr.Zero, IntPtr.Zero);
+        }
+
+        public void RequestUnregister()
+        {
+            var signal = new ManualResetEventSlim();
+            lock (_registrationLock)
+            {
+                _pendingUnregistrationSignal = signal;
+            }
+
+            NativeMethods.PostMessage(Handle, NativeMethods.WmAppUnregisterHotkey, IntPtr.Zero, IntPtr.Zero);
+            signal.Wait(TimeSpan.FromSeconds(1));
         }
 
         public void Dispose()
@@ -144,6 +167,20 @@ public sealed class HotkeyMessageWindow : IDisposable
                 return;
             }
 
+            if (m.Msg == NativeMethods.WmAppUnregisterHotkey)
+            {
+                ManualResetEventSlim? signal;
+                lock (_registrationLock)
+                {
+                    signal = _pendingUnregistrationSignal;
+                    _pendingUnregistrationSignal = null;
+                }
+
+                UnregisterCurrent();
+                signal?.Set();
+                return;
+            }
+
             if (m.Msg == NativeMethods.WmHotkey && m.WParam.ToInt32() == HotkeyId)
             {
                 _onHotkey(NativeMethods.GetForegroundWindow());
@@ -162,11 +199,7 @@ public sealed class HotkeyMessageWindow : IDisposable
         private bool Register(HotkeyGesture gesture)
         {
             var previousGesture = _registeredGesture;
-            if (_registered)
-            {
-                NativeMethods.UnregisterHotKey(Handle, HotkeyId);
-                _registered = false;
-            }
+            UnregisterCurrent(clearGesture: false);
 
             var requestedRegistered = NativeMethods.RegisterHotKey(Handle, HotkeyId, ToNativeModifiers(gesture.Modifiers), ToVirtualKey(gesture.Key));
             _registered = requestedRegistered;
@@ -178,6 +211,20 @@ public sealed class HotkeyMessageWindow : IDisposable
             }
 
             return requestedRegistered;
+        }
+
+        private void UnregisterCurrent(bool clearGesture = true)
+        {
+            if (_registered)
+            {
+                NativeMethods.UnregisterHotKey(Handle, HotkeyId);
+                _registered = false;
+            }
+
+            if (clearGesture)
+            {
+                _registeredGesture = null;
+            }
         }
 
         private static uint ToNativeModifiers(HotkeyModifiers modifiers)

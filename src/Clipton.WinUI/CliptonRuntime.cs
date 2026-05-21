@@ -238,6 +238,16 @@ public sealed class CliptonRuntime : IDisposable
         return SetHotkey(HotkeyGesture.Default.ToString());
     }
 
+    public void SuspendHotkey()
+    {
+        _messageWindow?.Unregister();
+    }
+
+    public void RestoreHotkey()
+    {
+        RegisterHotkey();
+    }
+
     public void SetLocale(string locale)
     {
         Settings.Locale = NormalizeLocale(locale);

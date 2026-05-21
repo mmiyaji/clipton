@@ -667,6 +667,7 @@ public sealed class MainWindow : Window
 
     private string? PromptForHotkey()
     {
+        _runtime.SuspendHotkey();
         using var form = new Forms.Form
         {
             Text = _runtime.Translate("CaptureHotkey"),
@@ -707,7 +708,7 @@ public sealed class MainWindow : Window
         buttons.Controls.Add(okButton);
         buttons.Controls.Add(cancelButton);
 
-        form.KeyDown += (_, e) =>
+        void CaptureKey(Forms.KeyEventArgs e)
         {
             e.SuppressKeyPress = true;
             var hotkey = BuildHotkeyFromKeyEvent(e);
@@ -722,7 +723,10 @@ public sealed class MainWindow : Window
             preview.Text = hotkey;
             captured = hotkey;
             okButton.Enabled = true;
-        };
+        }
+
+        form.KeyDown += (_, e) => CaptureKey(e);
+        preview.KeyDown += (_, e) => CaptureKey(e);
 
         layout.Controls.Add(DialogLabel(_runtime.Translate("CaptureHotkeyPrompt")), 0, 0);
         layout.Controls.Add(preview, 0, 1);
@@ -736,7 +740,14 @@ public sealed class MainWindow : Window
             preview.Focus();
         };
 
-        return form.ShowDialog() == Forms.DialogResult.OK && !string.IsNullOrWhiteSpace(captured) ? captured : null;
+        try
+        {
+            return form.ShowDialog() == Forms.DialogResult.OK && !string.IsNullOrWhiteSpace(captured) ? captured : null;
+        }
+        finally
+        {
+            _runtime.RestoreHotkey();
+        }
     }
 
     private static string? BuildHotkeyFromKeyEvent(Forms.KeyEventArgs e)
