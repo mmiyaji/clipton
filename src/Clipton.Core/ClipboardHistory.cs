@@ -21,7 +21,7 @@ public sealed class ClipboardHistory
         Capacity = capacity;
     }
 
-    public int Capacity { get; }
+    public int Capacity { get; private set; }
 
     public IReadOnlyList<ClipboardSnapshot> Items => _items;
 
@@ -74,6 +74,25 @@ public sealed class ClipboardHistory
     }
 
     public ClipboardSnapshot? Find(string id) => _itemsById.GetValueOrDefault(id);
+
+    public void SetCapacity(int capacity)
+    {
+        if (capacity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(capacity), "Capacity must be positive.");
+        }
+
+        Capacity = capacity;
+        if (_items.Count <= Capacity)
+        {
+            return;
+        }
+
+        foreach (var item in _items.Skip(Capacity).ToArray())
+        {
+            RemoveTracked(item);
+        }
+    }
 
     private void Track(ClipboardSnapshot snapshot, string fingerprint)
     {

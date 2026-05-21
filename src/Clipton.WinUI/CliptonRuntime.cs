@@ -165,6 +165,15 @@ public sealed class CliptonRuntime : IDisposable
         SaveSettings();
     }
 
+    public void SetMaxHistoryItems(int count)
+    {
+        Settings.MaxHistoryItems = Math.Clamp(count, 1, 1000);
+        History.SetCapacity(Settings.MaxHistoryItems);
+        SaveSettings();
+        SaveHistory();
+        _mainWindow?.RefreshItems();
+    }
+
     public void SetFolderMode(bool enabled)
     {
         Settings.FolderMode = enabled;

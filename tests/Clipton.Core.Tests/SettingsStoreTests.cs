@@ -69,7 +69,7 @@ public sealed class SettingsStoreTests
         Assert.Equal("ja", loaded.Locale);
         Assert.Equal("dark", loaded.Theme);
         Assert.True(loaded.HistoryPersistenceConfigured);
-        Assert.Equal(200, loaded.MaxHistoryItems);
+        Assert.Equal(42, loaded.MaxHistoryItems);
         Assert.True(loaded.PauseCapture);
         Assert.True(loaded.PastePlainTextByDefault);
         Assert.True(loaded.PersistEncryptedHistory);
@@ -102,5 +102,18 @@ public sealed class SettingsStoreTests
 
         Assert.Equal("system", loaded.Locale);
         Assert.Equal("system", loaded.Theme);
+    }
+
+    [Fact]
+    public void Load_ClampsHistoryLimitToSupportedRange()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"MaxHistoryItems":2000}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Equal(1000, loaded.MaxHistoryItems);
     }
 }

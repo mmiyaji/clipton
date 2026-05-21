@@ -53,6 +53,7 @@ public sealed class MainWindow : Window
     private readonly ToggleSwitch _pauseCaptureToggle = CompactToggle();
     private readonly ToggleSwitch _persistHistoryToggle = CompactToggle();
     private readonly ToggleSwitch _maskSensitiveContentToggle = CompactToggle();
+    private readonly NumberBox _maxHistoryItemsBox = new();
     private readonly ToggleSwitch _folderModeToggle = CompactToggle();
     private readonly ToggleSwitch _simpleContextMenuToggle = CompactToggle();
     private readonly Button _registerFromHistoryButton = new();
@@ -169,6 +170,7 @@ public sealed class MainWindow : Window
         _pauseCaptureToggle.IsOn = _runtime.Settings.PauseCapture;
         _persistHistoryToggle.IsOn = _runtime.Settings.PersistEncryptedHistory;
         _maskSensitiveContentToggle.IsOn = _runtime.Settings.MaskSensitiveContent;
+        _maxHistoryItemsBox.Value = _runtime.Settings.MaxHistoryItems;
         _folderModeToggle.IsOn = _runtime.Settings.FolderMode;
         _simpleContextMenuToggle.IsOn = _runtime.Settings.SimpleContextMenuMode;
         EnsureHotkeyComboItem(_runtime.Settings.Hotkey);
@@ -291,6 +293,13 @@ public sealed class MainWindow : Window
 
         _historyPage.Children.Add(SettingCard("\uE769", "PauseCapture", "PauseCaptureDescription", _pauseCaptureToggle));
         _historyPage.Children.Add(SettingCard("\uE72E", "PersistHistory", "PersistHistoryDescription", _persistHistoryToggle));
+        _maxHistoryItemsBox.Minimum = 1;
+        _maxHistoryItemsBox.Maximum = 1000;
+        _maxHistoryItemsBox.SmallChange = 10;
+        _maxHistoryItemsBox.LargeChange = 50;
+        _maxHistoryItemsBox.SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline;
+        _maxHistoryItemsBox.ValueChanged += (_, args) => SaveMaxHistoryItems(args.NewValue);
+        _historyPage.Children.Add(SettingCard("\uE81C", "MaxHistoryItems", "MaxHistoryItemsDescription", _maxHistoryItemsBox));
         _historyPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", _maskSensitiveContentToggle));
 
         _historyPage.Children.Add(SectionHeader("HistorySection"));
@@ -504,6 +513,22 @@ public sealed class MainWindow : Window
         _runtime.SetFolderMode(_folderModeToggle.IsOn);
         _runtime.SetSimpleContextMenuMode(_simpleContextMenuToggle.IsOn);
         RefreshItems();
+    }
+
+    private void SaveMaxHistoryItems(double value)
+    {
+        if (_loading || double.IsNaN(value))
+        {
+            return;
+        }
+
+        var count = Math.Clamp((int)Math.Round(value), 1, 1000);
+        if (_runtime.Settings.MaxHistoryItems == count)
+        {
+            return;
+        }
+
+        _runtime.SetMaxHistoryItems(count);
     }
 
     private void RegisterSelectedHistory()
