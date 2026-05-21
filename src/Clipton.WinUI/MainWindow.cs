@@ -14,6 +14,7 @@ namespace Clipton.WinUI;
 public sealed class MainWindow : Window
 {
     private const int HistoryDisplayBatchSize = 50;
+    private const string MaskedPreview = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
     private readonly CliptonRuntime _runtime;
     private readonly Grid _root = new();
     private readonly StackPanel _sidebar = new() { Padding = new Thickness(18, 22, 14, 18), Spacing = 12 };
@@ -321,7 +322,7 @@ public sealed class MainWindow : Window
         }
 
         var preview = _runtime.Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(item.Text)
-            ? _runtime.Translate("MaskedSensitive")
+            ? MaskedPreview
             : item.Preview;
         return preview.Contains(_historySearchQuery, StringComparison.OrdinalIgnoreCase);
     }

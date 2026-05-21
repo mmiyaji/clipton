@@ -14,6 +14,7 @@ namespace Clipton.WinUI;
 
 public sealed class CliptonRuntime : IDisposable
 {
+    private const string MaskedPreview = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
     private const int HistorySaveDebounceMilliseconds = 500;
     private const int QuickMenuHotkeyDebounceMilliseconds = 160;
     private readonly DispatcherQueue _dispatcherQueue;
@@ -706,8 +707,13 @@ public sealed class CliptonRuntime : IDisposable
             IconImagePath: SaveHistoryThumbnail(item));
     }
 
-    private static string GetHistoryIconGlyph(ClipboardSnapshot item)
+    private string GetHistoryIconGlyph(ClipboardSnapshot item)
     {
+        if (IsMaskedHistoryItem(item))
+        {
+            return "\uE72E";
+        }
+
         if (item.Formats.Contains(ClipboardFormatKind.FileDrop))
         {
             return "\uE8B7";
@@ -726,9 +732,9 @@ public sealed class CliptonRuntime : IDisposable
         return "Aa";
     }
 
-    private static string GetHistoryIconFontFamily(ClipboardSnapshot item)
+    private string GetHistoryIconFontFamily(ClipboardSnapshot item)
     {
-        return item.Formats.Contains(ClipboardFormatKind.FileDrop) || item.Formats.Contains(ClipboardFormatKind.Image)
+        return IsMaskedHistoryItem(item) || item.Formats.Contains(ClipboardFormatKind.FileDrop) || item.Formats.Contains(ClipboardFormatKind.Image)
             ? "Segoe Fluent Icons"
             : "Segoe UI";
     }
@@ -777,15 +783,21 @@ public sealed class CliptonRuntime : IDisposable
         var snippet = Snippets.FindByText(snapshot.Text);
         if (snippet is not null)
         {
-            return new HistoryItemViewModel(snapshot.Id, snippet.DisplayName, $"{Translate("RegisteredSnippetMasked")} - {formats}");
+            return new HistoryItemViewModel(snapshot.Id, MaskedPreview, $"{Translate("RegisteredSnippetMasked")}: {snippet.DisplayName} - {formats}");
         }
 
         if (Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(snapshot.Text))
         {
-            return new HistoryItemViewModel(snapshot.Id, Translate("MaskedSensitive"), formats);
+            return new HistoryItemViewModel(snapshot.Id, MaskedPreview, $"{Translate("MaskedSensitive")} - {formats}");
         }
 
         return new HistoryItemViewModel(snapshot.Id, snapshot.Preview, formats);
+    }
+
+    private bool IsMaskedHistoryItem(ClipboardSnapshot snapshot)
+    {
+        return Snippets.FindByText(snapshot.Text) is not null
+            || (Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(snapshot.Text));
     }
 
     private IReadOnlyList<QuickMenuItem> CreateSnippetMenuItems(IEnumerable<Snippet> snippets)
