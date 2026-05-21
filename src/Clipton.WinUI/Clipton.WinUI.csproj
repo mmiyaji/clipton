@@ -27,8 +27,11 @@
 
   <ItemGroup>
     <Content Include="Assets\Clipton.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\CliptonDark.ico" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Clipton.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\CliptonDark.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\CliptonTray.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\CliptonTrayDark.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

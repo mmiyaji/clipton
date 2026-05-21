@@ -514,7 +514,7 @@ public sealed class MainWindow : Window
         using var form = new Forms.Form
         {
             Text = _runtime.Translate("SnippetEditor"),
-            Icon = AppAssets.LoadAppIcon(),
+            Icon = AppAssets.LoadAppIcon(_runtime.EffectiveTheme),
             Width = 560,
             Height = 460,
             MinimizeBox = false,
@@ -617,7 +617,7 @@ public sealed class MainWindow : Window
         using var form = new Forms.Form
         {
             Text = title,
-            Icon = AppAssets.LoadAppIcon(),
+            Icon = AppAssets.LoadAppIcon(_runtime.EffectiveTheme),
             Width = 440,
             Height = 170,
             MinimizeBox = false,
@@ -672,7 +672,7 @@ public sealed class MainWindow : Window
         using var form = new Forms.Form
         {
             Text = _runtime.Translate("CaptureHotkey"),
-            Icon = AppAssets.LoadAppIcon(),
+            Icon = AppAssets.LoadAppIcon(_runtime.EffectiveTheme),
             Width = 460,
             Height = 180,
             MinimizeBox = false,
@@ -874,7 +874,7 @@ public sealed class MainWindow : Window
         using var form = new Forms.Form
         {
             Text = title,
-            Icon = AppAssets.LoadAppIcon(),
+            Icon = AppAssets.LoadAppIcon(_runtime.EffectiveTheme),
             Width = 640,
             Height = 520,
             MinimizeBox = false,
@@ -993,9 +993,10 @@ public sealed class MainWindow : Window
         var hwnd = WindowNative.GetWindowHandle(this);
         var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
         var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
-        if (File.Exists(AppAssets.AppIconPath))
+        var iconPath = AppAssets.GetAppIconPath(_runtime.EffectiveTheme);
+        if (File.Exists(iconPath))
         {
-            appWindow.SetIcon(AppAssets.AppIconPath);
+            appWindow.SetIcon(iconPath);
         }
 
         appWindow.Resize(new SizeInt32(1120, 760));
@@ -1082,12 +1083,12 @@ public sealed class MainWindow : Window
         OffContent = string.Empty
     };
 
-    private static Image CreateAppLogoImage(double size) => new()
+    private Image CreateAppLogoImage(double size) => new()
     {
         Width = size,
         Height = size,
-        Source = File.Exists(AppAssets.AppImagePath)
-            ? new BitmapImage(new Uri(AppAssets.AppImagePath))
+        Source = File.Exists(AppAssets.GetAppImagePath(_runtime.EffectiveTheme))
+            ? new BitmapImage(new Uri(AppAssets.GetAppImagePath(_runtime.EffectiveTheme)))
             : null
     };
 

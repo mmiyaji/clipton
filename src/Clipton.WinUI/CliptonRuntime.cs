@@ -260,6 +260,7 @@ public sealed class CliptonRuntime : IDisposable
     {
         Settings.Theme = NormalizeTheme(theme);
         SaveSettings();
+        RefreshTrayIcon();
     }
 
     public void Dispose()
@@ -351,7 +352,7 @@ public sealed class CliptonRuntime : IDisposable
     {
         _notifyIcon = new Forms.NotifyIcon
         {
-            Icon = AppAssets.LoadTrayIcon(),
+            Icon = AppAssets.LoadTrayIcon(EffectiveTheme),
             Text = "Clipton",
             Visible = true
         };
@@ -364,6 +365,18 @@ public sealed class CliptonRuntime : IDisposable
         };
         _notifyIcon.DoubleClick += (_, _) => _dispatcherQueue.TryEnqueue(ShowMainWindow);
         RefreshTrayText();
+    }
+
+    private void RefreshTrayIcon()
+    {
+        if (_notifyIcon is null)
+        {
+            return;
+        }
+
+        var oldIcon = _notifyIcon.Icon;
+        _notifyIcon.Icon = AppAssets.LoadTrayIcon(EffectiveTheme);
+        oldIcon?.Dispose();
     }
 
     private void RefreshTrayText()
