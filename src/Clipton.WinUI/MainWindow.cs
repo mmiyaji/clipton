@@ -1,8 +1,9 @@
+using Microsoft.UI.Xaml.Automation;
 using Clipton.Core;
 using Microsoft.UI;
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
-using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -17,6 +18,7 @@ namespace Clipton.WinUI;
 public sealed class MainWindow : Window
 {
     private const string UiFontFamily = "Segoe UI Variable Text";
+    private const string JapaneseUiFontFamily = "Yu Gothic UI";
     private const int HistoryDisplayBatchSize = 50;
     private const double SettingsPageMaxWidth = 920;
     private const double SidebarExpandedWidth = 248;
@@ -73,6 +75,10 @@ public sealed class MainWindow : Window
     private readonly ToggleSwitch _persistHistoryToggle = CompactToggle();
     private readonly ToggleSwitch _maskSensitiveContentToggle = CompactToggle();
     private readonly Button _maskDefinitionsButton = new();
+    private readonly StackPanel _maskDefinitionsPanel = new() { Spacing = 12 };
+    private readonly ComboBox _maskPrefixBox = new();
+    private readonly Border _maskPatternsHost = new();
+    private readonly TextBlock _maskDefinitionsErrorText = Description();
     private readonly ComboBox _maxHistoryItemsBox = new();
     private readonly ToggleSwitch _folderModeToggle = CompactToggle();
     private readonly Button _registerFromHistoryButton = new();
@@ -83,6 +89,8 @@ public sealed class MainWindow : Window
     private Forms.Form? _historySearchOverlay;
     private Forms.TextBox? _historySearchBox;
     private SearchIconControl? _historySearchIcon;
+    private Forms.Form? _maskPatternsOverlay;
+    private Forms.TextBox? _maskPatternsBox;
     private readonly Button _advancedHistorySearchButton = new();
     private readonly Button _clearHistorySearchButton = new();
     private readonly Button _loadMoreHistoryButton = new();
@@ -111,7 +119,8 @@ public sealed class MainWindow : Window
     private IntPtr _hwnd;
     private IntPtr _originalWndProc;
     private bool _hiddenToTray;
-    private Forms.Form? _maskSettingsForm;
+    private bool _maskDefinitionsExpanded;
+    private Border? _maskDefinitionsCard;
 
     public MainWindow(CliptonRuntime runtime)
     {
@@ -125,9 +134,10 @@ public sealed class MainWindow : Window
             _historyDescriptionText,
             _snippetDescriptionText,
             _aboutDescriptionText,
-            _historySearchStatusText,
-            _historyAdvancedSearchText,
-            _selectedSnippetText);
+        _historySearchStatusText,
+        _historyAdvancedSearchText,
+        _selectedSnippetText,
+        _maskDefinitionsErrorText);
         Title = "Clipton";
         BuildUi();
         ApplyTheme();
@@ -137,6 +147,8 @@ public sealed class MainWindow : Window
         Closed += (_, _) => _runtime.OnMainWindowClosed(this);
         Closed += (_, _) => _historySearchOverlay?.Dispose();
         Closed += (_, _) => _historySearchBox?.Dispose();
+        Closed += (_, _) => _maskPatternsOverlay?.Dispose();
+        Closed += (_, _) => _maskPatternsBox?.Dispose();
     }
 
     public void ShowSettingsWindow()
@@ -302,7 +314,11 @@ public sealed class MainWindow : Window
         var contentHost = new Grid { HorizontalAlignment = HorizontalAlignment.Left, MinWidth = ContentMinWidth };
         scroller.Content = contentHost;
         scroller.SizeChanged += (_, e) => UpdateSettingsPageWidth(Math.Max(0, e.NewSize.Width - scroller.Padding.Left - scroller.Padding.Right));
-        scroller.ViewChanged += (_, _) => PositionNativeHistorySearchBox();
+        scroller.ViewChanged += (_, _) =>
+        {
+            PositionNativeHistorySearchBox();
+            PositionNativeMaskPatternsBox();
+        };
         contentHost.Children.Add(_generalPage);
         contentHost.Children.Add(_historyPage);
         contentHost.Children.Add(_snippetPage);
@@ -406,17 +422,9 @@ public sealed class MainWindow : Window
         var maskControls = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         maskControls.Children.Add(_maskDefinitionsButton);
         maskControls.Children.Add(ToggleActionHost(_maskSensitiveContentToggle));
-        _maskDefinitionsButton.Click += (_, _) => OpenMaskDefinitionSettings();
-        _maskDefinitionsButton.GotFocus += (_, _) => OpenMaskDefinitionSettings();
-        _maskDefinitionsButton.Tapped += (_, _) => OpenMaskDefinitionSettings();
-        _maskDefinitionsButton.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler((_, args) =>
-        {
-            if (Equals(args.GetCurrentPoint(_maskDefinitionsButton).Properties.PointerUpdateKind, Windows.UI.Input.PointerUpdateKind.LeftButtonReleased))
-            {
-                OpenMaskDefinitionSettings();
-            }
-        }), true);
+        _maskDefinitionsButton.Click += (_, _) => ToggleMaskDefinitionsPanel();
         _historyPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", maskControls));
+        _historyPage.Children.Add(BuildMaskDefinitionsPanel());
 
         _historyPage.Children.Add(SectionHeader("HistorySection"));
         _historyPage.Children.Add(BuildHistorySearchPanel());
@@ -483,6 +491,177 @@ public sealed class MainWindow : Window
         };
     }
 
+    private UIElement BuildMaskDefinitionsPanel()
+    {
+        _maskPrefixBox.Width = 150;
+        _maskPrefixBox.Height = SettingControlHeight;
+        _maskPrefixBox.VerticalAlignment = VerticalAlignment.Center;
+        _maskPrefixBox.Items.Clear();
+        for (var i = 0; i <= 12; i++)
+        {
+            _maskPrefixBox.Items.Add(new ComboBoxItem { Content = i.ToString(), Tag = i.ToString() });
+        }
+        SetComboSelection(_maskPrefixBox, Math.Clamp(_runtime.Settings.MaskVisiblePrefixLength, 0, 12).ToString());
+
+        var prefixRow = new Grid { ColumnSpacing = 16 };
+        prefixRow.ColumnDefinitions.Add(new ColumnDefinition());
+        prefixRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var prefixTexts = new StackPanel { Spacing = 3, VerticalAlignment = VerticalAlignment.Center };
+        prefixTexts.Children.Add(LocalizedText("MaskVisiblePrefixLength", fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
+        prefixTexts.Children.Add(DescriptionText("MaskSensitiveContentDescription", fontSize: 12, wrapping: TextWrapping.Wrap));
+        prefixRow.Children.Add(prefixTexts);
+        Grid.SetColumn(_maskPrefixBox, 1);
+        prefixRow.Children.Add(_maskPrefixBox);
+
+        _maskPatternsHost.MinHeight = 88;
+        _maskPatternsHost.HorizontalAlignment = HorizontalAlignment.Stretch;
+        _maskPatternsHost.Background = CardBackground();
+        _maskPatternsHost.BorderBrush = CardBorderBrush();
+        _maskPatternsHost.BorderThickness = new Thickness(1);
+        _maskPatternsHost.CornerRadius = new CornerRadius(4);
+        _maskPatternsHost.Loaded += (_, _) => EnsureNativeMaskPatternsBox();
+        _maskPatternsHost.SizeChanged += (_, _) => PositionNativeMaskPatternsBox();
+
+        _maskDefinitionsErrorText.Visibility = Visibility.Collapsed;
+        var saveButton = new Button
+        {
+            Content = _runtime.Translate("Save"),
+            MinWidth = 96,
+            Height = 32,
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+        AutomationProperties.SetName(saveButton, _runtime.Translate("Save"));
+        saveButton.Click += (_, _) => SaveMaskDefinitions();
+
+        _maskDefinitionsPanel.Children.Add(prefixRow);
+        _maskDefinitionsPanel.Children.Add(LocalizedText("MaskPatternDefinitions", fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
+        _maskDefinitionsPanel.Children.Add(DescriptionText("MaskDefinitionsDescription", fontSize: 12, wrapping: TextWrapping.Wrap));
+        _maskDefinitionsPanel.Children.Add(_maskPatternsHost);
+        _maskDefinitionsPanel.Children.Add(_maskDefinitionsErrorText);
+        _maskDefinitionsPanel.Children.Add(saveButton);
+        _maskDefinitionsCard = Card(_maskDefinitionsPanel);
+        _maskDefinitionsCard.Visibility = Visibility.Collapsed;
+        return _maskDefinitionsCard;
+    }
+
+    private void ToggleMaskDefinitionsPanel()
+    {
+        _maskDefinitionsExpanded = !_maskDefinitionsExpanded;
+        if (_maskDefinitionsCard is not null)
+        {
+            _maskDefinitionsCard.Visibility = _maskDefinitionsExpanded ? Visibility.Visible : Visibility.Collapsed;
+        }
+        if (_maskDefinitionsExpanded)
+        {
+            _historySearchOverlay?.Hide();
+            EnsureNativeMaskPatternsBox();
+            PositionNativeMaskPatternsBox();
+            _maskPatternsBox?.Focus();
+        }
+        else
+        {
+            _maskPatternsOverlay?.Hide();
+            PositionNativeHistorySearchBox();
+        }
+    }
+
+    private void SaveMaskDefinitions()
+    {
+        var patterns = (_maskPatternsBox?.Text ?? string.Empty)
+            .ReplaceLineEndings("\n")
+            .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var invalidPatterns = SensitiveContentDetector.GetInvalidCustomPatterns(patterns);
+        if (invalidPatterns.Length > 0)
+        {
+            _maskDefinitionsErrorText.Text = string.Format(_runtime.Translate("MaskDefinitionInvalid"), invalidPatterns[0]);
+            _maskDefinitionsErrorText.Visibility = Visibility.Visible;
+            return;
+        }
+
+        _maskDefinitionsErrorText.Visibility = Visibility.Collapsed;
+        var visiblePrefixLength = _maskPrefixBox.SelectedItem is ComboBoxItem { Tag: string tag } && int.TryParse(tag, out var parsed)
+            ? Math.Clamp(parsed, 0, 12)
+            : 0;
+        _runtime.SetMaskDefinitionOptions(visiblePrefixLength, patterns);
+        RefreshItems();
+    }
+
+    private void EnsureNativeMaskPatternsBox()
+    {
+        if (_maskPatternsBox is not null || _hwnd == IntPtr.Zero)
+        {
+            PositionNativeMaskPatternsBox();
+            return;
+        }
+
+        var backColor = HistorySearchBackColor();
+        _maskPatternsOverlay = new Forms.Form
+        {
+            FormBorderStyle = Forms.FormBorderStyle.None,
+            ShowInTaskbar = false,
+            StartPosition = Forms.FormStartPosition.Manual,
+            BackColor = backColor,
+            Padding = new Forms.Padding(0),
+            TopMost = false
+        };
+        _maskPatternsOverlay.Paint += (_, args) => PaintNativeInputBorder(args.Graphics, _maskPatternsOverlay, _maskPatternsBox);
+        _maskPatternsBox = new Forms.TextBox
+        {
+            Dock = Forms.DockStyle.Fill,
+            BorderStyle = Forms.BorderStyle.None,
+            Multiline = true,
+            AcceptsReturn = true,
+            AcceptsTab = true,
+            ScrollBars = Forms.ScrollBars.Vertical,
+            Font = DialogFont(10f),
+            Text = string.Join(Environment.NewLine, _runtime.Settings.CustomMaskPatterns),
+            BackColor = backColor,
+            ForeColor = HistorySearchForeColor(),
+            Margin = new Forms.Padding(8)
+        };
+        _maskPatternsBox.Enter += (_, _) => _maskPatternsOverlay.Invalidate();
+        _maskPatternsBox.Leave += (_, _) => _maskPatternsOverlay.Invalidate();
+        _maskPatternsOverlay.Controls.Add(_maskPatternsBox);
+        _maskPatternsOverlay.Show(new WindowHandle(_hwnd));
+        PositionNativeMaskPatternsBox();
+    }
+
+    private void PositionNativeMaskPatternsBox()
+    {
+        if (_maskPatternsOverlay is null || _maskPatternsOverlay.IsDisposed || _maskPatternsBox is null || _maskPatternsBox.IsDisposed || _hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        if (_selectedPageIndex != 1 || !_maskDefinitionsExpanded || _maskPatternsHost.ActualWidth <= 0 || _maskPatternsHost.ActualHeight <= 0)
+        {
+            _maskPatternsOverlay.Hide();
+            return;
+        }
+
+        var point = _maskPatternsHost.TransformToVisual(_root).TransformPoint(new Windows.Foundation.Point(0, 0));
+        var scale = NativeMethods.GetDpiForWindow(_hwnd) / 96.0;
+        var screenPoint = new NativeMethods.Point
+        {
+            X = (int)Math.Round(point.X * scale),
+            Y = (int)Math.Round(point.Y * scale)
+        };
+        if (!NativeMethods.ClientToScreen(_hwnd, ref screenPoint))
+        {
+            return;
+        }
+
+        var width = Math.Max(1, (int)Math.Round(_maskPatternsHost.ActualWidth * scale));
+        var height = Math.Max(1, (int)Math.Round(_maskPatternsHost.ActualHeight * scale));
+        _maskPatternsOverlay.SetBounds(screenPoint.X, screenPoint.Y, width, height);
+        if (!_maskPatternsOverlay.Visible)
+        {
+            _maskPatternsOverlay.Show(new WindowHandle(_hwnd));
+        }
+
+        _maskPatternsOverlay.BringToFront();
+    }
+
     private void EnsureNativeHistorySearchBox()
     {
         if (_historySearchBox is not null || _hwnd == IntPtr.Zero)
@@ -547,6 +726,7 @@ public sealed class MainWindow : Window
         _historySearchOverlay.Controls.Add(layout);
         _historySearchOverlay.Show(new WindowHandle(_hwnd));
         PositionNativeHistorySearchBox();
+        PositionNativeMaskPatternsBox();
     }
 
     private void PaintHistorySearchOverlay(System.Drawing.Graphics graphics)
@@ -556,15 +736,20 @@ public sealed class MainWindow : Window
             return;
         }
 
+        PaintNativeInputBorder(graphics, _historySearchOverlay, _historySearchBox);
+    }
+
+    private void PaintNativeInputBorder(System.Drawing.Graphics graphics, Forms.Form overlay, Forms.TextBox? textBox)
+    {
         graphics.Clear(HistorySearchBackColor());
-        var focused = _historySearchBox?.Focused == true;
+        var focused = textBox?.Focused == true;
         using var borderPen = new System.Drawing.Pen(focused ? HistorySearchAccentColor() : HistorySearchBorderColor());
-        graphics.DrawRectangle(borderPen, 0, 0, _historySearchOverlay.ClientSize.Width - 1, _historySearchOverlay.ClientSize.Height - 1);
+        graphics.DrawRectangle(borderPen, 0, 0, overlay.ClientSize.Width - 1, overlay.ClientSize.Height - 1);
         if (focused)
         {
             using var accentPen = new System.Drawing.Pen(HistorySearchAccentColor(), 2);
-            var y = _historySearchOverlay.ClientSize.Height - 2;
-            graphics.DrawLine(accentPen, 2, y, _historySearchOverlay.ClientSize.Width - 3, y);
+            var y = overlay.ClientSize.Height - 2;
+            graphics.DrawLine(accentPen, 2, y, overlay.ClientSize.Width - 3, y);
         }
     }
 
@@ -595,7 +780,7 @@ public sealed class MainWindow : Window
             return;
         }
 
-        if (_selectedPageIndex != 1 || _historySearchHost.ActualWidth <= 0 || _historySearchHost.ActualHeight <= 0)
+        if (_selectedPageIndex != 1 || _maskDefinitionsExpanded || _historySearchHost.ActualWidth <= 0 || _historySearchHost.ActualHeight <= 0)
         {
             _historySearchOverlay.Hide();
             return;
@@ -864,141 +1049,6 @@ public sealed class MainWindow : Window
         _runtime.ClearHistory();
     }
 
-    private void OpenMaskDefinitionSettings()
-    {
-        if (_maskSettingsForm is { IsDisposed: false } existingForm)
-        {
-            existingForm.Activate();
-            return;
-        }
-
-        var form = new Forms.Form
-        {
-            Text = _runtime.Translate("MaskDefinitions"),
-            Icon = AppAssets.LoadAppIcon(_runtime.EffectiveTheme),
-            Width = 660,
-            Height = 540,
-            MinimizeBox = false,
-            MaximizeBox = false,
-            FormBorderStyle = Forms.FormBorderStyle.FixedDialog,
-            StartPosition = Forms.FormStartPosition.CenterScreen,
-            Font = DialogFont(9.5f),
-            BackColor = DialogBackgroundColor(),
-            ForeColor = DialogForegroundColor()
-        };
-
-        var root = new Forms.TableLayoutPanel
-        {
-            Dock = Forms.DockStyle.Fill,
-            Padding = new Forms.Padding(20),
-            ColumnCount = 1,
-            RowCount = 4
-        };
-        root.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 64));
-        root.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 88));
-        root.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Percent, 100));
-        root.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 52));
-
-        var description = DialogDescriptionLabel(_runtime.Translate("MaskDefinitionsDescription"));
-        var prefixCard = DialogPanel();
-        var prefixGrid = new Forms.TableLayoutPanel { Dock = Forms.DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
-        prefixGrid.ColumnStyles.Add(new Forms.ColumnStyle(Forms.SizeType.Percent, 100));
-        prefixGrid.ColumnStyles.Add(new Forms.ColumnStyle(Forms.SizeType.Absolute, 118));
-        prefixGrid.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Percent, 50));
-        prefixGrid.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Percent, 50));
-        var prefixBox = new Forms.ComboBox
-        {
-            DropDownStyle = Forms.ComboBoxStyle.DropDownList,
-            Dock = Forms.DockStyle.Right,
-            Width = 104,
-            FlatStyle = Forms.FlatStyle.Flat,
-            BackColor = DialogInputColor(),
-            ForeColor = DialogForegroundColor(),
-            Font = DialogFont(10f)
-        };
-        for (var i = 0; i <= 12; i++)
-        {
-            prefixBox.Items.Add(i.ToString());
-        }
-        prefixBox.SelectedItem = Math.Clamp(_runtime.Settings.MaskVisiblePrefixLength, 0, 12).ToString();
-        prefixGrid.Controls.Add(DialogTitleLabel(_runtime.Translate("MaskVisiblePrefixLength")), 0, 0);
-        prefixGrid.Controls.Add(DialogDescriptionLabel(_runtime.Translate("MaskSensitiveContentDescription")), 0, 1);
-        prefixGrid.Controls.Add(prefixBox, 1, 0);
-        prefixGrid.SetRowSpan(prefixBox, 2);
-        prefixCard.Controls.Add(prefixGrid);
-
-        var patternCard = DialogPanel();
-        var patternGrid = new Forms.TableLayoutPanel { Dock = Forms.DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
-        patternGrid.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 30));
-        patternGrid.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 38));
-        patternGrid.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Percent, 100));
-        var patternBox = DialogTextBox(string.Join(Environment.NewLine, _runtime.Settings.CustomMaskPatterns));
-        patternBox.Multiline = true;
-        patternBox.ScrollBars = Forms.ScrollBars.Vertical;
-        patternBox.AcceptsReturn = true;
-        patternBox.AcceptsTab = true;
-        patternGrid.Controls.Add(DialogTitleLabel(_runtime.Translate("MaskPatternDefinitions")), 0, 0);
-        patternGrid.Controls.Add(DialogDescriptionLabel(_runtime.Translate("MaskDefinitionsDescription")), 0, 1);
-        patternGrid.Controls.Add(patternBox, 0, 2);
-        patternCard.Controls.Add(patternGrid);
-
-        var buttons = new Forms.FlowLayoutPanel
-        {
-            FlowDirection = Forms.FlowDirection.RightToLeft,
-            Dock = Forms.DockStyle.Fill,
-            Padding = new Forms.Padding(0, 12, 0, 0)
-        };
-        var saveButton = DialogButton(_runtime.Translate("Save"), primary: true);
-        var cancelButton = DialogButton(_runtime.Translate("Cancel"), primary: false);
-        cancelButton.DialogResult = Forms.DialogResult.Cancel;
-        cancelButton.Click += (_, _) => form.Close();
-        buttons.Controls.Add(saveButton);
-        buttons.Controls.Add(cancelButton);
-
-        root.Controls.Add(description, 0, 0);
-        root.Controls.Add(prefixCard, 0, 1);
-        root.Controls.Add(patternCard, 0, 2);
-        root.Controls.Add(buttons, 0, 3);
-        form.Controls.Add(root);
-        form.CancelButton = cancelButton;
-        form.Shown += (_, _) => ApplyFormTitleBarTheme(form);
-        saveButton.Click += (_, _) =>
-        {
-            var patterns = patternBox.Lines
-                .Select(line => line.Trim())
-                .Where(line => line.Length > 0)
-                .ToArray();
-            var invalidPatterns = SensitiveContentDetector.GetInvalidCustomPatterns(patterns);
-            if (invalidPatterns.Length > 0)
-            {
-                Forms.MessageBox.Show(
-                    string.Format(_runtime.Translate("MaskDefinitionInvalid"), invalidPatterns[0]),
-                    _runtime.Translate("MaskDefinitions"),
-                    Forms.MessageBoxButtons.OK,
-                    Forms.MessageBoxIcon.Warning);
-                return;
-            }
-
-            var visiblePrefixLength = int.TryParse(prefixBox.SelectedItem?.ToString(), out var parsed)
-                ? Math.Clamp(parsed, 0, 12)
-                : 0;
-            _runtime.SetMaskDefinitionOptions(visiblePrefixLength, patterns);
-            RefreshItems();
-            form.DialogResult = Forms.DialogResult.OK;
-            form.Close();
-        };
-        _maskSettingsForm = form;
-        form.FormClosed += (_, _) =>
-        {
-            if (ReferenceEquals(_maskSettingsForm, form))
-            {
-                _maskSettingsForm = null;
-            }
-        };
-        form.Show(new WindowHandle(_hwnd));
-        form.Activate();
-    }
-
     private void ChangeMaxHistoryItems()
     {
         if (_loading || _maxHistoryItemsBox.SelectedItem is not ComboBoxItem selected || selected.Tag is not string tag)
@@ -1246,7 +1296,7 @@ public sealed class MainWindow : Window
         Dock = Forms.DockStyle.Fill,
         AutoSize = false,
         TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
-        Font = DialogFont(9.5f),
+        Font = DialogFont(9f),
         ForeColor = IsDark ? System.Drawing.Color.FromArgb(220, 220, 220) : System.Drawing.Color.FromArgb(42, 42, 42)
     };
 
@@ -1256,7 +1306,7 @@ public sealed class MainWindow : Window
         Dock = Forms.DockStyle.Fill,
         AutoSize = false,
         TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
-        Font = new System.Drawing.Font(UiFontFamily, 10f, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point),
+        Font = DialogFont(10.5f, System.Drawing.FontStyle.Regular),
         ForeColor = DialogForegroundColor()
     };
 
@@ -1274,7 +1324,7 @@ public sealed class MainWindow : Window
     {
         Text = text,
         Dock = Forms.DockStyle.Fill,
-        Font = DialogFont(10f),
+        Font = DialogFont(10.5f),
         BackColor = DialogInputColor(),
         ForeColor = DialogForegroundColor(),
         BorderStyle = Forms.BorderStyle.FixedSingle
@@ -1295,7 +1345,7 @@ public sealed class MainWindow : Window
             Width = 96,
             Height = 32,
             FlatStyle = Forms.FlatStyle.Flat,
-            Font = DialogFont(9.5f),
+            Font = DialogFont(9f),
             BackColor = primary ? DialogAccentColor() : DialogButtonColor(),
             ForeColor = primary ? System.Drawing.Color.White : DialogForegroundColor()
         };
@@ -1334,7 +1384,22 @@ public sealed class MainWindow : Window
 
     private static System.Drawing.Color DialogAccentColor() => System.Drawing.Color.FromArgb(0, 120, 212);
 
-    private static System.Drawing.Font DialogFont(float size) => new(UiFontFamily, size, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+    private System.Drawing.Font DialogFont(float size, System.Drawing.FontStyle style = System.Drawing.FontStyle.Regular)
+    {
+        var family = IsJapaneseLocale() ? JapaneseUiFontFamily : UiFontFamily;
+        return new System.Drawing.Font(family, size, style, System.Drawing.GraphicsUnit.Point);
+    }
+
+    private bool IsJapaneseLocale()
+    {
+        var locale = _runtime.Settings.Locale;
+        if (string.IsNullOrWhiteSpace(locale) || string.Equals(locale, "auto", StringComparison.OrdinalIgnoreCase))
+        {
+            locale = CultureInfo.CurrentUICulture.Name;
+        }
+
+        return locale.StartsWith("ja", StringComparison.OrdinalIgnoreCase);
+    }
 
     private string? PromptForHotkey()
     {
