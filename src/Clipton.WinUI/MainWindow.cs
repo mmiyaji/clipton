@@ -40,6 +40,7 @@ public sealed class MainWindow : Window
     private readonly List<Button> _navButtons = [];
     private readonly Dictionary<ToggleSwitch, TextBlock> _toggleStateLabels = [];
     private readonly List<(TextBlock TextBlock, string Key)> _localizedTextBlocks = [];
+    private readonly List<TextBlock> _descriptionTextBlocks = [];
     private readonly Button _generalNavButton = new();
     private readonly Button _historyNavButton = new();
     private readonly Button _snippetNavButton = new();
@@ -103,6 +104,14 @@ public sealed class MainWindow : Window
         _brandHeader = BuildBrandHeader();
         _hotkeyPill = Pill(_hotkeyText);
         _windowProc = WindowProc;
+        TrackDescriptionText(
+            _hotkeyText,
+            _generalDescriptionText,
+            _historyDescriptionText,
+            _snippetDescriptionText,
+            _aboutDescriptionText,
+            _historySearchStatusText,
+            _selectedSnippetText);
         Title = "Clipton";
         BuildUi();
         ApplyTheme();
@@ -904,6 +913,8 @@ public sealed class MainWindow : Window
             _navButtons[i].Background = i == index ? AccentBrush(34) : Brush("#00FFFFFF");
             _navButtons[i].BorderBrush = i == index ? AccentBrush(68) : Brush("#00FFFFFF");
         }
+
+        UpdateSidebarToggleStyle();
     }
 
     private void SetSidebarCollapsed(bool collapsed)
@@ -968,7 +979,15 @@ public sealed class MainWindow : Window
         _sidebarToggleButton.Content = CreateSidebarButtonContent(_sidebarCollapsed ? "\uE76C" : "\uE76B", label);
         _sidebarToggleButton.HorizontalContentAlignment = _sidebarCollapsed ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
         _sidebarToggleButton.Padding = _sidebarCollapsed ? new Thickness(9) : new Thickness(10, 9, 10, 9);
+        UpdateSidebarToggleStyle();
         ToolTipService.SetToolTip(_sidebarToggleButton, label);
+    }
+
+    private void UpdateSidebarToggleStyle()
+    {
+        _sidebarToggleButton.Background = Brush("#00FFFFFF");
+        _sidebarToggleButton.BorderBrush = Brush("#00FFFFFF");
+        _sidebarToggleButton.Foreground = DescriptionBrush();
     }
 
     private static void PrepareSidebarButton(Button button)
@@ -1029,8 +1048,23 @@ public sealed class MainWindow : Window
             card.Background = CardBackground();
             card.BorderBrush = CardBorderBrush();
         }
+        RefreshThemeTextBrushes();
         SelectPage(_selectedPageIndex);
         UpdateSidebarToggleContent();
+    }
+
+    private void RefreshThemeTextBrushes()
+    {
+        var brush = DescriptionBrush();
+        foreach (var textBlock in _descriptionTextBlocks)
+        {
+            textBlock.Foreground = brush;
+        }
+
+        foreach (var label in _toggleStateLabels.Values)
+        {
+            label.Foreground = brush;
+        }
     }
 
     private bool IsDark => string.Equals(_runtime.EffectiveTheme, "dark", StringComparison.OrdinalIgnoreCase);
@@ -1078,7 +1112,7 @@ public sealed class MainWindow : Window
 
         var texts = new StackPanel { Spacing = 3 };
         texts.Children.Add(LocalizedText(titleKey, fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
-        texts.Children.Add(LocalizedText(descriptionKey, fontSize: 12, foreground: DescriptionBrush(), wrapping: TextWrapping.Wrap));
+        texts.Children.Add(DescriptionText(descriptionKey, fontSize: 12, wrapping: TextWrapping.Wrap));
         Grid.SetColumn(texts, 1);
         grid.Children.Add(texts);
         Grid.SetColumn(actionControl, 2);
@@ -1092,8 +1126,10 @@ public sealed class MainWindow : Window
         {
             MinWidth = 34,
             TextAlignment = TextAlignment.Right,
+            Foreground = DescriptionBrush(),
             VerticalAlignment = VerticalAlignment.Center
         };
+        _descriptionTextBlocks.Add(status);
         _toggleStateLabels[toggle] = status;
         UpdateToggleStateLabel(toggle);
 
@@ -1150,7 +1186,7 @@ public sealed class MainWindow : Window
         var grid = new Grid { ColumnSpacing = 16 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
-        grid.Children.Add(LocalizedText(labelKey, foreground: DescriptionBrush(), wrapping: TextWrapping.Wrap));
+        grid.Children.Add(DescriptionText(labelKey, wrapping: TextWrapping.Wrap));
         var valueText = valueKey is null
             ? new TextBlock
             {
@@ -1215,7 +1251,7 @@ public sealed class MainWindow : Window
                 Children =
                 {
                     new TextBlock { Text = title, TextTrimming = TextTrimming.CharacterEllipsis },
-                    new TextBlock { Text = subtitle, FontSize = 12, Foreground = DescriptionBrush() }
+                    TrackDescriptionText(new TextBlock { Text = subtitle, FontSize = 12, Foreground = DescriptionBrush() })
                 }
             }
         };
@@ -1260,13 +1296,22 @@ public sealed class MainWindow : Window
 
     private UIElement SectionHeader(string key)
     {
-        var text = LocalizedText(
+        var text = DescriptionText(
             key,
             fontSize: 13,
             fontWeight: Microsoft.UI.Text.FontWeights.SemiBold,
-            foreground: DescriptionBrush());
+            wrapping: TextWrapping.NoWrap);
         text.Margin = new Thickness(1, 6, 0, -8);
         return text;
+    }
+
+    private TextBlock DescriptionText(
+        string key,
+        double? fontSize = null,
+        Windows.UI.Text.FontWeight? fontWeight = null,
+        TextWrapping wrapping = TextWrapping.NoWrap)
+    {
+        return TrackDescriptionText(LocalizedText(key, fontSize, fontWeight, DescriptionBrush(), wrapping));
     }
 
     private TextBlock LocalizedText(
@@ -1298,6 +1343,20 @@ public sealed class MainWindow : Window
 
         _localizedTextBlocks.Add((textBlock, key));
         return textBlock;
+    }
+
+    private TextBlock TrackDescriptionText(TextBlock textBlock)
+    {
+        _descriptionTextBlocks.Add(textBlock);
+        return textBlock;
+    }
+
+    private void TrackDescriptionText(params TextBlock[] textBlocks)
+    {
+        foreach (var textBlock in textBlocks)
+        {
+            _descriptionTextBlocks.Add(textBlock);
+        }
     }
 
     private UIElement IconCircle(string glyph) => new Border
