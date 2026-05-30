@@ -195,19 +195,19 @@ public sealed class MainWindow : Window
         _snippetFormTitle.Text = t("SnippetEditor");
         _aboutHeaderText.Text = t("About");
         _aboutDescriptionText.Text = t("AboutDescription");
-        _registerFromHistoryButton.Content = t("RegisterFromHistory");
-        _exportHistoryButton.Content = t("Export");
-        _importHistoryButton.Content = t("Import");
-        _clearButton.Content = t("ClearHistory");
-        _searchHistoryButton.Content = t("Search");
-        _clearHistorySearchButton.Content = t("ClearSearch");
+        SetCommandButton(_registerFromHistoryButton, "\uE8EC", t("RegisterFromHistory"));
+        SetCommandButton(_exportHistoryButton, "\uEDE1", t("Export"));
+        SetCommandButton(_importHistoryButton, "\uE896", t("Import"));
+        SetCommandButton(_clearButton, "\uE74D", t("ClearHistory"));
+        SetCommandButton(_searchHistoryButton, "\uE721", t("Search"));
+        SetCommandButton(_clearHistorySearchButton, "\uE711", t("ClearSearch"));
         _loadMoreHistoryButton.Content = string.Format(t("LoadMoreHistory"), 0);
-        _newSnippetButton.Content = t("NewSnippet");
-        _exportSnippetsButton.Content = t("Export");
-        _importSnippetsButton.Content = t("Import");
-        _saveSnippetButton.Content = t("EditSnippet");
-        _pasteSnippetButton.Content = t("Paste");
-        _deleteSnippetButton.Content = t("Delete");
+        SetCommandButton(_newSnippetButton, "\uE710", t("NewSnippet"));
+        SetCommandButton(_exportSnippetsButton, "\uEDE1", t("Export"));
+        SetCommandButton(_importSnippetsButton, "\uE896", t("Import"));
+        SetCommandButton(_saveSnippetButton, "\uE70F", t("EditSnippet"));
+        SetCommandButton(_pasteSnippetButton, "\uE77F", t("Paste"));
+        SetCommandButton(_deleteSnippetButton, "\uE74D", t("Delete"));
         _termsButton.Content = t("TermsOfUse");
         _privacyButton.Content = t("PrivacyPolicy");
         _captureHotkeyButton.Content = t("CaptureHotkey");
@@ -385,7 +385,11 @@ public sealed class MainWindow : Window
         _historyPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", _maskSensitiveContentToggle));
 
         _historyPage.Children.Add(SectionHeader("HistorySection"));
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Spacing = 8 };
+        var actions = new Grid { ColumnSpacing = 12 };
+        actions.ColumnDefinitions.Add(new ColumnDefinition());
+        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var primaryActions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Spacing = 8 };
+        var dataActions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         _registerFromHistoryButton.Click += (_, _) => RegisterSelectedHistory();
         _clearButton.Click += (_, _) => _runtime.ClearHistory();
         _searchHistoryButton.Click += (_, _) => SearchHistory();
@@ -393,12 +397,15 @@ public sealed class MainWindow : Window
         _loadMoreHistoryButton.Click += (_, _) => LoadMoreHistory();
         _exportHistoryButton.Click += (_, _) => ExportHistory();
         _importHistoryButton.Click += (_, _) => ImportHistory();
-        actions.Children.Add(_searchHistoryButton);
-        actions.Children.Add(_clearHistorySearchButton);
-        actions.Children.Add(_registerFromHistoryButton);
-        actions.Children.Add(_exportHistoryButton);
-        actions.Children.Add(_importHistoryButton);
-        actions.Children.Add(_clearButton);
+        primaryActions.Children.Add(_searchHistoryButton);
+        primaryActions.Children.Add(_clearHistorySearchButton);
+        primaryActions.Children.Add(_registerFromHistoryButton);
+        dataActions.Children.Add(_exportHistoryButton);
+        dataActions.Children.Add(_importHistoryButton);
+        dataActions.Children.Add(_clearButton);
+        actions.Children.Add(primaryActions);
+        Grid.SetColumn(dataActions, 1);
+        actions.Children.Add(dataActions);
         _historyPage.Children.Add(actions);
         _historyPage.Children.Add(_historySearchStatusText);
         _historyPage.Children.Add(Card(_historyItemsPanel));
@@ -475,7 +482,16 @@ public sealed class MainWindow : Window
         grid.Children.Add(Card(_snippetItemsPanel));
 
         var details = new StackPanel { Spacing = 12 };
-        details.Children.Add(_snippetFormTitle);
+        var detailsHeader = new Grid { ColumnSpacing = 12 };
+        detailsHeader.ColumnDefinitions.Add(new ColumnDefinition());
+        detailsHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        detailsHeader.Children.Add(_snippetFormTitle);
+        var snippetDataActions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
+        snippetDataActions.Children.Add(_exportSnippetsButton);
+        snippetDataActions.Children.Add(_importSnippetsButton);
+        Grid.SetColumn(snippetDataActions, 1);
+        detailsHeader.Children.Add(snippetDataActions);
+        details.Children.Add(detailsHeader);
         details.Children.Add(_selectedSnippetText);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         _newSnippetButton.Click += (_, _) => OpenSnippetEditor(null, string.Empty, string.Empty, string.Empty);
@@ -503,8 +519,6 @@ public sealed class MainWindow : Window
         _exportSnippetsButton.Click += (_, _) => ExportSnippets();
         _importSnippetsButton.Click += (_, _) => ImportSnippets();
         buttons.Children.Add(_newSnippetButton);
-        buttons.Children.Add(_exportSnippetsButton);
-        buttons.Children.Add(_importSnippetsButton);
         buttons.Children.Add(_saveSnippetButton);
         buttons.Children.Add(_pasteSnippetButton);
         buttons.Children.Add(_deleteSnippetButton);
@@ -1120,6 +1134,32 @@ public sealed class MainWindow : Window
         _sidebarToggleButton.Background = Brush("#00FFFFFF");
         _sidebarToggleButton.BorderBrush = Brush("#00FFFFFF");
         _sidebarToggleButton.Foreground = DescriptionBrush();
+    }
+
+    private static void SetCommandButton(Button button, string glyph, string label)
+    {
+        button.Content = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Children =
+            {
+                new FontIcon
+                {
+                    Glyph = glyph,
+                    FontFamily = new FontFamily("Segoe Fluent Icons"),
+                    FontSize = 14,
+                    VerticalAlignment = VerticalAlignment.Center
+                },
+                new TextBlock
+                {
+                    Text = label,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    VerticalAlignment = VerticalAlignment.Center
+                }
+            }
+        };
+        ToolTipService.SetToolTip(button, label);
     }
 
     private static void PrepareSidebarButton(Button button)
