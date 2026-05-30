@@ -241,10 +241,7 @@ public sealed class MainWindow : Window
         _navButtons.AddRange([_generalNavButton, _historyNavButton, _snippetNavButton, _aboutNavButton]);
         foreach (var button in _navButtons)
         {
-            button.HorizontalAlignment = HorizontalAlignment.Stretch;
-            button.HorizontalContentAlignment = HorizontalAlignment.Stretch;
-            button.Padding = new Thickness(10, 9, 10, 9);
-            button.BorderThickness = new Thickness(1);
+            PrepareSidebarButton(button);
         }
         _sidebar.Children.Add(_generalNavButton);
         _sidebar.Children.Add(_historyNavButton);
@@ -253,9 +250,7 @@ public sealed class MainWindow : Window
         _sidebarFrame.Children.Add(_sidebar);
         Grid.SetRow(_sidebarToggleButton, 1);
         _sidebarToggleButton.Margin = new Thickness(18, 0, 14, 18);
-        _sidebarToggleButton.HorizontalAlignment = HorizontalAlignment.Stretch;
-        _sidebarToggleButton.HorizontalContentAlignment = HorizontalAlignment.Stretch;
-        _sidebarToggleButton.Padding = new Thickness(10, 9, 10, 9);
+        PrepareSidebarButton(_sidebarToggleButton);
         _sidebarFrame.Children.Add(_sidebarToggleButton);
         _root.Children.Add(_sidebarFrame);
 
@@ -974,6 +969,16 @@ public sealed class MainWindow : Window
         _sidebarToggleButton.HorizontalContentAlignment = _sidebarCollapsed ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
         _sidebarToggleButton.Padding = _sidebarCollapsed ? new Thickness(9) : new Thickness(10, 9, 10, 9);
         ToolTipService.SetToolTip(_sidebarToggleButton, label);
+    }
+
+    private static void PrepareSidebarButton(Button button)
+    {
+        button.HorizontalAlignment = HorizontalAlignment.Stretch;
+        button.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        button.Padding = new Thickness(10, 9, 10, 9);
+        button.BorderThickness = new Thickness(1);
+        button.UseSystemFocusVisuals = false;
+        button.Transitions = new Microsoft.UI.Xaml.Media.Animation.TransitionCollection();
     }
 
     private UIElement CreateSidebarButtonContent(string glyph, string label)
