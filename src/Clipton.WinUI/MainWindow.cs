@@ -40,6 +40,7 @@ public sealed class MainWindow : Window
     private readonly StackPanel _sidebar = new() { Padding = new Thickness(18, 22, 14, 18), Spacing = 12 };
     private readonly StackPanel _generalPage = SettingsPage();
     private readonly StackPanel _historyPage = SettingsPage();
+    private readonly StackPanel _historySettingsPage = SettingsPage();
     private readonly StackPanel _snippetPage = SettingsPage();
     private readonly StackPanel _aboutPage = SettingsPage();
     private readonly StackPanel _historyItemsPanel = new() { Spacing = 6 };
@@ -51,6 +52,7 @@ public sealed class MainWindow : Window
     private readonly List<TextBlock> _descriptionTextBlocks = [];
     private readonly Button _generalNavButton = new();
     private readonly Button _historyNavButton = new();
+    private readonly Button _historySettingsNavButton = new();
     private readonly Button _snippetNavButton = new();
     private readonly Button _aboutNavButton = new();
     private readonly Button _sidebarToggleButton = new();
@@ -62,6 +64,8 @@ public sealed class MainWindow : Window
     private readonly TextBlock _generalDescriptionText = Description();
     private readonly TextBlock _historyHeaderText = Header();
     private readonly TextBlock _historyDescriptionText = Description();
+    private readonly TextBlock _historySettingsHeaderText = Header();
+    private readonly TextBlock _historySettingsDescriptionText = Description();
     private readonly TextBlock _snippetHeaderText = Header();
     private readonly TextBlock _snippetDescriptionText = Description();
     private readonly TextBlock _snippetFormTitle = Header(18);
@@ -141,6 +145,7 @@ public sealed class MainWindow : Window
             _hotkeyText,
             _generalDescriptionText,
             _historyDescriptionText,
+            _historySettingsDescriptionText,
             _snippetDescriptionText,
             _aboutDescriptionText,
             _historySearchStatusText,
@@ -229,6 +234,8 @@ public sealed class MainWindow : Window
         _generalDescriptionText.Text = t("GeneralDescription");
         _historyHeaderText.Text = t("History");
         _historyDescriptionText.Text = t("HistoryDescription");
+        _historySettingsHeaderText.Text = t("HistorySettings");
+        _historySettingsDescriptionText.Text = t("HistorySettingsDescription");
         _snippetHeaderText.Text = t("Snippets");
         _snippetDescriptionText.Text = t("SnippetDescription");
         _snippetFormTitle.Text = t("SnippetEditor");
@@ -298,16 +305,18 @@ public sealed class MainWindow : Window
         _sidebar.Children.Add(_hotkeyPill);
         _generalNavButton.Click += (_, _) => SelectPage(0);
         _historyNavButton.Click += (_, _) => SelectPage(1);
-        _snippetNavButton.Click += (_, _) => SelectPage(2);
-        _aboutNavButton.Click += (_, _) => SelectPage(3);
+        _historySettingsNavButton.Click += (_, _) => SelectPage(2);
+        _snippetNavButton.Click += (_, _) => SelectPage(3);
+        _aboutNavButton.Click += (_, _) => SelectPage(4);
         _sidebarToggleButton.Click += (_, _) => SetSidebarCollapsed(!_sidebarCollapsed);
-        _navButtons.AddRange([_generalNavButton, _historyNavButton, _snippetNavButton, _aboutNavButton]);
+        _navButtons.AddRange([_generalNavButton, _historyNavButton, _historySettingsNavButton, _snippetNavButton, _aboutNavButton]);
         foreach (var button in _navButtons)
         {
             PrepareSidebarButton(button);
         }
         _sidebar.Children.Add(_generalNavButton);
         _sidebar.Children.Add(_historyNavButton);
+        _sidebar.Children.Add(_historySettingsNavButton);
         _sidebar.Children.Add(_snippetNavButton);
         _sidebar.Children.Add(_aboutNavButton);
         _sidebarFrame.Children.Add(_sidebar);
@@ -332,12 +341,14 @@ public sealed class MainWindow : Window
         _contentScroller.ViewChanged += (_, _) => PositionNativeChildInputs();
         contentHost.Children.Add(_generalPage);
         contentHost.Children.Add(_historyPage);
+        contentHost.Children.Add(_historySettingsPage);
         contentHost.Children.Add(_snippetPage);
         contentHost.Children.Add(_aboutPage);
         _root.Children.Add(_contentScroller);
 
         BuildGeneralPage();
         BuildHistoryPage();
+        BuildHistorySettingsPage();
         BuildSnippetPage();
         BuildAboutPage();
         SelectPage(0);
@@ -437,15 +448,19 @@ public sealed class MainWindow : Window
         _historyPage.Children.Add(actions);
         _historyPage.Children.Add(_historySearchStatusText);
         _historyPage.Children.Add(Card(_historyItemsPanel));
+    }
 
-        _historyPage.Children.Add(SectionHeader("CapturePrivacySection"));
+    private void BuildHistorySettingsPage()
+    {
+        _historySettingsPage.Children.Add(PageHeader(_historySettingsHeaderText, _historySettingsDescriptionText));
+        _historySettingsPage.Children.Add(SectionHeader("CapturePrivacySection"));
         foreach (var toggle in new[] { _pauseCaptureToggle, _persistHistoryToggle, _maskSensitiveContentToggle })
         {
             toggle.Toggled += (_, _) => SaveHistoryOptions();
         }
 
-        _historyPage.Children.Add(SettingCard("\uE769", "PauseCapture", "PauseCaptureDescription", _pauseCaptureToggle));
-        _historyPage.Children.Add(SettingCard("\uE72E", "PersistHistory", "PersistHistoryDescription", _persistHistoryToggle));
+        _historySettingsPage.Children.Add(SettingCard("\uE769", "PauseCapture", "PauseCaptureDescription", _pauseCaptureToggle));
+        _historySettingsPage.Children.Add(SettingCard("\uE72E", "PersistHistory", "PersistHistoryDescription", _persistHistoryToggle));
         _maxHistoryItemsBox.Width = 180;
         foreach (var count in new[] { 50, 100, 200, 500, 1000 })
         {
@@ -453,13 +468,13 @@ public sealed class MainWindow : Window
         }
 
         _maxHistoryItemsBox.SelectionChanged += (_, _) => ChangeMaxHistoryItems();
-        _historyPage.Children.Add(SettingCard("\uE81C", "MaxHistoryItems", "MaxHistoryItemsDescription", _maxHistoryItemsBox));
+        _historySettingsPage.Children.Add(SettingCard("\uE81C", "MaxHistoryItems", "MaxHistoryItemsDescription", _maxHistoryItemsBox));
         var maskControls = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         maskControls.Children.Add(_maskDefinitionsButton);
         maskControls.Children.Add(ToggleActionHost(_maskSensitiveContentToggle));
         _maskDefinitionsButton.Click += (_, _) => ToggleMaskDefinitionsPanel();
-        _historyPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", maskControls));
-        _historyPage.Children.Add(BuildMaskDefinitionsPanel());
+        _historySettingsPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", maskControls));
+        _historySettingsPage.Children.Add(BuildMaskDefinitionsPanel());
     }
 
     private UIElement BuildHistorySearchPanel()
@@ -943,7 +958,7 @@ public sealed class MainWindow : Window
             return;
         }
 
-        if (_selectedPageIndex != 1 || !_maskDefinitionsExpanded || !TryGetVisibleNativeChildBounds(_maskPatternsHost, out var x, out var y, out var width, out var height))
+        if (_selectedPageIndex != 2 || !_maskDefinitionsExpanded || !TryGetVisibleNativeChildBounds(_maskPatternsHost, out var x, out var y, out var width, out var height))
         {
             _maskPatternsOverlay.Hide();
             return;
@@ -963,7 +978,7 @@ public sealed class MainWindow : Window
             return;
         }
 
-        if (_selectedPageIndex != 1 || !_maskDefinitionsExpanded || !TryGetVisibleNativeChildBounds(_maskTestHost, out var x, out var y, out var width, out var height))
+        if (_selectedPageIndex != 2 || !_maskDefinitionsExpanded || !TryGetVisibleNativeChildBounds(_maskTestHost, out var x, out var y, out var width, out var height))
         {
             _maskTestOverlay.Hide();
             return;
@@ -1309,7 +1324,7 @@ public sealed class MainWindow : Window
         if (_selectedHistoryId is null) return;
         var item = _runtime.History.Find(_selectedHistoryId);
         if (string.IsNullOrWhiteSpace(item?.Text)) return;
-        SelectPage(2);
+        SelectPage(3);
         OpenSnippetEditor(null, "History", CreateSnippetName(item.Text), item.Text);
     }
 
@@ -1756,8 +1771,9 @@ public sealed class MainWindow : Window
         _selectedPageIndex = index;
         _generalPage.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
         _historyPage.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
-        _snippetPage.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
-        _aboutPage.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed;
+        _historySettingsPage.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
+        _snippetPage.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed;
+        _aboutPage.Visibility = index == 4 ? Visibility.Visible : Visibility.Collapsed;
         for (var i = 0; i < _navButtons.Count; i++)
         {
             _navButtons[i].Background = i == index ? AccentBrush(34) : Brush("#00FFFFFF");
@@ -1812,6 +1828,7 @@ public sealed class MainWindow : Window
     {
         SetNavButtonContent(_generalNavButton, "\uE80F", "General");
         SetNavButtonContent(_historyNavButton, "\uE81C", "History");
+        SetNavButtonContent(_historySettingsNavButton, "\uE713", "HistorySettings");
         SetNavButtonContent(_snippetNavButton, "\uE8C8", "Snippets");
         SetNavButtonContent(_aboutNavButton, "\uE946", "About");
     }
@@ -2038,7 +2055,7 @@ public sealed class MainWindow : Window
     private void UpdateSettingsPageWidth(double availableWidth)
     {
         var width = Math.Min(SettingsPageMaxWidth, availableWidth);
-        foreach (var page in new[] { _generalPage, _historyPage, _snippetPage, _aboutPage })
+        foreach (var page in new[] { _generalPage, _historyPage, _historySettingsPage, _snippetPage, _aboutPage })
         {
             page.Width = width;
         }
