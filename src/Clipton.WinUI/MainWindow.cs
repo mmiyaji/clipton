@@ -398,29 +398,6 @@ public sealed class MainWindow : Window
     private void BuildHistoryPage()
     {
         _historyPage.Children.Add(PageHeader(_historyHeaderText, _historyDescriptionText));
-        _historyPage.Children.Add(SectionHeader("CapturePrivacySection"));
-        foreach (var toggle in new[] { _pauseCaptureToggle, _persistHistoryToggle, _maskSensitiveContentToggle })
-        {
-            toggle.Toggled += (_, _) => SaveHistoryOptions();
-        }
-
-        _historyPage.Children.Add(SettingCard("\uE769", "PauseCapture", "PauseCaptureDescription", _pauseCaptureToggle));
-        _historyPage.Children.Add(SettingCard("\uE72E", "PersistHistory", "PersistHistoryDescription", _persistHistoryToggle));
-        _maxHistoryItemsBox.Width = 180;
-        foreach (var count in new[] { 50, 100, 200, 500, 1000 })
-        {
-            _maxHistoryItemsBox.Items.Add(new ComboBoxItem { Tag = count.ToString(), Content = count.ToString() });
-        }
-
-        _maxHistoryItemsBox.SelectionChanged += (_, _) => ChangeMaxHistoryItems();
-        _historyPage.Children.Add(SettingCard("\uE81C", "MaxHistoryItems", "MaxHistoryItemsDescription", _maxHistoryItemsBox));
-        var maskControls = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
-        maskControls.Children.Add(_maskDefinitionsButton);
-        maskControls.Children.Add(ToggleActionHost(_maskSensitiveContentToggle));
-        _maskDefinitionsButton.Click += (_, _) => ToggleMaskDefinitionsPanel();
-        _historyPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", maskControls));
-        _historyPage.Children.Add(BuildMaskDefinitionsPanel());
-
         _historyPage.Children.Add(SectionHeader("HistorySection"));
         _historyPage.Children.Add(BuildHistorySearchPanel());
 
@@ -444,6 +421,29 @@ public sealed class MainWindow : Window
         _historyPage.Children.Add(actions);
         _historyPage.Children.Add(_historySearchStatusText);
         _historyPage.Children.Add(Card(_historyItemsPanel));
+
+        _historyPage.Children.Add(SectionHeader("CapturePrivacySection"));
+        foreach (var toggle in new[] { _pauseCaptureToggle, _persistHistoryToggle, _maskSensitiveContentToggle })
+        {
+            toggle.Toggled += (_, _) => SaveHistoryOptions();
+        }
+
+        _historyPage.Children.Add(SettingCard("\uE769", "PauseCapture", "PauseCaptureDescription", _pauseCaptureToggle));
+        _historyPage.Children.Add(SettingCard("\uE72E", "PersistHistory", "PersistHistoryDescription", _persistHistoryToggle));
+        _maxHistoryItemsBox.Width = 180;
+        foreach (var count in new[] { 50, 100, 200, 500, 1000 })
+        {
+            _maxHistoryItemsBox.Items.Add(new ComboBoxItem { Tag = count.ToString(), Content = count.ToString() });
+        }
+
+        _maxHistoryItemsBox.SelectionChanged += (_, _) => ChangeMaxHistoryItems();
+        _historyPage.Children.Add(SettingCard("\uE81C", "MaxHistoryItems", "MaxHistoryItemsDescription", _maxHistoryItemsBox));
+        var maskControls = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
+        maskControls.Children.Add(_maskDefinitionsButton);
+        maskControls.Children.Add(ToggleActionHost(_maskSensitiveContentToggle));
+        _maskDefinitionsButton.Click += (_, _) => ToggleMaskDefinitionsPanel();
+        _historyPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", maskControls));
+        _historyPage.Children.Add(BuildMaskDefinitionsPanel());
     }
 
     private UIElement BuildHistorySearchPanel()
@@ -552,7 +552,7 @@ public sealed class MainWindow : Window
             EnsureNativeMaskPatternsBox();
             _maskPatternsBox?.Focus();
         }
-        PositionNativeChildInputs();
+        QueueNativeChildInputReposition();
     }
 
     private void SaveMaskDefinitions()
@@ -662,6 +662,15 @@ public sealed class MainWindow : Window
         PositionNativeMaskPatternsBox();
     }
 
+    private async void QueueNativeChildInputReposition()
+    {
+        PositionNativeChildInputs();
+        await Task.Delay(120);
+        DispatcherQueue.TryEnqueue(PositionNativeChildInputs);
+        await Task.Delay(300);
+        DispatcherQueue.TryEnqueue(PositionNativeChildInputs);
+    }
+
     private void PositionNativeHistorySearchBox()
     {
         if (_historySearchPanel is null || _historySearchPanel.IsDisposed || _hwnd == IntPtr.Zero)
@@ -669,7 +678,7 @@ public sealed class MainWindow : Window
             return;
         }
 
-        if (_selectedPageIndex != 1 || _maskDefinitionsExpanded || !TryGetVisibleNativeChildBounds(_historySearchHost, out var x, out var y, out var width, out var height))
+        if (_selectedPageIndex != 1 || !TryGetVisibleNativeChildBounds(_historySearchHost, out var x, out var y, out var width, out var height))
         {
             _historySearchPanel.Visible = false;
             NativeMethods.ShowWindow(_historySearchPanel.Handle, NativeMethods.SwHide);
@@ -679,7 +688,7 @@ public sealed class MainWindow : Window
         NativeMethods.MoveWindow(_historySearchPanel.Handle, x, y, width, height, true);
         _historySearchPanel.Visible = true;
         NativeMethods.ShowWindow(_historySearchPanel.Handle, NativeMethods.SwShow);
-        NativeMethods.BringWindowToTop(_historySearchPanel.Handle);
+        NativeMethods.SetWindowPos(_historySearchPanel.Handle, NativeMethods.HwndTop, x, y, width, height, NativeMethods.SwpNoActivate | NativeMethods.SwpShowWindow);
     }
 
     private void PositionNativeMaskPatternsBox()
@@ -700,7 +709,14 @@ public sealed class MainWindow : Window
         NativeMethods.MoveWindow(_maskPatternsBox.Handle, x + padding, y + padding, Math.Max(1, width - (padding * 2)), Math.Max(1, height - (padding * 2)), true);
         _maskPatternsBox.Visible = true;
         NativeMethods.ShowWindow(_maskPatternsBox.Handle, NativeMethods.SwShow);
-        NativeMethods.BringWindowToTop(_maskPatternsBox.Handle);
+        NativeMethods.SetWindowPos(
+            _maskPatternsBox.Handle,
+            NativeMethods.HwndTop,
+            x + padding,
+            y + padding,
+            Math.Max(1, width - (padding * 2)),
+            Math.Max(1, height - (padding * 2)),
+            NativeMethods.SwpNoActivate | NativeMethods.SwpShowWindow);
     }
 
     private bool TryGetVisibleNativeChildBounds(FrameworkElement host, out int x, out int y, out int width, out int height)
@@ -717,17 +733,21 @@ public sealed class MainWindow : Window
         var hostPoint = host.TransformToVisual(_contentScroller).TransformPoint(new Windows.Foundation.Point(0, 0));
         var hostRight = hostPoint.X + host.ActualWidth;
         var hostBottom = hostPoint.Y + host.ActualHeight;
-        if (hostPoint.X < 0 || hostPoint.Y < 0 || hostRight > _contentScroller.ActualWidth || hostBottom > _contentScroller.ActualHeight)
+        var visibleLeft = Math.Max(0, hostPoint.X);
+        var visibleTop = Math.Max(0, hostPoint.Y);
+        var visibleRight = Math.Min(_contentScroller.ActualWidth, hostRight);
+        var visibleBottom = Math.Min(_contentScroller.ActualHeight, hostBottom);
+        if (visibleRight <= visibleLeft || visibleBottom <= visibleTop)
         {
             return false;
         }
 
-        var rootPoint = host.TransformToVisual(_root).TransformPoint(new Windows.Foundation.Point(0, 0));
+        var rootPoint = _contentScroller.TransformToVisual(_root).TransformPoint(new Windows.Foundation.Point(visibleLeft, visibleTop));
         var scale = NativeMethods.GetDpiForWindow(_hwnd) / 96.0;
         x = (int)Math.Round(rootPoint.X * scale);
         y = (int)Math.Round(rootPoint.Y * scale);
-        width = Math.Max(1, (int)Math.Round(host.ActualWidth * scale));
-        height = Math.Max(1, (int)Math.Round(host.ActualHeight * scale));
+        width = Math.Max(1, (int)Math.Round((visibleRight - visibleLeft) * scale));
+        height = Math.Max(1, (int)Math.Round((visibleBottom - visibleTop) * scale));
         return true;
     }
 
