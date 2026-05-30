@@ -18,8 +18,7 @@ public sealed class CliptonRuntime : IDisposable
     private const int QuickMenuHotkeyDebounceMilliseconds = 160;
     private const int TrayMenuItemHeight = 36;
     private const int TrayMenuItemMinWidth = 168;
-    private const int TrayMenuIconLeft = 13;
-    private const int TrayMenuIconSize = 20;
+    private const int TrayMenuIconSize = 16;
     private const int TrayMenuTextLeft = 44;
     private const int TempPasteMaxFiles = 100;
     private static readonly TimeSpan TempPasteMaxAge = TimeSpan.FromHours(24);
@@ -493,7 +492,7 @@ public sealed class CliptonRuntime : IDisposable
             BackColor = palette.Background,
             ForeColor = palette.Text,
             Font = new Drawing.Font("Segoe UI Variable Text", 9f, Drawing.FontStyle.Regular, Drawing.GraphicsUnit.Point),
-            ImageScalingSize = new Drawing.Size(20, 20),
+            ImageScalingSize = new Drawing.Size(TrayMenuIconSize, TrayMenuIconSize),
             Padding = new Forms.Padding(4),
             Renderer = new WinUiTrayMenuRenderer(palette),
             ShowCheckMargin = false,
@@ -537,7 +536,7 @@ public sealed class CliptonRuntime : IDisposable
         using var graphics = Drawing.Graphics.FromImage(bitmap);
         graphics.Clear(Drawing.Color.Transparent);
         graphics.TextRenderingHint = Drawing.Text.TextRenderingHint.AntiAliasGridFit;
-        using var font = new Drawing.Font("Segoe Fluent Icons", 11f, Drawing.FontStyle.Regular, Drawing.GraphicsUnit.Point);
+        using var font = new Drawing.Font("Segoe Fluent Icons", 9.5f, Drawing.FontStyle.Regular, Drawing.GraphicsUnit.Point);
         using var brush = new Drawing.SolidBrush(color);
         using var format = new Drawing.StringFormat
         {
@@ -599,7 +598,8 @@ public sealed class CliptonRuntime : IDisposable
             }
 
             var y = (e.Item.Height - TrayMenuIconSize) / 2;
-            var bounds = new Drawing.Rectangle(TrayMenuIconLeft, y, TrayMenuIconSize, TrayMenuIconSize);
+            var x = (TrayMenuTextLeft - TrayMenuIconSize) / 2;
+            var bounds = new Drawing.Rectangle(x, y, TrayMenuIconSize, TrayMenuIconSize);
             e.Graphics.DrawImage(e.Image, bounds);
         }
 
