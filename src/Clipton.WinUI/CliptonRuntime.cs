@@ -261,12 +261,6 @@ public sealed class CliptonRuntime : IDisposable
         SaveSettings();
     }
 
-    public void SetSimpleContextMenuMode(bool enabled)
-    {
-        Settings.SimpleContextMenuMode = enabled;
-        SaveSettings();
-    }
-
     public void RemoveHistoryItem(string id)
     {
         if (History.Remove(id))
@@ -749,7 +743,6 @@ public sealed class CliptonRuntime : IDisposable
             Translate("History"),
             menuItems,
             EffectiveTheme,
-            Settings.SimpleContextMenuMode,
             Translate("Search"),
             Translate("SearchPrompt"),
             Translate("Search"),

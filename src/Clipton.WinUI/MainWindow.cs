@@ -69,7 +69,6 @@ public sealed class MainWindow : Window
     private readonly ToggleSwitch _maskSensitiveContentToggle = CompactToggle();
     private readonly ComboBox _maxHistoryItemsBox = new();
     private readonly ToggleSwitch _folderModeToggle = CompactToggle();
-    private readonly ToggleSwitch _simpleContextMenuToggle = CompactToggle();
     private readonly Button _registerFromHistoryButton = new();
     private readonly Button _clearButton = new();
     private readonly Button _searchHistoryButton = new();
@@ -207,7 +206,6 @@ public sealed class MainWindow : Window
         EnsureHistoryLimitComboItem(_runtime.Settings.MaxHistoryItems);
         SetComboSelection(_maxHistoryItemsBox, _runtime.Settings.MaxHistoryItems.ToString());
         _folderModeToggle.IsOn = _runtime.Settings.FolderMode;
-        _simpleContextMenuToggle.IsOn = _runtime.Settings.SimpleContextMenuMode;
         RefreshToggleStateLabels();
         EnsureHotkeyComboItem(_runtime.Settings.Hotkey);
         SetComboSelection(_hotkeyBox, _runtime.Settings.Hotkey);
@@ -346,9 +344,7 @@ public sealed class MainWindow : Window
 
         _generalPage.Children.Add(SectionHeader("QuickMenuSection"));
         _folderModeToggle.Toggled += (_, _) => SaveHistoryOptions();
-        _simpleContextMenuToggle.Toggled += (_, _) => SaveHistoryOptions();
         _generalPage.Children.Add(SettingCard("\uE8B7", "FolderMode", "FolderModeDescription", _folderModeToggle));
-        _generalPage.Children.Add(SettingCard("\uE8A5", "SimpleContextMenuMode", "SimpleContextMenuModeDescription", _simpleContextMenuToggle));
     }
 
     private void BuildHistoryPage()
@@ -586,7 +582,6 @@ public sealed class MainWindow : Window
         _runtime.SetPersistEncryptedHistory(_persistHistoryToggle.IsOn);
         _runtime.SetMaskSensitiveContent(_maskSensitiveContentToggle.IsOn);
         _runtime.SetFolderMode(_folderModeToggle.IsOn);
-        _runtime.SetSimpleContextMenuMode(_simpleContextMenuToggle.IsOn);
         RefreshItems();
     }
 

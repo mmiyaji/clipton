@@ -29,7 +29,6 @@ public sealed class QuickMenuWindow : Window
     private readonly string _searchButtonText;
     private readonly string _cancelButtonText;
     private readonly string _noSearchResultsText;
-    private readonly bool _simpleMode;
     private readonly NativeMethods.LowLevelKeyboardProc _keyboardProc;
     private readonly NativeMethods.LowLevelMouseProc _mouseProc;
     private readonly List<MenuFlyoutItemBase> _rootFocusableItems = [];
@@ -58,7 +57,6 @@ public sealed class QuickMenuWindow : Window
         string title,
         IReadOnlyList<QuickMenuItem> items,
         string theme,
-        bool simpleMode,
         string searchTitle,
         string searchPrompt,
         string searchButtonText,
@@ -69,7 +67,6 @@ public sealed class QuickMenuWindow : Window
         _rootItems = items;
         _currentItems = items;
         _theme = theme;
-        _simpleMode = simpleMode;
         _searchTitle = searchTitle;
         _searchPrompt = searchPrompt;
         _searchButtonText = searchButtonText;
@@ -123,7 +120,7 @@ public sealed class QuickMenuWindow : Window
 
     private void BuildHost()
     {
-        var dark = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase) || _simpleMode;
+        var dark = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase);
         _host.Background = new SolidColorBrush(dark ? Colors.Transparent : Colors.Transparent);
         _host.IsTabStop = true;
         _host.Loaded += (_, _) => ShowFlyout();
@@ -432,7 +429,6 @@ public sealed class QuickMenuWindow : Window
             _searchTitle,
             items,
             _theme,
-            _simpleMode,
             _searchTitle,
             _searchPrompt,
             _searchButtonText,
@@ -454,10 +450,10 @@ public sealed class QuickMenuWindow : Window
             FormBorderStyle = Forms.FormBorderStyle.FixedDialog,
             StartPosition = Forms.FormStartPosition.CenterScreen,
             TopMost = true,
-            BackColor = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase) || _simpleMode
+            BackColor = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase)
                 ? System.Drawing.Color.FromArgb(32, 32, 32)
                 : System.Drawing.Color.White,
-            ForeColor = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase) || _simpleMode
+            ForeColor = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase)
                 ? System.Drawing.Color.White
                 : System.Drawing.Color.Black
         };
