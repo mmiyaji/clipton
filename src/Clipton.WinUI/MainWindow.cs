@@ -28,6 +28,7 @@ public sealed class MainWindow : Window
     private readonly StackPanel _snippetItemsPanel = new() { Spacing = 6 };
     private readonly List<Border> _cards = [];
     private readonly List<Button> _navButtons = [];
+    private readonly Dictionary<ToggleSwitch, TextBlock> _toggleStateLabels = [];
     private readonly Button _generalNavButton = new();
     private readonly Button _historyNavButton = new();
     private readonly Button _snippetNavButton = new();
@@ -192,6 +193,7 @@ public sealed class MainWindow : Window
         SetComboSelection(_maxHistoryItemsBox, _runtime.Settings.MaxHistoryItems.ToString());
         _folderModeToggle.IsOn = _runtime.Settings.FolderMode;
         _simpleContextMenuToggle.IsOn = _runtime.Settings.SimpleContextMenuMode;
+        RefreshToggleStateLabels();
         EnsureHotkeyComboItem(_runtime.Settings.Hotkey);
         SetComboSelection(_hotkeyBox, _runtime.Settings.Hotkey);
         SetComboSelection(_themeBox, _runtime.Settings.Theme);
@@ -905,6 +907,7 @@ public sealed class MainWindow : Window
         }
 
         control.HorizontalAlignment = HorizontalAlignment.Right;
+        var actionControl = control is ToggleSwitch toggle ? ToggleActionHost(toggle) : control;
 
         var grid = new Grid { ColumnSpacing = 14, VerticalAlignment = VerticalAlignment.Center };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
@@ -917,9 +920,54 @@ public sealed class MainWindow : Window
         texts.Children.Add(new TextBlock { Text = _runtime.Translate(descriptionKey), FontSize = 12, Foreground = DescriptionBrush(), TextWrapping = TextWrapping.Wrap });
         Grid.SetColumn(texts, 1);
         grid.Children.Add(texts);
-        Grid.SetColumn(control, 2);
-        grid.Children.Add(control);
+        Grid.SetColumn(actionControl, 2);
+        grid.Children.Add(actionControl);
         return Card(grid);
+    }
+
+    private Grid ToggleActionHost(ToggleSwitch toggle)
+    {
+        var status = new TextBlock
+        {
+            MinWidth = 34,
+            TextAlignment = TextAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        _toggleStateLabels[toggle] = status;
+        UpdateToggleStateLabel(toggle);
+
+        toggle.HorizontalAlignment = HorizontalAlignment.Right;
+        toggle.VerticalAlignment = VerticalAlignment.Center;
+        toggle.Toggled += (_, _) => UpdateToggleStateLabel(toggle);
+
+        var host = new Grid
+        {
+            ColumnSpacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        host.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        host.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        host.Children.Add(status);
+        Grid.SetColumn(toggle, 1);
+        host.Children.Add(toggle);
+        return host;
+    }
+
+    private void RefreshToggleStateLabels()
+    {
+        foreach (var toggle in _toggleStateLabels.Keys)
+        {
+            UpdateToggleStateLabel(toggle);
+        }
+    }
+
+    private void UpdateToggleStateLabel(ToggleSwitch toggle)
+    {
+        if (_toggleStateLabels.TryGetValue(toggle, out var label))
+        {
+            label.Text = _runtime.Translate(toggle.IsOn ? "ToggleOn" : "ToggleOff");
+        }
     }
 
     private UIElement InfoRow(string labelKey, string value)
@@ -1172,7 +1220,8 @@ public sealed class MainWindow : Window
 
     private static ToggleSwitch CompactToggle() => new()
     {
-        MinWidth = 72,
+        Width = 44,
+        MinWidth = 44,
         OnContent = string.Empty,
         OffContent = string.Empty
     };
