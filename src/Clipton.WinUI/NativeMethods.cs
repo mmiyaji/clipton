@@ -26,8 +26,11 @@ internal static class NativeMethods
     internal const int VkRight = 0x27;
     internal const int VkDown = 0x28;
     internal const int WhKeyboardLl = 13;
+    internal const int WhMouseLl = 14;
     internal const int WmKeydown = 0x0100;
     internal const int WmSyskeydown = 0x0104;
+    internal const int WmRbuttondown = 0x0204;
+    internal const int WmRbuttonup = 0x0205;
     internal const int WmClose = 0x0010;
     internal const int GwlWndproc = -4;
     internal const int GwlExstyle = -20;
@@ -39,6 +42,8 @@ internal static class NativeMethods
     internal const uint KeyeventfKeyup = 0x0002;
 
     internal delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    internal delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
 
     internal delegate IntPtr WindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
@@ -94,6 +99,9 @@ internal static class NativeMethods
 
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowsHookExW", SetLastError = true)]
+    internal static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

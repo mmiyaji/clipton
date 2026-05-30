@@ -31,6 +31,7 @@ public sealed class QuickMenuWindow : Window
     private readonly string _noSearchResultsText;
     private readonly bool _simpleMode;
     private readonly NativeMethods.LowLevelKeyboardProc _keyboardProc;
+    private readonly NativeMethods.LowLevelMouseProc _mouseProc;
     private readonly List<MenuFlyoutItemBase> _rootFocusableItems = [];
     private readonly Dictionary<MenuFlyoutSubItem, List<MenuFlyoutItemBase>> _childFocusableItems = [];
     private readonly Dictionary<MenuFlyoutItemBase, MenuFlyoutSubItem> _parentItem = [];
@@ -40,6 +41,7 @@ public sealed class QuickMenuWindow : Window
     private AppWindow? _appWindow;
     private IntPtr _hwnd;
     private IntPtr _keyboardHook;
+    private IntPtr _mouseHook;
     private bool _dismissed;
     private bool _opened;
     private int _lastNavigationKey;
@@ -49,6 +51,7 @@ public sealed class QuickMenuWindow : Window
     private bool _rebuildingFlyout;
     private bool _revealMaskedItems;
     private bool _showCapturedAt;
+    private MenuFlyoutItemBase? _hoveredPasteOptionsItem;
     private QuickMenuWindow? _replacementWindow;
 
     public QuickMenuWindow(
@@ -73,6 +76,7 @@ public sealed class QuickMenuWindow : Window
         _cancelButtonText = cancelButtonText;
         _noSearchResultsText = noSearchResultsText;
         _keyboardProc = OnKeyboardHook;
+        _mouseProc = OnMouseHook;
         Title = "Clipton";
         BuildHost();
         BuildFlyout();
@@ -108,6 +112,7 @@ public sealed class QuickMenuWindow : Window
 
         _dismissed = true;
         UninstallKeyboardHook();
+        UninstallMouseHook();
         DispatcherQueue.TryEnqueue(() =>
         {
             _flyout.Hide();
@@ -134,6 +139,7 @@ public sealed class QuickMenuWindow : Window
 
         _opened = true;
         InstallKeyboardHook();
+        InstallMouseHook();
         FocusHostWindow();
         _flyout.ShowAt(_host);
         var focusToken = ++_focusToken;
@@ -181,6 +187,56 @@ public sealed class QuickMenuWindow : Window
             NativeMethods.UnhookWindowsHookEx(_keyboardHook);
             _keyboardHook = IntPtr.Zero;
         }
+    }
+
+    private void InstallMouseHook()
+    {
+        if (_mouseHook == IntPtr.Zero)
+        {
+            _mouseHook = NativeMethods.SetWindowsHookEx(
+                NativeMethods.WhMouseLl,
+                _mouseProc,
+                NativeMethods.GetModuleHandle(null),
+                0);
+        }
+    }
+
+    private void UninstallMouseHook()
+    {
+        if (_mouseHook != IntPtr.Zero)
+        {
+            NativeMethods.UnhookWindowsHookEx(_mouseHook);
+            _mouseHook = IntPtr.Zero;
+        }
+    }
+
+    private IntPtr OnMouseHook(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode < 0 || _host.XamlRoot is null)
+        {
+            return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
+        }
+
+        var message = wParam.ToInt32();
+        if (message is not NativeMethods.WmRbuttondown and not NativeMethods.WmRbuttonup)
+        {
+            return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
+        }
+
+        var focusedElement = FocusManager.GetFocusedElement(_host.XamlRoot);
+        var targetItem = _hoveredPasteOptionsItem ?? focusedElement as MenuFlyoutItemBase;
+        if (targetItem is not { } flyoutItem
+            || flyoutItem.ContextFlyout is not MenuFlyout pasteOptionsFlyout)
+        {
+            return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
+        }
+
+        if (message == NativeMethods.WmRbuttonup)
+        {
+            DispatcherQueue.TryEnqueue(() => ShowPasteOptionsForItem(flyoutItem, pasteOptionsFlyout));
+        }
+
+        return 1;
     }
 
     private IntPtr OnKeyboardHook(int nCode, IntPtr wParam, IntPtr lParam)
@@ -371,6 +427,7 @@ public sealed class QuickMenuWindow : Window
         _flyout.Hide();
         _appWindow?.Hide();
         UninstallKeyboardHook();
+        UninstallMouseHook();
         _replacementWindow = new QuickMenuWindow(
             _searchTitle,
             items,
@@ -535,6 +592,26 @@ public sealed class QuickMenuWindow : Window
                 continue;
             }
 
+            if (parent is not null && item.PasteOptions is { Count: > 0 })
+            {
+                var optionSubItem = new MenuFlyoutSubItem
+                {
+                    Text = BuildDisplayText(item),
+                    Icon = CreateIcon(item),
+                    Tag = item
+                };
+                focusableItems.Add(optionSubItem);
+                _parentItem[optionSubItem] = parent;
+                _childFocusableItems[optionSubItem] = [];
+                foreach (var option in item.PasteOptions)
+                {
+                    optionSubItem.Items.Add(CreatePasteOptionMenuItem(option));
+                }
+
+                target.Add(optionSubItem);
+                continue;
+            }
+
             var flyoutItem = new MenuFlyoutItem
             {
                 Text = BuildDisplayText(item),
@@ -545,11 +622,42 @@ public sealed class QuickMenuWindow : Window
             {
                 var pasteOptionsFlyout = CreatePasteOptionsFlyout(item);
                 flyoutItem.ContextFlyout = pasteOptionsFlyout;
+                flyoutItem.PointerEntered += (_, _) => _hoveredPasteOptionsItem = flyoutItem;
+                flyoutItem.PointerExited += (_, _) =>
+                {
+                    if (ReferenceEquals(_hoveredPasteOptionsItem, flyoutItem))
+                    {
+                        _hoveredPasteOptionsItem = null;
+                    }
+                };
+                flyoutItem.ContextRequested += (_, args) =>
+                {
+                    args.Handled = true;
+                    ShowPasteOptionsForItem(flyoutItem, pasteOptionsFlyout);
+                };
+                flyoutItem.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, args) =>
+                {
+                    if (!args.GetCurrentPoint(flyoutItem).Properties.IsRightButtonPressed)
+                    {
+                        return;
+                    }
+
+                    args.Handled = true;
+                }), handledEventsToo: true);
+                flyoutItem.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler((_, args) =>
+                {
+                    if (!Equals(args.GetCurrentPoint(flyoutItem).Properties.PointerUpdateKind, Windows.UI.Input.PointerUpdateKind.RightButtonReleased))
+                    {
+                        return;
+                    }
+
+                    args.Handled = true;
+                    DispatcherQueue.TryEnqueue(() => ShowPasteOptionsForItem(flyoutItem, pasteOptionsFlyout));
+                }), handledEventsToo: true);
                 flyoutItem.RightTapped += (_, args) =>
                 {
                     args.Handled = true;
-                    FocusMenuItemInCurrentContext(flyoutItem);
-                    pasteOptionsFlyout.ShowAt(flyoutItem);
+                    ShowPasteOptionsForItem(flyoutItem, pasteOptionsFlyout);
                 };
             }
 
@@ -579,16 +687,27 @@ public sealed class QuickMenuWindow : Window
 
         foreach (var option in item.PasteOptions ?? [])
         {
-            var optionItem = new MenuFlyoutItem
-            {
-                Text = option.Text,
-                Icon = CreateOptionIcon(option)
-            };
-            optionItem.Click += (_, _) => InvokePasteOption(option);
-            flyout.Items.Add(optionItem);
+            flyout.Items.Add(CreatePasteOptionMenuItem(option));
         }
 
         return flyout;
+    }
+
+    private MenuFlyoutItem CreatePasteOptionMenuItem(QuickMenuPasteOption option)
+    {
+        var optionItem = new MenuFlyoutItem
+        {
+            Text = option.Text,
+            Icon = CreateOptionIcon(option)
+        };
+        optionItem.Click += (_, _) => InvokePasteOption(option);
+        return optionItem;
+    }
+
+    private void ShowPasteOptionsForItem(MenuFlyoutItemBase flyoutItem, MenuFlyout pasteOptionsFlyout)
+    {
+        FocusMenuItemInCurrentContext(flyoutItem);
+        pasteOptionsFlyout.ShowAt(flyoutItem);
     }
 
     private void FocusMenuItemInCurrentContext(MenuFlyoutItemBase flyoutItem)
