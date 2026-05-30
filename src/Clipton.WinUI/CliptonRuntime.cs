@@ -16,12 +16,15 @@ public sealed class CliptonRuntime : IDisposable
 {
     private const int HistorySaveDebounceMilliseconds = 500;
     private const int QuickMenuHotkeyDebounceMilliseconds = 160;
+    private const int TempPasteMaxFiles = 100;
+    private static readonly TimeSpan TempPasteMaxAge = TimeSpan.FromHours(24);
     private readonly DispatcherQueue _dispatcherQueue;
     private readonly LocalizationCatalog _localization = new();
     private readonly JsonSettingsStore _settingsStore;
     private readonly EncryptedHistoryStore _historyStore;
     private readonly string _snippetPath;
     private readonly string _thumbnailPath;
+    private readonly string _tempPastePath;
     private readonly object _historySaveGate = new();
     private CancellationTokenSource? _historySaveDebounce;
     private long _historySaveVersion;
@@ -41,6 +44,7 @@ public sealed class CliptonRuntime : IDisposable
         _historyStore = new EncryptedHistoryStore(Path.Combine(appData, "history.dat"));
         _snippetPath = Path.Combine(appData, "snippets.json");
         _thumbnailPath = Path.Combine(appData, "thumbs");
+        _tempPastePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Clipton", "TempPaste");
         Settings = _settingsStore.Load();
         History = new ClipboardHistory(Settings.MaxHistoryItems);
         Snippets = LoadSnippets(_snippetPath);
@@ -75,6 +79,7 @@ public sealed class CliptonRuntime : IDisposable
     public void Start()
     {
         EnsureDefaultSnippets();
+        CleanupTempPasteFiles();
         _messageWindow = new HotkeyMessageWindow(ShowQuickMenuOnUiThread, CaptureClipboardOnUiThread);
         RegisterHotkey();
         CreateTrayIcon();
@@ -130,6 +135,38 @@ public sealed class CliptonRuntime : IDisposable
 
         ClipboardBridge.PutText(text);
         SendPaste();
+    }
+
+    public void PasteImage(string id, ImagePasteMode mode, bool sendPaste)
+    {
+        var item = History.Find(id);
+        if (item?.ImagePng is not { Length: > 0 } imagePng)
+        {
+            return;
+        }
+
+        switch (mode)
+        {
+            case ImagePasteMode.Original:
+                ClipboardBridge.Put(item, asPlainText: false);
+                break;
+            case ImagePasteMode.Png:
+                ClipboardBridge.PutImagePng(imagePng);
+                break;
+            case ImagePasteMode.Jpeg:
+                ClipboardBridge.PutImageJpeg(imagePng);
+                break;
+            case ImagePasteMode.File:
+                ClipboardBridge.PutFileDrop(CreateTempImageFile(item));
+                break;
+            default:
+                return;
+        }
+
+        if (sendPaste)
+        {
+            SendPaste();
+        }
     }
 
     public async Task SetStartWithWindowsAsync(bool enabled)
@@ -770,6 +807,9 @@ public sealed class CliptonRuntime : IDisposable
             ? item.Preview
             : null;
         var plainText = ClipboardBridge.GetPlainText(item);
+        var pasteOptions = item.ImagePng is { Length: > 0 }
+            ? CreateImagePasteOptions(item)
+            : CreateTextPasteOptions(plainText);
         return new QuickMenuItem(
             header,
             display.FormatSummary,
@@ -777,7 +817,7 @@ public sealed class CliptonRuntime : IDisposable
             !string.IsNullOrEmpty(plainText) ? "Enter / T" : "Enter",
             () => PasteHistoryItem(item.Id, asPlainText: false),
             !string.IsNullOrEmpty(plainText) ? () => PasteHistoryItem(item.Id, asPlainText: true) : null,
-            PasteOptions: CreateTextPasteOptions(plainText),
+            PasteOptions: pasteOptions,
             IconGlyph: GetHistoryIconGlyph(item),
             IconFontFamily: GetHistoryIconFontFamily(item),
             IconImagePath: SaveHistoryThumbnail(item),
@@ -985,6 +1025,77 @@ public sealed class CliptonRuntime : IDisposable
             text.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
     }
 
+    private IReadOnlyList<QuickMenuPasteOption> CreateImagePasteOptions(ClipboardSnapshot item)
+    {
+        if (item.ImagePng is not { Length: > 0 })
+        {
+            return [];
+        }
+
+        return
+        [
+            new QuickMenuPasteOption(Translate("PasteImageOriginal"), "\uEB9F", () => PasteImage(item.Id, ImagePasteMode.Original, sendPaste: true)),
+            new QuickMenuPasteOption(Translate("PasteImagePng"), "PNG", () => PasteImage(item.Id, ImagePasteMode.Png, sendPaste: true), "Segoe UI"),
+            new QuickMenuPasteOption(Translate("PasteImageJpeg"), "JPG", () => PasteImage(item.Id, ImagePasteMode.Jpeg, sendPaste: true), "Segoe UI"),
+            new QuickMenuPasteOption(Translate("PasteImageFile"), "\uE8A5", () => PasteImage(item.Id, ImagePasteMode.File, sendPaste: true)),
+            new QuickMenuPasteOption(Translate("CopyImageOnly"), "\uE8C8", () => PasteImage(item.Id, ImagePasteMode.Png, sendPaste: false))
+        ];
+    }
+
+    private string CreateTempImageFile(ClipboardSnapshot item)
+    {
+        CleanupTempPasteFiles();
+        Directory.CreateDirectory(_tempPastePath);
+        var id = string.Concat(item.Id.Where(char.IsLetterOrDigit));
+        if (string.IsNullOrEmpty(id))
+        {
+            id = "image";
+        }
+
+        var path = Path.Combine(_tempPastePath, $"paste-{id}-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}.png");
+        File.WriteAllBytes(path, item.ImagePng!);
+        return path;
+    }
+
+    private void CleanupTempPasteFiles()
+    {
+        try
+        {
+            var directory = new DirectoryInfo(_tempPastePath);
+            if (!directory.Exists)
+            {
+                return;
+            }
+
+            var files = directory.GetFiles("paste-*.png")
+                .OrderByDescending(file => file.CreationTimeUtc)
+                .ToArray();
+            var cutoff = DateTime.UtcNow - TempPasteMaxAge;
+            for (var i = 0; i < files.Length; i++)
+            {
+                if (files[i].CreationTimeUtc < cutoff || i >= TempPasteMaxFiles)
+                {
+                    TryDeleteFile(files[i]);
+                }
+            }
+        }
+        catch
+        {
+            // Temp files are best-effort cleanup; paste behavior must not depend on cleanup success.
+        }
+    }
+
+    private static void TryDeleteFile(FileInfo file)
+    {
+        try
+        {
+            file.Delete();
+        }
+        catch
+        {
+        }
+    }
+
     private static string NormalizeFolder(string? folder)
     {
         return string.Join(
@@ -1023,4 +1134,12 @@ internal enum MaskedHistoryKind
     None,
     Sensitive,
     RegisteredSnippet
+}
+
+public enum ImagePasteMode
+{
+    Original,
+    Png,
+    Jpeg,
+    File
 }

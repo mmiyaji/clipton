@@ -37,6 +37,47 @@ public static class ClipboardBridge
         });
     }
 
+    public static void PutImagePng(byte[] imagePng)
+    {
+        WithClipboardRetry(() =>
+        {
+            using var stream = new MemoryStream(imagePng);
+            using var image = System.Drawing.Image.FromStream(stream);
+            var data = new Forms.DataObject();
+            data.SetData("PNG", false, new MemoryStream(imagePng));
+            data.SetImage(new System.Drawing.Bitmap(image));
+            Forms.Clipboard.SetDataObject(data, copy: true);
+            return true;
+        });
+    }
+
+    public static void PutImageJpeg(byte[] imagePng)
+    {
+        WithClipboardRetry(() =>
+        {
+            var jpeg = EncodeJpeg(imagePng);
+            using var stream = new MemoryStream(jpeg);
+            using var image = System.Drawing.Image.FromStream(stream);
+            var data = new Forms.DataObject();
+            data.SetData("JFIF", false, new MemoryStream(jpeg));
+            data.SetData("JPEG", false, new MemoryStream(jpeg));
+            data.SetImage(new System.Drawing.Bitmap(image));
+            Forms.Clipboard.SetDataObject(data, copy: true);
+            return true;
+        });
+    }
+
+    public static void PutFileDrop(string path)
+    {
+        WithClipboardRetry(() =>
+        {
+            var files = new StringCollection();
+            files.Add(path);
+            Forms.Clipboard.SetFileDropList(files);
+            return true;
+        });
+    }
+
     public static ClipboardSnapshot FromSnippet(Snippet snippet)
     {
         return new ClipboardSnapshot(Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, [ClipboardFormatKind.Text], text: snippet.Text);
@@ -207,6 +248,33 @@ public static class ClipboardBridge
         }
 
         return html;
+    }
+
+    private static byte[] EncodeJpeg(byte[] imagePng)
+    {
+        using var input = new MemoryStream(imagePng);
+        using var source = System.Drawing.Image.FromStream(input);
+        using var flattened = new System.Drawing.Bitmap(source.Width, source.Height, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+        using (var graphics = System.Drawing.Graphics.FromImage(flattened))
+        {
+            graphics.Clear(System.Drawing.Color.White);
+            graphics.DrawImage(source, 0, 0, source.Width, source.Height);
+        }
+
+        using var output = new MemoryStream();
+        var codec = ImageCodecInfo.GetImageEncoders().FirstOrDefault(x => x.FormatID == ImageFormat.Jpeg.Guid);
+        if (codec is null)
+        {
+            flattened.Save(output, ImageFormat.Jpeg);
+        }
+        else
+        {
+            using var parameters = new EncoderParameters(1);
+            parameters.Param[0] = new EncoderParameter(Encoder.Quality, 92L);
+            flattened.Save(output, codec, parameters);
+        }
+
+        return output.ToArray();
     }
 
     private static T? WithClipboardRetry<T>(Func<T?> action)
