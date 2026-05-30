@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -80,7 +81,9 @@ public sealed class MainWindow : Window
     private readonly StackPanel _maskDefinitionsPanel = new() { Spacing = 12 };
     private readonly ComboBox _maskPrefixBox = new();
     private readonly Border _maskPatternsHost = new();
+    private readonly Border _maskTestHost = new();
     private readonly TextBlock _maskDefinitionsErrorText = Description();
+    private readonly TextBlock _maskTestResultText = Description();
     private readonly ComboBox _maxHistoryItemsBox = new();
     private readonly ToggleSwitch _folderModeToggle = CompactToggle();
     private readonly Button _registerFromHistoryButton = new();
@@ -94,6 +97,9 @@ public sealed class MainWindow : Window
     private Forms.Form? _maskPatternsOverlay;
     private Forms.Panel? _maskPatternsPanel;
     private Forms.TextBox? _maskPatternsBox;
+    private Forms.Form? _maskTestOverlay;
+    private Forms.Panel? _maskTestPanel;
+    private Forms.TextBox? _maskTestBox;
     private readonly Button _advancedHistorySearchButton = new();
     private readonly Button _clearHistorySearchButton = new();
     private readonly Button _loadMoreHistoryButton = new();
@@ -137,10 +143,11 @@ public sealed class MainWindow : Window
             _historyDescriptionText,
             _snippetDescriptionText,
             _aboutDescriptionText,
-        _historySearchStatusText,
-        _historyAdvancedSearchText,
-        _selectedSnippetText,
-        _maskDefinitionsErrorText);
+            _historySearchStatusText,
+            _historyAdvancedSearchText,
+            _selectedSnippetText,
+            _maskDefinitionsErrorText,
+            _maskTestResultText);
         Title = "Clipton";
         BuildUi();
         ApplyTheme();
@@ -153,6 +160,8 @@ public sealed class MainWindow : Window
         Closed += (_, _) => _historySearchBox?.Dispose();
         Closed += (_, _) => _maskPatternsOverlay?.Dispose();
         Closed += (_, _) => _maskPatternsBox?.Dispose();
+        Closed += (_, _) => _maskTestOverlay?.Dispose();
+        Closed += (_, _) => _maskTestBox?.Dispose();
     }
 
     public void ShowSettingsWindow()
@@ -270,6 +279,7 @@ public sealed class MainWindow : Window
         SetComboSelection(_localeBox, _runtime.Settings.Locale);
         UpdateSelectedSnippetText();
         UpdateHistorySearchStatus();
+        UpdateMaskTestPreview();
         _loading = false;
     }
 
@@ -503,6 +513,7 @@ public sealed class MainWindow : Window
             _maskPrefixBox.Items.Add(new ComboBoxItem { Content = i.ToString(), Tag = i.ToString() });
         }
         SetComboSelection(_maskPrefixBox, Math.Clamp(_runtime.Settings.MaskVisiblePrefixLength, 0, 12).ToString());
+        _maskPrefixBox.SelectionChanged += (_, _) => UpdateMaskTestPreview();
 
         var prefixRow = new Grid { ColumnSpacing = 16 };
         prefixRow.ColumnDefinitions.Add(new ColumnDefinition());
@@ -522,6 +533,16 @@ public sealed class MainWindow : Window
         _maskPatternsHost.Loaded += (_, _) => EnsureNativeMaskPatternsBox();
         _maskPatternsHost.SizeChanged += (_, _) => PositionNativeChildInputs();
 
+        _maskTestHost.MinHeight = 64;
+        _maskTestHost.HorizontalAlignment = HorizontalAlignment.Stretch;
+        _maskTestHost.Background = CardBackground();
+        _maskTestHost.BorderThickness = new Thickness(0);
+        _maskTestHost.CornerRadius = new CornerRadius(4);
+        _maskTestHost.Loaded += (_, _) => EnsureNativeMaskTestBox();
+        _maskTestHost.SizeChanged += (_, _) => PositionNativeChildInputs();
+        _maskTestResultText.Text = _runtime.Translate("MaskTestEmpty");
+        _maskTestResultText.Margin = new Thickness(2, 0, 0, 0);
+
         _maskDefinitionsErrorText.Visibility = Visibility.Collapsed;
         var saveButton = new Button
         {
@@ -538,6 +559,10 @@ public sealed class MainWindow : Window
         _maskDefinitionsPanel.Children.Add(LocalizedText("MaskPatternDefinitions", fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
         _maskDefinitionsPanel.Children.Add(DescriptionText("MaskDefinitionsDescription", fontSize: 12, wrapping: TextWrapping.Wrap));
         _maskDefinitionsPanel.Children.Add(_maskPatternsHost);
+        _maskDefinitionsPanel.Children.Add(LocalizedText("MaskTestText", fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
+        _maskDefinitionsPanel.Children.Add(DescriptionText("MaskTestDescription", fontSize: 12, wrapping: TextWrapping.Wrap));
+        _maskDefinitionsPanel.Children.Add(_maskTestHost);
+        _maskDefinitionsPanel.Children.Add(_maskTestResultText);
         _maskDefinitionsPanel.Children.Add(_maskDefinitionsErrorText);
         _maskDefinitionsPanel.Children.Add(saveButton);
         _maskDefinitionsCard = Card(_maskDefinitionsPanel);
@@ -587,9 +612,7 @@ public sealed class MainWindow : Window
 
     private void SaveMaskDefinitions()
     {
-        var patterns = (_maskPatternsBox?.Text ?? string.Empty)
-            .ReplaceLineEndings("\n")
-            .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var patterns = GetCurrentMaskPatterns();
         var invalidPatterns = SensitiveContentDetector.GetInvalidCustomPatterns(patterns);
         if (invalidPatterns.Length > 0)
         {
@@ -599,11 +622,89 @@ public sealed class MainWindow : Window
         }
 
         _maskDefinitionsErrorText.Visibility = Visibility.Collapsed;
-        var visiblePrefixLength = _maskPrefixBox.SelectedItem is ComboBoxItem { Tag: string tag } && int.TryParse(tag, out var parsed)
+        _runtime.SetMaskDefinitionOptions(GetSelectedMaskPrefixLength(), patterns);
+        RefreshItems();
+    }
+
+    private string[] GetCurrentMaskPatterns()
+    {
+        return (_maskPatternsBox?.Text ?? string.Empty)
+            .ReplaceLineEndings("\n")
+            .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+    }
+
+    private int GetSelectedMaskPrefixLength()
+    {
+        return _maskPrefixBox.SelectedItem is ComboBoxItem { Tag: string tag } && int.TryParse(tag, out var parsed)
             ? Math.Clamp(parsed, 0, 12)
             : 0;
-        _runtime.SetMaskDefinitionOptions(visiblePrefixLength, patterns);
-        RefreshItems();
+    }
+
+    private void UpdateMaskTestPreview()
+    {
+        if (_maskTestResultText is null)
+        {
+            return;
+        }
+
+        var testText = _maskTestBox?.Text ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(testText))
+        {
+            _maskTestResultText.Text = _runtime.Translate("MaskTestEmpty");
+            _maskTestResultText.Foreground = DescriptionBrush();
+            return;
+        }
+
+        var patterns = GetCurrentMaskPatterns();
+        var invalidPatterns = SensitiveContentDetector.GetInvalidCustomPatterns(patterns);
+        if (invalidPatterns.Length > 0)
+        {
+            _maskTestResultText.Text = string.Format(_runtime.Translate("MaskDefinitionInvalid"), invalidPatterns[0]);
+            _maskTestResultText.Foreground = Brush(IsDark ? "#FFB4AB" : "#B42318");
+            return;
+        }
+
+        try
+        {
+            var (preview, count) = CreateCustomMaskTestPreview(testText, patterns, GetSelectedMaskPrefixLength());
+            var result = count > 0
+                ? string.Format(_runtime.Translate("MaskTestResult"), count, preview)
+                : _runtime.Translate("MaskTestNoMatch");
+            _maskTestResultText.Text = result;
+            _maskTestResultText.Foreground = DescriptionBrush();
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            _maskTestResultText.Text = _runtime.Translate("MaskTestTimeout");
+            _maskTestResultText.Foreground = Brush(IsDark ? "#FFD86B" : "#9A6700");
+        }
+    }
+
+    private static (string Preview, int MatchCount) CreateCustomMaskTestPreview(
+        string text,
+        IEnumerable<string> patterns,
+        int visiblePrefixLength)
+    {
+        const int maskGlyphCount = 8;
+        var result = text;
+        var count = 0;
+        var timeout = TimeSpan.FromMilliseconds(120);
+        foreach (var pattern in SensitiveContentDetector.ValidateCustomPatterns(patterns))
+        {
+            result = Regex.Replace(
+                result,
+                pattern,
+                match =>
+                {
+                    count++;
+                    var visible = match.Value[..Math.Min(Math.Max(visiblePrefixLength, 0), match.Value.Length)];
+                    return $"{visible}{new string('\u2022', maskGlyphCount)}";
+                },
+                RegexOptions.IgnoreCase,
+                timeout);
+        }
+
+        return (result, count);
     }
 
     private void EnsureNativeHistorySearchBox()
@@ -716,10 +817,60 @@ public sealed class MainWindow : Window
         };
         _maskPatternsBox.Enter += (_, _) => _maskPatternsPanel.Invalidate();
         _maskPatternsBox.Leave += (_, _) => _maskPatternsPanel.Invalidate();
+        _maskPatternsBox.TextChanged += (_, _) => UpdateMaskTestPreview();
         _maskPatternsPanel.Controls.Add(_maskPatternsBox);
         _maskPatternsOverlay.Controls.Add(_maskPatternsPanel);
         _maskPatternsOverlay.Show(new WindowHandle(_hwnd));
         _maskPatternsOverlay.Hide();
+        PositionNativeChildInputs();
+    }
+
+    private void EnsureNativeMaskTestBox()
+    {
+        if (_maskTestBox is not null || _hwnd == IntPtr.Zero)
+        {
+            PositionNativeChildInputs();
+            return;
+        }
+
+        var backColor = HistorySearchBackColor();
+        _maskTestOverlay = new Forms.Form
+        {
+            FormBorderStyle = Forms.FormBorderStyle.None,
+            ShowInTaskbar = false,
+            StartPosition = Forms.FormStartPosition.Manual,
+            BackColor = backColor,
+            Padding = new Forms.Padding(0),
+            TopMost = false,
+            Visible = false
+        };
+        _maskTestPanel = new Forms.Panel
+        {
+            BackColor = backColor,
+            Dock = Forms.DockStyle.Fill,
+            Padding = new Forms.Padding(12, 8, 12, 8)
+        };
+        _maskTestPanel.Paint += (_, args) => PaintNativeInputBorder(args.Graphics, _maskTestPanel, _maskTestBox);
+        _maskTestBox = new Forms.TextBox
+        {
+            Dock = Forms.DockStyle.Fill,
+            BorderStyle = Forms.BorderStyle.None,
+            Multiline = true,
+            AcceptsReturn = true,
+            ScrollBars = Forms.ScrollBars.None,
+            WordWrap = true,
+            Font = DialogFont(10f),
+            BackColor = backColor,
+            ForeColor = HistorySearchForeColor(),
+            Visible = true
+        };
+        _maskTestBox.Enter += (_, _) => _maskTestPanel.Invalidate();
+        _maskTestBox.Leave += (_, _) => _maskTestPanel.Invalidate();
+        _maskTestBox.TextChanged += (_, _) => UpdateMaskTestPreview();
+        _maskTestPanel.Controls.Add(_maskTestBox);
+        _maskTestOverlay.Controls.Add(_maskTestPanel);
+        _maskTestOverlay.Show(new WindowHandle(_hwnd));
+        _maskTestOverlay.Hide();
         PositionNativeChildInputs();
     }
 
@@ -753,6 +904,7 @@ public sealed class MainWindow : Window
     {
         PositionNativeHistorySearchBox();
         PositionNativeMaskPatternsBox();
+        PositionNativeMaskTestBox();
     }
 
     private async void QueueNativeChildInputReposition()
@@ -804,6 +956,26 @@ public sealed class MainWindow : Window
         }
     }
 
+    private void PositionNativeMaskTestBox()
+    {
+        if (_maskTestOverlay is null || _maskTestOverlay.IsDisposed || _hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        if (_selectedPageIndex != 1 || !_maskDefinitionsExpanded || !TryGetVisibleNativeChildBounds(_maskTestHost, out var x, out var y, out var width, out var height))
+        {
+            _maskTestOverlay.Hide();
+            return;
+        }
+
+        _maskTestOverlay.SetBounds(x, y, width, height);
+        if (!_maskTestOverlay.Visible)
+        {
+            _maskTestOverlay.Show(new WindowHandle(_hwnd));
+        }
+    }
+
     private bool TryGetVisibleNativeChildBounds(FrameworkElement host, out int x, out int y, out int width, out int height)
     {
         x = 0;
@@ -849,7 +1021,7 @@ public sealed class MainWindow : Window
     private void PaintNativeInputBorder(System.Drawing.Graphics graphics, Forms.Control control, Forms.Control? textBox)
     {
         graphics.Clear(HistorySearchBackColor());
-        var borderColor = ReferenceEquals(control, _maskPatternsPanel)
+        var borderColor = ReferenceEquals(control, _maskPatternsPanel) || ReferenceEquals(control, _maskTestPanel)
             ? HistorySearchSubtleBorderColor()
             : HistorySearchBorderColor();
         using var borderPen = new System.Drawing.Pen(borderColor);
@@ -1778,6 +1950,8 @@ public sealed class MainWindow : Window
     {
         _maskPatternsHost.Background = CardBackground();
         _maskPatternsHost.BorderBrush = CardBorderBrush();
+        _maskTestHost.Background = CardBackground();
+        _maskTestHost.BorderBrush = CardBorderBrush();
         var backColor = HistorySearchBackColor();
         var foreColor = HistorySearchForeColor();
         var mutedColor = HistorySearchMutedColor();
@@ -1807,6 +1981,15 @@ public sealed class MainWindow : Window
             _maskPatternsBox.BackColor = backColor;
             _maskPatternsBox.ForeColor = foreColor;
             _maskPatternsPanel.Invalidate();
+        }
+
+        if (_maskTestBox is not null)
+        {
+            _maskTestOverlay!.BackColor = backColor;
+            _maskTestPanel!.BackColor = backColor;
+            _maskTestBox.BackColor = backColor;
+            _maskTestBox.ForeColor = foreColor;
+            _maskTestPanel.Invalidate();
         }
     }
 
