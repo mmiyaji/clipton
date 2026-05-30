@@ -34,6 +34,7 @@ public sealed class MainWindow : Window
     private readonly ColumnDefinition _sidebarColumn = new() { Width = new GridLength(SidebarExpandedWidth) };
     private readonly ColumnDefinition _contentColumn = new() { Width = new GridLength(1, GridUnitType.Star), MinWidth = ContentMinWidth };
     private readonly Grid _sidebarFrame = new();
+    private readonly ScrollViewer _contentScroller = new();
     private readonly StackPanel _sidebar = new() { Padding = new Thickness(18, 22, 14, 18), Spacing = 12 };
     private readonly StackPanel _generalPage = SettingsPage();
     private readonly StackPanel _historyPage = SettingsPage();
@@ -303,18 +304,20 @@ public sealed class MainWindow : Window
         _sidebarFrame.Children.Add(_sidebarToggleButton);
         _root.Children.Add(_sidebarFrame);
 
-        var scroller = new ScrollViewer
-        {
-            MinWidth = ContentMinWidth,
-            Padding = new Thickness(36, 30, 36, 42),
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
-        };
-        Grid.SetColumn(scroller, 1);
+        _contentScroller.MinWidth = ContentMinWidth;
+        _contentScroller.Padding = new Thickness(36, 30, 36, 42);
+        _contentScroller.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
+        _contentScroller.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+        Grid.SetColumn(_contentScroller, 1);
         var contentHost = new Grid { HorizontalAlignment = HorizontalAlignment.Left, MinWidth = ContentMinWidth };
-        scroller.Content = contentHost;
-        scroller.SizeChanged += (_, e) => UpdateSettingsPageWidth(Math.Max(0, e.NewSize.Width - scroller.Padding.Left - scroller.Padding.Right));
-        scroller.ViewChanged += (_, _) =>
+        _contentScroller.Content = contentHost;
+        _contentScroller.SizeChanged += (_, e) =>
+        {
+            UpdateSettingsPageWidth(Math.Max(0, e.NewSize.Width - _contentScroller.Padding.Left - _contentScroller.Padding.Right));
+            PositionNativeHistorySearchBox();
+            PositionNativeMaskPatternsBox();
+        };
+        _contentScroller.ViewChanged += (_, _) =>
         {
             PositionNativeHistorySearchBox();
             PositionNativeMaskPatternsBox();
@@ -323,7 +326,7 @@ public sealed class MainWindow : Window
         contentHost.Children.Add(_historyPage);
         contentHost.Children.Add(_snippetPage);
         contentHost.Children.Add(_aboutPage);
-        _root.Children.Add(scroller);
+        _root.Children.Add(_contentScroller);
 
         BuildGeneralPage();
         BuildHistoryPage();
@@ -639,20 +642,12 @@ public sealed class MainWindow : Window
             return;
         }
 
-        var point = _maskPatternsHost.TransformToVisual(_root).TransformPoint(new Windows.Foundation.Point(0, 0));
-        var scale = NativeMethods.GetDpiForWindow(_hwnd) / 96.0;
-        var screenPoint = new NativeMethods.Point
+        if (!TryGetVisibleNativeOverlayBounds(_maskPatternsHost, out var screenPoint, out var width, out var height))
         {
-            X = (int)Math.Round(point.X * scale),
-            Y = (int)Math.Round(point.Y * scale)
-        };
-        if (!NativeMethods.ClientToScreen(_hwnd, ref screenPoint))
-        {
+            _maskPatternsOverlay.Hide();
             return;
         }
 
-        var width = Math.Max(1, (int)Math.Round(_maskPatternsHost.ActualWidth * scale));
-        var height = Math.Max(1, (int)Math.Round(_maskPatternsHost.ActualHeight * scale));
         _maskPatternsOverlay.SetBounds(screenPoint.X, screenPoint.Y, width, height);
         if (!_maskPatternsOverlay.Visible)
         {
@@ -786,20 +781,12 @@ public sealed class MainWindow : Window
             return;
         }
 
-        var point = _historySearchHost.TransformToVisual(_root).TransformPoint(new Windows.Foundation.Point(0, 0));
-        var scale = NativeMethods.GetDpiForWindow(_hwnd) / 96.0;
-        var screenPoint = new NativeMethods.Point
+        if (!TryGetVisibleNativeOverlayBounds(_historySearchHost, out var screenPoint, out var width, out var height))
         {
-            X = (int)Math.Round(point.X * scale),
-            Y = (int)Math.Round(point.Y * scale)
-        };
-        if (!NativeMethods.ClientToScreen(_hwnd, ref screenPoint))
-        {
+            _historySearchOverlay.Hide();
             return;
         }
 
-        var width = Math.Max(1, (int)Math.Round(_historySearchHost.ActualWidth * scale));
-        var height = Math.Max(1, (int)Math.Round(SettingControlHeight * scale));
         _historySearchOverlay.SetBounds(screenPoint.X, screenPoint.Y, width, height);
         if (!_historySearchOverlay.Visible)
         {
@@ -807,6 +794,56 @@ public sealed class MainWindow : Window
         }
 
         _historySearchOverlay.BringToFront();
+    }
+
+    private bool TryGetVisibleNativeOverlayBounds(
+        FrameworkElement host,
+        out NativeMethods.Point screenPoint,
+        out int width,
+        out int height)
+    {
+        screenPoint = default;
+        width = 0;
+        height = 0;
+
+        if (_contentScroller.ActualWidth <= 0
+            || _contentScroller.ActualHeight <= 0
+            || host.ActualWidth <= 0
+            || host.ActualHeight <= 0
+            || _hwnd == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var hostPoint = host.TransformToVisual(_contentScroller).TransformPoint(new Windows.Foundation.Point(0, 0));
+        var hostLeft = hostPoint.X;
+        var hostTop = hostPoint.Y;
+        var hostRight = hostLeft + host.ActualWidth;
+        var hostBottom = hostTop + host.ActualHeight;
+
+        if (hostLeft < 0
+            || hostTop < 0
+            || hostRight > _contentScroller.ActualWidth
+            || hostBottom > _contentScroller.ActualHeight)
+        {
+            return false;
+        }
+
+        var visiblePoint = _contentScroller.TransformToVisual(_root).TransformPoint(new Windows.Foundation.Point(hostLeft, hostTop));
+        var scale = NativeMethods.GetDpiForWindow(_hwnd) / 96.0;
+        screenPoint = new NativeMethods.Point
+        {
+            X = (int)Math.Round(visiblePoint.X * scale),
+            Y = (int)Math.Round(visiblePoint.Y * scale)
+        };
+        if (!NativeMethods.ClientToScreen(_hwnd, ref screenPoint))
+        {
+            return false;
+        }
+
+        width = Math.Max(1, (int)Math.Round(host.ActualWidth * scale));
+        height = Math.Max(1, (int)Math.Round(host.ActualHeight * scale));
+        return true;
     }
 
     private bool HistoryMatchesSearch(ClipboardSnapshot item)
