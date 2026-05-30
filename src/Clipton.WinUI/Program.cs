@@ -4,6 +4,8 @@ namespace Clipton.WinUI;
 
 public static class Program
 {
+    private static App? _app;
+
     [STAThread]
     public static void Main(string[] args)
     {
@@ -11,7 +13,7 @@ public static class Program
         Application.Start(_ =>
         {
             App.LaunchArgs = args;
-            var app = new App();
+            _app = new App();
         });
     }
 }

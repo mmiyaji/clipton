@@ -39,7 +39,10 @@ public sealed class App : Application
         {
             _runtime = new CliptonRuntime();
             _runtime.Start();
-            _runtime.ShowStartupWindowIfNeeded(LaunchArgs.Contains("--settings", StringComparer.OrdinalIgnoreCase));
+            var forceShow = LaunchArgs.Contains("--settings", StringComparer.OrdinalIgnoreCase)
+                || args.Arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Contains("--settings", StringComparer.OrdinalIgnoreCase);
+            _runtime.ShowStartupWindowIfNeeded(forceShow);
         }
         catch (Exception exception)
         {
