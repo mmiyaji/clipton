@@ -1055,7 +1055,7 @@ public sealed class QuickMenuWindow : Window
         exStyle |= NativeMethods.WsExLayered | NativeMethods.WsExToolwindow;
         exStyle &= ~NativeMethods.WsExAppwindow;
         NativeMethods.SetWindowLongPtr(_hwnd, NativeMethods.GwlExstyle, new IntPtr(exStyle));
-        NativeMethods.SetLayeredWindowAttributes(_hwnd, 0, 255, NativeMethods.LwaColorKey);
+        NativeMethods.SetLayeredWindowAttributes(_hwnd, 0, 1, NativeMethods.LwaAlpha);
     }
 }
 
