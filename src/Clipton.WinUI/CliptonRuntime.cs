@@ -291,6 +291,56 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
+    public int ExportHistory(string path)
+    {
+        var items = History.Items.Select(HistoryExportItemDto.FromSnapshot).ToArray();
+        WriteExportFile(path, new HistoryExportDto(1, DateTimeOffset.UtcNow, items));
+        return items.Length;
+    }
+
+    public int ImportHistory(string path)
+    {
+        var dto = ReadExportFile<HistoryExportDto>(path);
+        var items = dto.Items ?? throw new InvalidOperationException("The selected file does not contain history items.");
+        var before = History.Items.Count;
+        foreach (var item in items.Reverse())
+        {
+            History.Add(item.ToSnapshot());
+        }
+
+        SaveHistory();
+        _mainWindow?.RefreshItems();
+        return Math.Max(0, History.Items.Count - before);
+    }
+
+    public int ExportSnippets(string path)
+    {
+        var items = Snippets.Snippets.ToArray();
+        WriteExportFile(path, new SnippetExportDto(1, DateTimeOffset.UtcNow, items));
+        return items.Length;
+    }
+
+    public int ImportSnippets(string path)
+    {
+        var dto = ReadExportFile<SnippetExportDto>(path);
+        var items = dto.Items ?? throw new InvalidOperationException("The selected file does not contain snippet items.");
+        var imported = 0;
+        foreach (var snippet in items)
+        {
+            if (string.IsNullOrWhiteSpace(snippet.Name))
+            {
+                continue;
+            }
+
+            Snippets.Upsert(snippet);
+            imported++;
+        }
+
+        SaveSnippets(_snippetPath, Snippets);
+        _mainWindow?.RefreshItems();
+        return imported;
+    }
+
     public void ClearHistory()
     {
         History.Clear();
@@ -955,6 +1005,101 @@ public sealed class CliptonRuntime : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, JsonSerializer.Serialize(catalog.Snippets, new JsonSerializerOptions { WriteIndented = true }));
     }
+
+    private static T ReadExportFile<T>(string path)
+    {
+        return JsonSerializer.Deserialize<T>(File.ReadAllText(path), ExportJsonOptions)
+            ?? throw new InvalidOperationException("The selected file is not a supported Clipton export.");
+    }
+
+    private static void WriteExportFile<T>(string path, T value)
+    {
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        File.WriteAllText(path, JsonSerializer.Serialize(value, ExportJsonOptions));
+    }
+
+    private static readonly JsonSerializerOptions ExportJsonOptions = new()
+    {
+        WriteIndented = true,
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
+    };
+
+    private sealed record HistoryExportDto(int Version, DateTimeOffset ExportedAt, HistoryExportItemDto[] Items);
+
+    private sealed record HistoryExportItemDto(
+        string Id,
+        DateTimeOffset CapturedAt,
+        ClipboardFormatKind[] Formats,
+        string? Text,
+        string? Rtf,
+        string? Html,
+        byte[]? ImagePng,
+        string[] FilePaths)
+    {
+        public static HistoryExportItemDto FromSnapshot(ClipboardSnapshot snapshot)
+        {
+            return new HistoryExportItemDto(
+                snapshot.Id,
+                snapshot.CapturedAt,
+                snapshot.Formats.ToArray(),
+                snapshot.Text,
+                snapshot.Rtf,
+                snapshot.Html,
+                snapshot.ImagePng,
+                snapshot.FilePaths.ToArray());
+        }
+
+        public ClipboardSnapshot ToSnapshot()
+        {
+            return new ClipboardSnapshot(
+                string.IsNullOrWhiteSpace(Id) ? Guid.NewGuid().ToString("N") : Id,
+                CapturedAt == default ? DateTimeOffset.UtcNow : CapturedAt,
+                Formats is { Length: > 0 } ? Formats : InferFormats(),
+                Text,
+                Rtf,
+                Html,
+                ImagePng,
+                FilePaths);
+        }
+
+        private ClipboardFormatKind[] InferFormats()
+        {
+            var formats = new List<ClipboardFormatKind>();
+            if (!string.IsNullOrEmpty(Text))
+            {
+                formats.Add(ClipboardFormatKind.Text);
+            }
+
+            if (!string.IsNullOrEmpty(Rtf))
+            {
+                formats.Add(ClipboardFormatKind.RichText);
+            }
+
+            if (!string.IsNullOrEmpty(Html))
+            {
+                formats.Add(ClipboardFormatKind.Html);
+            }
+
+            if (ImagePng is { Length: > 0 })
+            {
+                formats.Add(ClipboardFormatKind.Image);
+            }
+
+            if (FilePaths is { Length: > 0 })
+            {
+                formats.Add(ClipboardFormatKind.FileDrop);
+            }
+
+            return formats.Count > 0 ? formats.ToArray() : [ClipboardFormatKind.Text];
+        }
+    }
+
+    private sealed record SnippetExportDto(int Version, DateTimeOffset ExportedAt, Snippet[] Items);
 
     private void SendPaste()
     {

@@ -72,6 +72,8 @@ public sealed class MainWindow : Window
     private readonly ComboBox _maxHistoryItemsBox = new();
     private readonly ToggleSwitch _folderModeToggle = CompactToggle();
     private readonly Button _registerFromHistoryButton = new();
+    private readonly Button _exportHistoryButton = new();
+    private readonly Button _importHistoryButton = new();
     private readonly Button _clearButton = new();
     private readonly Button _searchHistoryButton = new();
     private readonly Button _clearHistorySearchButton = new();
@@ -79,6 +81,8 @@ public sealed class MainWindow : Window
     private readonly TextBlock _historySearchStatusText = Description();
     private readonly TextBlock _selectedSnippetText = Description();
     private readonly Button _newSnippetButton = new();
+    private readonly Button _exportSnippetsButton = new();
+    private readonly Button _importSnippetsButton = new();
     private readonly Button _saveSnippetButton = new();
     private readonly Button _pasteSnippetButton = new();
     private readonly Button _deleteSnippetButton = new();
@@ -192,11 +196,15 @@ public sealed class MainWindow : Window
         _aboutHeaderText.Text = t("About");
         _aboutDescriptionText.Text = t("AboutDescription");
         _registerFromHistoryButton.Content = t("RegisterFromHistory");
+        _exportHistoryButton.Content = t("Export");
+        _importHistoryButton.Content = t("Import");
         _clearButton.Content = t("ClearHistory");
         _searchHistoryButton.Content = t("Search");
         _clearHistorySearchButton.Content = t("ClearSearch");
         _loadMoreHistoryButton.Content = string.Format(t("LoadMoreHistory"), 0);
         _newSnippetButton.Content = t("NewSnippet");
+        _exportSnippetsButton.Content = t("Export");
+        _importSnippetsButton.Content = t("Import");
         _saveSnippetButton.Content = t("EditSnippet");
         _pasteSnippetButton.Content = t("Paste");
         _deleteSnippetButton.Content = t("Delete");
@@ -383,9 +391,13 @@ public sealed class MainWindow : Window
         _searchHistoryButton.Click += (_, _) => SearchHistory();
         _clearHistorySearchButton.Click += (_, _) => ClearHistorySearch();
         _loadMoreHistoryButton.Click += (_, _) => LoadMoreHistory();
+        _exportHistoryButton.Click += (_, _) => ExportHistory();
+        _importHistoryButton.Click += (_, _) => ImportHistory();
         actions.Children.Add(_searchHistoryButton);
         actions.Children.Add(_clearHistorySearchButton);
         actions.Children.Add(_registerFromHistoryButton);
+        actions.Children.Add(_exportHistoryButton);
+        actions.Children.Add(_importHistoryButton);
         actions.Children.Add(_clearButton);
         _historyPage.Children.Add(actions);
         _historyPage.Children.Add(_historySearchStatusText);
@@ -488,7 +500,11 @@ public sealed class MainWindow : Window
             UpdateSelectedSnippetText();
             RefreshItems();
         };
+        _exportSnippetsButton.Click += (_, _) => ExportSnippets();
+        _importSnippetsButton.Click += (_, _) => ImportSnippets();
         buttons.Children.Add(_newSnippetButton);
+        buttons.Children.Add(_exportSnippetsButton);
+        buttons.Children.Add(_importSnippetsButton);
         buttons.Children.Add(_saveSnippetButton);
         buttons.Children.Add(_pasteSnippetButton);
         buttons.Children.Add(_deleteSnippetButton);
@@ -616,6 +632,122 @@ public sealed class MainWindow : Window
         if (string.IsNullOrWhiteSpace(item?.Text)) return;
         SelectPage(2);
         OpenSnippetEditor(null, "History", CreateSnippetName(item.Text), item.Text);
+    }
+
+    private void ExportHistory()
+    {
+        var path = SelectExportPath($"clipton-history-{DateTime.Now:yyyyMMdd-HHmmss}.json");
+        if (path is null)
+        {
+            return;
+        }
+
+        RunImportExportAction(
+            "ExportHistory",
+            () => string.Format(_runtime.Translate("ExportComplete"), _runtime.ExportHistory(path)));
+    }
+
+    private void ImportHistory()
+    {
+        var path = SelectImportPath();
+        if (path is null)
+        {
+            return;
+        }
+
+        RunImportExportAction(
+            "ImportHistory",
+            () =>
+            {
+                var count = _runtime.ImportHistory(path);
+                RefreshItems();
+                return string.Format(_runtime.Translate("ImportComplete"), count);
+            });
+    }
+
+    private void ExportSnippets()
+    {
+        var path = SelectExportPath($"clipton-snippets-{DateTime.Now:yyyyMMdd-HHmmss}.json");
+        if (path is null)
+        {
+            return;
+        }
+
+        RunImportExportAction(
+            "ExportSnippets",
+            () => string.Format(_runtime.Translate("ExportComplete"), _runtime.ExportSnippets(path)));
+    }
+
+    private void ImportSnippets()
+    {
+        var path = SelectImportPath();
+        if (path is null)
+        {
+            return;
+        }
+
+        RunImportExportAction(
+            "ImportSnippets",
+            () =>
+            {
+                var count = _runtime.ImportSnippets(path);
+                _selectedSnippet = null;
+                UpdateSelectedSnippetText();
+                RefreshItems();
+                return string.Format(_runtime.Translate("ImportComplete"), count);
+            });
+    }
+
+    private string? SelectExportPath(string fileName)
+    {
+        using var dialog = new Forms.SaveFileDialog
+        {
+            Title = _runtime.Translate("Export"),
+            FileName = fileName,
+            DefaultExt = "json",
+            AddExtension = true,
+            Filter = JsonFileFilter()
+        };
+
+        return dialog.ShowDialog() == Forms.DialogResult.OK ? dialog.FileName : null;
+    }
+
+    private string? SelectImportPath()
+    {
+        using var dialog = new Forms.OpenFileDialog
+        {
+            Title = _runtime.Translate("Import"),
+            DefaultExt = "json",
+            CheckFileExists = true,
+            Filter = JsonFileFilter()
+        };
+
+        return dialog.ShowDialog() == Forms.DialogResult.OK ? dialog.FileName : null;
+    }
+
+    private string JsonFileFilter()
+    {
+        return $"{_runtime.Translate("JsonFiles")} (*.json)|*.json|{_runtime.Translate("AllFiles")} (*.*)|*.*";
+    }
+
+    private void RunImportExportAction(string titleKey, Func<string> action)
+    {
+        try
+        {
+            Forms.MessageBox.Show(
+                action(),
+                _runtime.Translate(titleKey),
+                Forms.MessageBoxButtons.OK,
+                Forms.MessageBoxIcon.Information);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException)
+        {
+            Forms.MessageBox.Show(
+                string.Format(_runtime.Translate("ImportExportFailed"), ex.Message),
+                _runtime.Translate(titleKey),
+                Forms.MessageBoxButtons.OK,
+                Forms.MessageBoxIcon.Error);
+        }
     }
 
     private void SelectSnippet(SnippetItemViewModel selected)
