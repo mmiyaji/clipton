@@ -24,6 +24,10 @@ public sealed class CliptonSettings
 
     public bool MaskSensitiveContent { get; set; } = true;
 
+    public int MaskVisiblePrefixLength { get; set; } = 3;
+
+    public string[] CustomMaskPatterns { get; set; } = [];
+
     public int MaxHistoryItems { get; set; } = 200;
 
     public string[] PinnedHistoryIds { get; set; } = [];

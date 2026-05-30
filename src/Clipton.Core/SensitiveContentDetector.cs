@@ -35,7 +35,7 @@ public static class SensitiveContentDetector
         @"(?<!\d)(?:\+?\d{1,3}[-. ]?)?(?:\(?\d{2,4}\)?[-. ]?){2,4}\d{3,4}(?!\d)",
         RegexOptions.Compiled);
 
-    public static bool ShouldMask(string? text)
+    public static bool ShouldMask(string? text, IEnumerable<string>? customPatterns = null)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -46,10 +46,14 @@ public static class SensitiveContentDetector
             || SecretKeywordPattern.IsMatch(text)
             || LongTokenPattern.IsMatch(text)
             || PhonePattern.IsMatch(text)
-            || LooksLikeCreditCard(text);
+            || LooksLikeCreditCard(text)
+            || MatchesCustomPattern(text, customPatterns);
     }
 
-    public static string? CreateMaskedPreview(string? text, int visiblePrefixLength = DefaultVisiblePrefixLength)
+    public static string? CreateMaskedPreview(
+        string? text,
+        int visiblePrefixLength = DefaultVisiblePrefixLength,
+        IEnumerable<string>? customPatterns = null)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -67,6 +71,7 @@ public static class SensitiveContentDetector
         result = ReplaceSensitiveMatches(result, CreditCardPattern, visiblePrefixLength, IsCreditCardMatch);
         result = ReplaceSensitiveMatches(result, LongTokenPattern, visiblePrefixLength, _ => true);
         result = ReplaceSensitiveMatches(result, PhonePattern, visiblePrefixLength, _ => true);
+        result = ReplaceCustomMatches(result, customPatterns, visiblePrefixLength);
 
         if (!string.Equals(result, text, StringComparison.Ordinal))
         {
@@ -76,6 +81,63 @@ public static class SensitiveContentDetector
         return SecretKeywordPattern.IsMatch(text)
             ? MaskValue(text, visiblePrefixLength)
             : null;
+    }
+
+    public static string[] ValidateCustomPatterns(IEnumerable<string>? customPatterns)
+    {
+        return GetValidCustomPatterns(customPatterns);
+    }
+
+    public static string[] GetInvalidCustomPatterns(IEnumerable<string>? customPatterns)
+    {
+        if (customPatterns is null)
+        {
+            return [];
+        }
+
+        return customPatterns
+            .Select(pattern => pattern.Trim())
+            .Where(pattern => pattern.Length > 0)
+            .Where(pattern =>
+            {
+                try
+                {
+                    _ = new Regex(pattern, RegexOptions.IgnoreCase);
+                    return false;
+                }
+                catch (ArgumentException)
+                {
+                    return true;
+                }
+            })
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static string[] GetValidCustomPatterns(IEnumerable<string>? customPatterns)
+    {
+        if (customPatterns is null)
+        {
+            return [];
+        }
+
+        return customPatterns
+            .Select(pattern => pattern.Trim())
+            .Where(pattern => pattern.Length > 0)
+            .Where(pattern =>
+            {
+                try
+                {
+                    _ = new Regex(pattern, RegexOptions.IgnoreCase);
+                    return true;
+                }
+                catch (ArgumentException)
+                {
+                    return false;
+                }
+            })
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
     }
 
     private static string ReplaceSensitiveMatches(
@@ -93,6 +155,34 @@ public static class SensitiveContentDetector
     {
         var visible = value[..Math.Min(Math.Max(visiblePrefixLength, 0), value.Length)];
         return $"{visible}{new string('\u2022', MaskGlyphCount)}";
+    }
+
+    private static bool MatchesCustomPattern(string text, IEnumerable<string>? customPatterns)
+    {
+        foreach (var pattern in ValidateCustomPatterns(customPatterns))
+        {
+            if (Regex.IsMatch(text, pattern, RegexOptions.IgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string ReplaceCustomMatches(string text, IEnumerable<string>? customPatterns, int visiblePrefixLength)
+    {
+        var result = text;
+        foreach (var pattern in ValidateCustomPatterns(customPatterns))
+        {
+            result = Regex.Replace(
+                result,
+                pattern,
+                match => MaskValue(match.Value, visiblePrefixLength),
+                RegexOptions.IgnoreCase);
+        }
+
+        return result;
     }
 
     private static bool IsCreditCardMatch(Match match)

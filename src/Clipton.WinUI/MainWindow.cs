@@ -70,6 +70,7 @@ public sealed class MainWindow : Window
     private readonly ToggleSwitch _pauseCaptureToggle = CompactToggle();
     private readonly ToggleSwitch _persistHistoryToggle = CompactToggle();
     private readonly ToggleSwitch _maskSensitiveContentToggle = CompactToggle();
+    private readonly Button _maskDefinitionsButton = new();
     private readonly ComboBox _maxHistoryItemsBox = new();
     private readonly ToggleSwitch _folderModeToggle = CompactToggle();
     private readonly Button _registerFromHistoryButton = new();
@@ -209,6 +210,7 @@ public sealed class MainWindow : Window
         SetCommandButton(_exportHistoryButton, "\uEDE1", t("Export"));
         SetCommandButton(_importHistoryButton, "\uE896", t("Import"));
         SetCommandButton(_clearButton, "\uE74D", t("ClearHistory"));
+        SetCommandButton(_maskDefinitionsButton, "\uE713", t("MaskDefinitions"));
         if (_historySearchBox is not null)
         {
             _historySearchBox.PlaceholderText = t("SearchPlaceholder");
@@ -398,7 +400,11 @@ public sealed class MainWindow : Window
 
         _maxHistoryItemsBox.SelectionChanged += (_, _) => ChangeMaxHistoryItems();
         _historyPage.Children.Add(SettingCard("\uE81C", "MaxHistoryItems", "MaxHistoryItemsDescription", _maxHistoryItemsBox));
-        _historyPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", _maskSensitiveContentToggle));
+        var maskControls = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
+        maskControls.Children.Add(_maskDefinitionsButton);
+        maskControls.Children.Add(ToggleActionHost(_maskSensitiveContentToggle));
+        _maskDefinitionsButton.Click += (_, _) => OpenMaskDefinitionSettings();
+        _historyPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", maskControls));
 
         _historyPage.Children.Add(SectionHeader("HistorySection"));
         _historyPage.Children.Add(BuildHistorySearchPanel());
@@ -409,7 +415,7 @@ public sealed class MainWindow : Window
         var primaryActions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Spacing = 8 };
         var dataActions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         _registerFromHistoryButton.Click += (_, _) => RegisterSelectedHistory();
-        _clearButton.Click += (_, _) => _runtime.ClearHistory();
+        _clearButton.Click += (_, _) => ConfirmAndClearHistory();
         _loadMoreHistoryButton.Click += (_, _) => LoadMoreHistory();
         _exportHistoryButton.Click += (_, _) => ExportHistory();
         _importHistoryButton.Click += (_, _) => ImportHistory();
@@ -827,6 +833,119 @@ public sealed class MainWindow : Window
         _runtime.SetPersistEncryptedHistory(_persistHistoryToggle.IsOn);
         _runtime.SetMaskSensitiveContent(_maskSensitiveContentToggle.IsOn);
         _runtime.SetFolderMode(_folderModeToggle.IsOn);
+        RefreshItems();
+    }
+
+    private void ConfirmAndClearHistory()
+    {
+        var result = Forms.MessageBox.Show(
+            _runtime.Translate("ConfirmClearHistoryMessage"),
+            _runtime.Translate("ConfirmClearHistoryTitle"),
+            Forms.MessageBoxButtons.YesNo,
+            Forms.MessageBoxIcon.Warning,
+            Forms.MessageBoxDefaultButton.Button2);
+        if (result != Forms.DialogResult.Yes)
+        {
+            return;
+        }
+
+        _runtime.ClearHistory();
+    }
+
+    private void OpenMaskDefinitionSettings()
+    {
+        using var form = new Forms.Form
+        {
+            Text = _runtime.Translate("MaskDefinitions"),
+            Icon = AppAssets.LoadAppIcon(_runtime.EffectiveTheme),
+            Width = 620,
+            Height = 460,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            FormBorderStyle = Forms.FormBorderStyle.FixedDialog,
+            StartPosition = Forms.FormStartPosition.CenterScreen,
+            Font = DialogFont(9.5f),
+            BackColor = IsDark ? System.Drawing.Color.FromArgb(32, 32, 32) : System.Drawing.Color.White,
+            ForeColor = IsDark ? System.Drawing.Color.White : System.Drawing.Color.Black
+        };
+
+        var table = new Forms.TableLayoutPanel
+        {
+            Dock = Forms.DockStyle.Fill,
+            Padding = new Forms.Padding(18),
+            ColumnCount = 2,
+            RowCount = 5
+        };
+        table.ColumnStyles.Add(new Forms.ColumnStyle(Forms.SizeType.Absolute, 140));
+        table.ColumnStyles.Add(new Forms.ColumnStyle(Forms.SizeType.Percent, 100));
+        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 38));
+        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 28));
+        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Percent, 100));
+        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 8));
+        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 44));
+
+        var prefixBox = new Forms.NumericUpDown
+        {
+            Minimum = 0,
+            Maximum = 12,
+            Value = Math.Clamp(_runtime.Settings.MaskVisiblePrefixLength, 0, 12),
+            Dock = Forms.DockStyle.Left,
+            Width = 96,
+            Font = DialogFont(10f),
+            BackColor = IsDark ? System.Drawing.Color.FromArgb(43, 43, 43) : System.Drawing.Color.White,
+            ForeColor = IsDark ? System.Drawing.Color.White : System.Drawing.Color.Black
+        };
+        var patternBox = DialogTextBox(string.Join(Environment.NewLine, _runtime.Settings.CustomMaskPatterns));
+        patternBox.Multiline = true;
+        patternBox.ScrollBars = Forms.ScrollBars.Vertical;
+        patternBox.AcceptsReturn = true;
+        patternBox.AcceptsTab = true;
+
+        table.Controls.Add(DialogLabel(_runtime.Translate("MaskVisiblePrefixLength")), 0, 0);
+        table.Controls.Add(prefixBox, 1, 0);
+        var description = DialogLabel(_runtime.Translate("MaskDefinitionsDescription"));
+        table.Controls.Add(description, 0, 1);
+        table.SetColumnSpan(description, 2);
+        table.Controls.Add(patternBox, 0, 2);
+        table.SetColumnSpan(patternBox, 2);
+
+        var buttons = new Forms.FlowLayoutPanel
+        {
+            FlowDirection = Forms.FlowDirection.RightToLeft,
+            Dock = Forms.DockStyle.Fill
+        };
+        var saveButton = new Forms.Button { Text = _runtime.Translate("Save"), DialogResult = Forms.DialogResult.OK, Width = 96 };
+        var cancelButton = new Forms.Button { Text = _runtime.Translate("Cancel"), DialogResult = Forms.DialogResult.Cancel, Width = 96 };
+        buttons.Controls.Add(saveButton);
+        buttons.Controls.Add(cancelButton);
+        table.Controls.Add(buttons, 0, 4);
+        table.SetColumnSpan(buttons, 2);
+
+        form.Controls.Add(table);
+        form.AcceptButton = saveButton;
+        form.CancelButton = cancelButton;
+        form.Shown += (_, _) => ApplyFormTitleBarTheme(form);
+        if (form.ShowDialog() != Forms.DialogResult.OK)
+        {
+            return;
+        }
+
+        var patterns = patternBox.Lines
+            .Select(line => line.Trim())
+            .Where(line => line.Length > 0)
+            .ToArray();
+        var invalidPatterns = SensitiveContentDetector.GetInvalidCustomPatterns(patterns);
+        if (invalidPatterns.Length > 0)
+        {
+            Forms.MessageBox.Show(
+                string.Format(_runtime.Translate("MaskDefinitionInvalid"), invalidPatterns[0]),
+                _runtime.Translate("MaskDefinitions"),
+                Forms.MessageBoxButtons.OK,
+                Forms.MessageBoxIcon.Warning);
+            return;
+        }
+
+        _runtime.SetMaskDefinitionOptions((int)prefixBox.Value, patterns);
         RefreshItems();
     }
 

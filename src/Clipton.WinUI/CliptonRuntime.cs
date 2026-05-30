@@ -248,6 +248,13 @@ public sealed class CliptonRuntime : IDisposable
         SaveSettings();
     }
 
+    public void SetMaskDefinitionOptions(int visiblePrefixLength, string[] customPatterns)
+    {
+        Settings.MaskVisiblePrefixLength = Math.Clamp(visiblePrefixLength, 0, 12);
+        Settings.CustomMaskPatterns = SensitiveContentDetector.ValidateCustomPatterns(customPatterns);
+        SaveSettings();
+    }
+
     public void SetMaxHistoryItems(int count)
     {
         Settings.MaxHistoryItems = Math.Clamp(count, 1, 1000);
@@ -1310,7 +1317,7 @@ public sealed class CliptonRuntime : IDisposable
             return new HistoryItemViewModel(snapshot.Id, snippet.DisplayName, $"{Translate("RegisteredSnippetMasked")} - {formats}");
         }
 
-        if (Settings.MaskSensitiveContent && SensitiveContentDetector.CreateMaskedPreview(plainText) is { } maskedPreview)
+        if (Settings.MaskSensitiveContent && CreateMaskedPreview(plainText) is { } maskedPreview)
         {
             return new HistoryItemViewModel(snapshot.Id, NormalizePreviewText(maskedPreview), $"{Translate("MaskedSensitive")} - {formats}");
         }
@@ -1322,7 +1329,7 @@ public sealed class CliptonRuntime : IDisposable
     {
         var plainText = ClipboardBridge.GetPlainText(snapshot);
         return Snippets.FindByText(plainText) is not null
-            || (Settings.MaskSensitiveContent && SensitiveContentDetector.CreateMaskedPreview(plainText) is not null);
+            || (Settings.MaskSensitiveContent && CreateMaskedPreview(plainText) is not null);
     }
 
     private MaskedHistoryKind GetMaskedHistoryKind(ClipboardSnapshot snapshot)
@@ -1333,9 +1340,17 @@ public sealed class CliptonRuntime : IDisposable
             return MaskedHistoryKind.RegisteredSnippet;
         }
 
-        return Settings.MaskSensitiveContent && SensitiveContentDetector.CreateMaskedPreview(plainText) is not null
+        return Settings.MaskSensitiveContent && CreateMaskedPreview(plainText) is not null
             ? MaskedHistoryKind.Sensitive
             : MaskedHistoryKind.None;
+    }
+
+    private string? CreateMaskedPreview(string? plainText)
+    {
+        return SensitiveContentDetector.CreateMaskedPreview(
+            plainText,
+            Settings.MaskVisiblePrefixLength,
+            Settings.CustomMaskPatterns);
     }
 
     private string CreatePreviewText(ClipboardSnapshot snapshot, string? plainText)

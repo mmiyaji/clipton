@@ -34,4 +34,30 @@ public sealed class SensitiveContentDetectorTests
     {
         Assert.Null(SensitiveContentDetector.CreateMaskedPreview("Hello, please review this message."));
     }
+
+    [Fact]
+    public void ShouldMask_ReturnsTrueForCustomPattern()
+    {
+        Assert.True(SensitiveContentDetector.ShouldMask("Project code: alpha-123", ["alpha-\\d+"]));
+    }
+
+    [Fact]
+    public void CreateMaskedPreview_MasksCustomPatternsWithConfiguredPrefix()
+    {
+        var preview = SensitiveContentDetector.CreateMaskedPreview(
+            "Project code: alpha-123",
+            visiblePrefixLength: 2,
+            customPatterns: ["alpha-\\d+"]);
+
+        Assert.Equal("Project code: al\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022", preview);
+    }
+
+    [Fact]
+    public void ValidateCustomPatterns_TrimsAndDropsInvalidPatterns()
+    {
+        var patterns = SensitiveContentDetector.ValidateCustomPatterns([" alpha-\\d+ ", "["]);
+
+        Assert.Equal(["alpha-\\d+"], patterns);
+        Assert.Equal(["["], SensitiveContentDetector.GetInvalidCustomPatterns([" alpha-\\d+ ", "["]));
+    }
 }
