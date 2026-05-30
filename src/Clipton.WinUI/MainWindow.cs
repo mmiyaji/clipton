@@ -554,11 +554,35 @@ public sealed class MainWindow : Window
         }
         if (_maskDefinitionsExpanded)
         {
-            _maskDefinitionsCard?.StartBringIntoView();
             EnsureNativeMaskPatternsBox();
-            _maskPatternsBox?.Focus();
+            ScrollMaskDefinitionsIntoViewAndFocus();
         }
         QueueNativeChildInputReposition();
+    }
+
+    private async void ScrollMaskDefinitionsIntoViewAndFocus()
+    {
+        await Task.Delay(80);
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!_maskDefinitionsExpanded || _maskDefinitionsCard is null)
+            {
+                return;
+            }
+
+            var target = _maskPatternsHost.ActualHeight > 0 ? _maskPatternsHost : _maskDefinitionsCard;
+            var point = target.TransformToVisual(_contentScroller).TransformPoint(new Windows.Foundation.Point(0, 0));
+            var targetOffset = Math.Max(0, _contentScroller.VerticalOffset + point.Y - 28);
+            _contentScroller.ChangeView(null, targetOffset, null, true);
+            PositionNativeChildInputs();
+        });
+
+        await Task.Delay(180);
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            PositionNativeChildInputs();
+            _maskPatternsBox?.Focus();
+        });
     }
 
     private void SaveMaskDefinitions()
@@ -716,9 +740,10 @@ public sealed class MainWindow : Window
         var panelWidth = _historySearchPanel.ClientSize.Width;
         var leftPadding = 10;
         var rightPadding = 10;
-        var iconWidth = 24;
-        var textLeft = leftPadding + iconWidth + 4;
-        icon.SetBounds(leftPadding, 0, iconWidth, panelHeight);
+        var iconSize = Math.Min(18, Math.Max(14, panelHeight - 14));
+        var iconTop = Math.Max(0, (panelHeight - iconSize) / 2);
+        var textLeft = leftPadding + iconSize + 8;
+        icon.SetBounds(leftPadding, iconTop, iconSize, iconSize);
         var textHeight = Math.Min(22, Math.Max(18, panelHeight - 12));
         var textTop = Math.Max(0, (panelHeight - textHeight) / 2);
         _historySearchBox.SetBounds(textLeft, textTop, Math.Max(1, panelWidth - textLeft - rightPadding), textHeight);
