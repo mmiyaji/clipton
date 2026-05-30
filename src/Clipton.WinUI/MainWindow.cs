@@ -15,6 +15,7 @@ namespace Clipton.WinUI;
 public sealed class MainWindow : Window
 {
     private const int HistoryDisplayBatchSize = 50;
+    private const double SettingControlHeight = 36;
     private const string TermsUrl = "https://mmiyaji.github.io/clipton/terms/";
     private const string PrivacyUrl = "https://mmiyaji.github.io/clipton/privacy/";
     private readonly CliptonRuntime _runtime;
@@ -264,10 +265,23 @@ public sealed class MainWindow : Window
         };
         _captureHotkeyButton.Click += (_, _) => CaptureCustomHotkey();
         _resetHotkeyButton.Click += (_, _) => TryApplyHotkey(HotkeyGesture.Default.ToString());
-        var hotkeyControls = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
+        var hotkeyControls = new Grid
+        {
+            ColumnSpacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        hotkeyControls.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        hotkeyControls.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        hotkeyControls.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _hotkeyBox.MinWidth = 180;
+        AlignSettingControl(_hotkeyBox);
+        AlignSettingControl(_captureHotkeyButton);
+        AlignSettingControl(_resetHotkeyButton);
         hotkeyControls.Children.Add(_hotkeyBox);
+        Grid.SetColumn(_captureHotkeyButton, 1);
         hotkeyControls.Children.Add(_captureHotkeyButton);
+        Grid.SetColumn(_resetHotkeyButton, 2);
         hotkeyControls.Children.Add(_resetHotkeyButton);
         _generalPage.Children.Add(SettingCard("\uE765", "Hotkey", "HotkeyDescription", hotkeyControls));
 
@@ -952,6 +966,12 @@ public sealed class MainWindow : Window
         Grid.SetColumn(toggle, 1);
         host.Children.Add(toggle);
         return host;
+    }
+
+    private static void AlignSettingControl(Control control)
+    {
+        control.Height = SettingControlHeight;
+        control.VerticalAlignment = VerticalAlignment.Center;
     }
 
     private void RefreshToggleStateLabels()
