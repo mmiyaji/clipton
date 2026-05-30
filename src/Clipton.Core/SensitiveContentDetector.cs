@@ -4,6 +4,9 @@ namespace Clipton.Core;
 
 public static class SensitiveContentDetector
 {
+    private const int DefaultVisiblePrefixLength = 3;
+    private const int MaskGlyphCount = 8;
+
     private static readonly Regex EmailPattern = new(
         @"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -14,6 +17,14 @@ public static class SensitiveContentDetector
 
     private static readonly Regex SecretKeywordPattern = new(
         @"\b(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|bearer)\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex SecretAssignmentPattern = new(
+        @"\b(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)\b(\s*[:=]\s*)([^\s,;]+)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex BearerTokenPattern = new(
+        @"\bbearer(\s+)([A-Za-z0-9._\-]{8,})\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static readonly Regex LongTokenPattern = new(
@@ -38,12 +49,63 @@ public static class SensitiveContentDetector
             || LooksLikeCreditCard(text);
     }
 
+    public static string? CreateMaskedPreview(string? text, int visiblePrefixLength = DefaultVisiblePrefixLength)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var result = text;
+        result = SecretAssignmentPattern.Replace(
+            result,
+            match => $"{match.Groups[1].Value}{match.Groups[2].Value}{MaskValue(match.Groups[3].Value, visiblePrefixLength)}");
+        result = BearerTokenPattern.Replace(
+            result,
+            match => $"bearer{match.Groups[1].Value}{MaskValue(match.Groups[2].Value, visiblePrefixLength)}");
+        result = ReplaceSensitiveMatches(result, EmailPattern, visiblePrefixLength, _ => true);
+        result = ReplaceSensitiveMatches(result, CreditCardPattern, visiblePrefixLength, IsCreditCardMatch);
+        result = ReplaceSensitiveMatches(result, LongTokenPattern, visiblePrefixLength, _ => true);
+        result = ReplaceSensitiveMatches(result, PhonePattern, visiblePrefixLength, _ => true);
+
+        if (!string.Equals(result, text, StringComparison.Ordinal))
+        {
+            return result;
+        }
+
+        return SecretKeywordPattern.IsMatch(text)
+            ? MaskValue(text, visiblePrefixLength)
+            : null;
+    }
+
+    private static string ReplaceSensitiveMatches(
+        string text,
+        Regex pattern,
+        int visiblePrefixLength,
+        Func<Match, bool> shouldMask)
+    {
+        return pattern.Replace(text, match => shouldMask(match)
+            ? MaskValue(match.Value, visiblePrefixLength)
+            : match.Value);
+    }
+
+    private static string MaskValue(string value, int visiblePrefixLength)
+    {
+        var visible = value[..Math.Min(Math.Max(visiblePrefixLength, 0), value.Length)];
+        return $"{visible}{new string('\u2022', MaskGlyphCount)}";
+    }
+
+    private static bool IsCreditCardMatch(Match match)
+    {
+        var digits = new string(match.Value.Where(char.IsDigit).ToArray());
+        return digits.Length is >= 13 and <= 19 && PassesLuhn(digits);
+    }
+
     private static bool LooksLikeCreditCard(string text)
     {
         foreach (Match match in CreditCardPattern.Matches(text))
         {
-            var digits = new string(match.Value.Where(char.IsDigit).ToArray());
-            if (digits.Length is >= 13 and <= 19 && PassesLuhn(digits))
+            if (IsCreditCardMatch(match))
             {
                 return true;
             }

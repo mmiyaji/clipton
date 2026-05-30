@@ -465,9 +465,9 @@ public sealed class CliptonRuntime : IDisposable
             return new HistoryItemViewModel(snapshot.Id, snippet.DisplayName, $"{Translate("RegisteredSnippetMasked")} - {formats}");
         }
 
-        if (Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(plainText))
+        if (Settings.MaskSensitiveContent && SensitiveContentDetector.CreateMaskedPreview(plainText) is { } maskedPreview)
         {
-            return new HistoryItemViewModel(snapshot.Id, Translate("MaskedSensitive"), formats);
+            return new HistoryItemViewModel(snapshot.Id, NormalizePreviewText(maskedPreview), $"{Translate("MaskedSensitive")} - {formats}");
         }
 
         return new HistoryItemViewModel(snapshot.Id, CreatePreviewText(snapshot, plainText), formats);
@@ -477,7 +477,12 @@ public sealed class CliptonRuntime : IDisposable
     {
         return string.IsNullOrWhiteSpace(plainText)
             ? snapshot.Preview
-            : plainText.ReplaceLineEndings(" ").Trim();
+            : NormalizePreviewText(plainText);
+    }
+
+    private static string NormalizePreviewText(string text)
+    {
+        return text.ReplaceLineEndings(" ").Trim();
     }
 
     private IReadOnlyList<QuickMenuItem> CreateSnippetMenuItems(IEnumerable<Snippet> snippets)

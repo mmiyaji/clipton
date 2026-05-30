@@ -14,7 +14,6 @@ namespace Clipton.WinUI;
 
 public sealed class CliptonRuntime : IDisposable
 {
-    private const string MaskedPreview = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
     private const int HistorySaveDebounceMilliseconds = 500;
     private const int QuickMenuHotkeyDebounceMilliseconds = 160;
     private readonly DispatcherQueue _dispatcherQueue;
@@ -873,9 +872,9 @@ public sealed class CliptonRuntime : IDisposable
             return new HistoryItemViewModel(snapshot.Id, snippet.DisplayName, $"{Translate("RegisteredSnippetMasked")} - {formats}");
         }
 
-        if (Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(plainText))
+        if (Settings.MaskSensitiveContent && SensitiveContentDetector.CreateMaskedPreview(plainText) is { } maskedPreview)
         {
-            return new HistoryItemViewModel(snapshot.Id, MaskedPreview, $"{Translate("MaskedSensitive")} - {formats}");
+            return new HistoryItemViewModel(snapshot.Id, NormalizePreviewText(maskedPreview), $"{Translate("MaskedSensitive")} - {formats}");
         }
 
         return new HistoryItemViewModel(snapshot.Id, CreatePreviewText(snapshot, plainText), formats);
@@ -885,7 +884,7 @@ public sealed class CliptonRuntime : IDisposable
     {
         var plainText = ClipboardBridge.GetPlainText(snapshot);
         return Snippets.FindByText(plainText) is not null
-            || (Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(plainText));
+            || (Settings.MaskSensitiveContent && SensitiveContentDetector.CreateMaskedPreview(plainText) is not null);
     }
 
     private MaskedHistoryKind GetMaskedHistoryKind(ClipboardSnapshot snapshot)
@@ -896,7 +895,7 @@ public sealed class CliptonRuntime : IDisposable
             return MaskedHistoryKind.RegisteredSnippet;
         }
 
-        return Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(plainText)
+        return Settings.MaskSensitiveContent && SensitiveContentDetector.CreateMaskedPreview(plainText) is not null
             ? MaskedHistoryKind.Sensitive
             : MaskedHistoryKind.None;
     }
@@ -905,7 +904,12 @@ public sealed class CliptonRuntime : IDisposable
     {
         return string.IsNullOrWhiteSpace(plainText)
             ? snapshot.Preview
-            : plainText.ReplaceLineEndings(" ").Trim();
+            : NormalizePreviewText(plainText);
+    }
+
+    private static string NormalizePreviewText(string text)
+    {
+        return text.ReplaceLineEndings(" ").Trim();
     }
 
     private IReadOnlyList<QuickMenuItem> CreateSnippetMenuItems(IEnumerable<Snippet> snippets)

@@ -15,7 +15,6 @@ namespace Clipton.WinUI;
 public sealed class MainWindow : Window
 {
     private const int HistoryDisplayBatchSize = 50;
-    private const string MaskedPreview = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
     private const string TermsUrl = "https://mmiyaji.github.io/clipton/terms/";
     private const string PrivacyUrl = "https://mmiyaji.github.io/clipton/privacy/";
     private readonly CliptonRuntime _runtime;
@@ -350,15 +349,14 @@ public sealed class MainWindow : Window
             return true;
         }
 
-        var snippet = _runtime.Snippets.FindByText(item.Text);
+        var plainText = ClipboardBridge.GetPlainText(item);
+        var snippet = _runtime.Snippets.FindByText(plainText);
         if (snippet is not null)
         {
             return snippet.DisplayName.Contains(_historySearchQuery, StringComparison.OrdinalIgnoreCase);
         }
 
-        var preview = _runtime.Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(item.Text)
-            ? MaskedPreview
-            : item.Preview;
+        var preview = _runtime.CreateHistoryItemViewModel(item).Preview;
         return preview.Contains(_historySearchQuery, StringComparison.OrdinalIgnoreCase);
     }
 
