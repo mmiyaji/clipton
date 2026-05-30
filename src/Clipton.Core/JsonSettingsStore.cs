@@ -28,6 +28,10 @@ public sealed class JsonSettingsStore
         }
 
         settings.MaxHistoryItems = Math.Clamp(settings.MaxHistoryItems, 1, 1000);
+        settings.PinnedHistoryIds = settings.PinnedHistoryIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
         settings.Locale = NormalizeLocale(settings.Locale);
         settings.Theme = NormalizeTheme(settings.Theme);
         return settings;

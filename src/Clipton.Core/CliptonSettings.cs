@@ -26,6 +26,8 @@ public sealed class CliptonSettings
 
     public int MaxHistoryItems { get; set; } = 200;
 
+    public string[] PinnedHistoryIds { get; set; } = [];
+
     public string Theme { get; set; } = "light";
 
     public string Locale { get; set; } = "en";

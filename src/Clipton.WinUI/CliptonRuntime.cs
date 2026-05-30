@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using Clipton.Core;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
@@ -22,6 +23,7 @@ public sealed class CliptonRuntime : IDisposable
     private const int TrayMenuTextLeft = 44;
     private const int TempPasteMaxFiles = 100;
     private static readonly TimeSpan TempPasteMaxAge = TimeSpan.FromHours(24);
+    private static readonly Regex UrlRegex = new(@"\b(?:https?|ftp)://[^\s<>()""']+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private readonly DispatcherQueue _dispatcherQueue;
     private readonly LocalizationCatalog _localization = new();
     private readonly JsonSettingsStore _settingsStore;
@@ -265,7 +267,41 @@ public sealed class CliptonRuntime : IDisposable
     {
         if (History.Remove(id))
         {
+            UnpinHistoryItem(id, refresh: false);
             QueueHistorySave();
+            _mainWindow?.RefreshItems();
+        }
+    }
+
+    public void TogglePinnedHistoryItem(string id)
+    {
+        if (IsHistoryPinned(id))
+        {
+            UnpinHistoryItem(id, refresh: true);
+            return;
+        }
+
+        var ids = Settings.PinnedHistoryIds.ToList();
+        ids.Add(id);
+        Settings.PinnedHistoryIds = ids.Distinct(StringComparer.Ordinal).ToArray();
+        SaveSettings();
+        _mainWindow?.RefreshItems();
+    }
+
+    public bool IsHistoryPinned(string id) => Settings.PinnedHistoryIds.Contains(id, StringComparer.Ordinal);
+
+    private void UnpinHistoryItem(string id, bool refresh)
+    {
+        var ids = Settings.PinnedHistoryIds.Where(item => !string.Equals(item, id, StringComparison.Ordinal)).ToArray();
+        if (ids.Length == Settings.PinnedHistoryIds.Length)
+        {
+            return;
+        }
+
+        Settings.PinnedHistoryIds = ids;
+        SaveSettings();
+        if (refresh)
+        {
             _mainWindow?.RefreshItems();
         }
     }
@@ -344,6 +380,8 @@ public sealed class CliptonRuntime : IDisposable
     public void ClearHistory()
     {
         History.Clear();
+        Settings.PinnedHistoryIds = [];
+        SaveSettings();
         SaveHistory();
         _mainWindow?.RefreshItems();
     }
@@ -730,6 +768,10 @@ public sealed class CliptonRuntime : IDisposable
 
         var menuItems = new List<QuickMenuItem>();
         var historyItems = History.Items.ToArray();
+        var pinnedItems = Settings.PinnedHistoryIds
+            .Select(History.Find)
+            .OfType<ClipboardSnapshot>()
+            .ToArray();
         var directHistoryItems = Settings.FolderMode ? historyItems.Take(3) : historyItems.Take(20);
         foreach (var item in directHistoryItems)
         {
@@ -753,6 +795,19 @@ public sealed class CliptonRuntime : IDisposable
                     () => { },
                     LazyChildren: () => olderItems.Skip(rangeOffset).Take(rangeCount).Select(CreateHistoryMenuItem).ToArray()));
             }
+        }
+
+        if (pinnedItems.Length > 0)
+        {
+            menuItems.Add(new QuickMenuItem(
+                Translate("PinnedHistory"),
+                $"{pinnedItems.Length} items",
+                ">",
+                "Enter",
+                () => { },
+                LazyChildren: () => pinnedItems.Select(CreateHistoryMenuItem).ToArray(),
+                IconGlyph: "\uE718",
+                IconFontFamily: "Segoe Fluent Icons"));
         }
 
         var snippetItems = CreateSnippetMenuItems(Snippets.Snippets);
@@ -1149,7 +1204,7 @@ public sealed class CliptonRuntime : IDisposable
         var plainText = ClipboardBridge.GetPlainText(item);
         var pasteOptions = item.ImagePng is { Length: > 0 }
             ? CreateImagePasteOptions(item)
-            : CreateTextPasteOptions(plainText);
+            : CreateTextPasteOptions(plainText, item.Id);
         return new QuickMenuItem(
             header,
             display.FormatSummary,
@@ -1382,21 +1437,71 @@ public sealed class CliptonRuntime : IDisposable
             IconGlyph: "S");
     }
 
-    private IReadOnlyList<QuickMenuPasteOption> CreateTextPasteOptions(string? text)
+    private IReadOnlyList<QuickMenuPasteOption> CreateTextPasteOptions(string? text, string? historyId = null)
     {
         if (string.IsNullOrEmpty(text))
         {
-            return [];
+            return historyId is null
+                ? []
+                : [CreatePinPasteOption(historyId)];
         }
 
-        return
-        [
+        var options = new List<QuickMenuPasteOption>
+        {
             new QuickMenuPasteOption(Translate("PastePlain"), "\uE8D2", () => PasteText(text)),
             new QuickMenuPasteOption(Translate("PasteNoLineBreaks"), "\uE8EE", () => PasteText(RemoveLineBreaks(text))),
             new QuickMenuPasteOption(Translate("PasteUppercase"), "AA", () => PasteText(text.ToUpperInvariant()), "Segoe UI"),
             new QuickMenuPasteOption(Translate("PasteLowercase"), "aa", () => PasteText(text.ToLowerInvariant()), "Segoe UI"),
-            new QuickMenuPasteOption(Translate("PasteTrimmed"), "\uE8C6", () => PasteText(text.Trim()))
-        ];
+            new QuickMenuPasteOption(Translate("PasteTrimmed"), "\uE8C6", () => PasteText(text.Trim())),
+            new QuickMenuPasteOption(Translate("PasteJsonString"), "{ }", () => PasteText(JsonSerializer.Serialize(text)), "Segoe UI")
+        };
+
+        var urls = ExtractUrls(text);
+        if (urls.Length > 0)
+        {
+            options.Add(new QuickMenuPasteOption(Translate("PasteExtractUrls"), "\uE71B", () => PasteText(string.Join(Environment.NewLine, urls))));
+        }
+
+        if (TryFormatJson(text) is { } formattedJson)
+        {
+            options.Add(new QuickMenuPasteOption(Translate("PasteFormattedJson"), "{ }", () => PasteText(formattedJson), "Segoe UI"));
+        }
+
+        if (historyId is not null)
+        {
+            options.Add(CreatePinPasteOption(historyId));
+        }
+
+        return options;
+    }
+
+    private QuickMenuPasteOption CreatePinPasteOption(string historyId)
+    {
+        return IsHistoryPinned(historyId)
+            ? new QuickMenuPasteOption(Translate("UnpinHistory"), "\uE77A", () => TogglePinnedHistoryItem(historyId))
+            : new QuickMenuPasteOption(Translate("PinHistory"), "\uE718", () => TogglePinnedHistoryItem(historyId));
+    }
+
+    private static string[] ExtractUrls(string text)
+    {
+        return UrlRegex.Matches(text)
+            .Select(match => match.Value.TrimEnd('.', ',', ';', ':', '!', '?', ')', ']'))
+            .Where(url => url.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static string? TryFormatJson(string text)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(text);
+            return JsonSerializer.Serialize(document.RootElement, ExportJsonOptions);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private static string RemoveLineBreaks(string text)
@@ -1419,7 +1524,8 @@ public sealed class CliptonRuntime : IDisposable
             new QuickMenuPasteOption(Translate("PasteImagePng"), "PNG", () => PasteImage(item.Id, ImagePasteMode.Png, sendPaste: true), "Segoe UI"),
             new QuickMenuPasteOption(Translate("PasteImageJpeg"), "JPG", () => PasteImage(item.Id, ImagePasteMode.Jpeg, sendPaste: true), "Segoe UI"),
             new QuickMenuPasteOption(Translate("PasteImageFile"), "\uE8A5", () => PasteImage(item.Id, ImagePasteMode.File, sendPaste: true)),
-            new QuickMenuPasteOption(Translate("CopyImageOnly"), "\uE8C8", () => PasteImage(item.Id, ImagePasteMode.Png, sendPaste: false))
+            new QuickMenuPasteOption(Translate("CopyImageOnly"), "\uE8C8", () => PasteImage(item.Id, ImagePasteMode.Png, sendPaste: false)),
+            CreatePinPasteOption(item.Id)
         ];
     }
 
