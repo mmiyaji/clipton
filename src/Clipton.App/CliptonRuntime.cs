@@ -458,18 +458,26 @@ public sealed class CliptonRuntime : IDisposable
     public HistoryItemViewModel CreateHistoryItemViewModel(ClipboardSnapshot snapshot)
     {
         var formats = string.Join(", ", snapshot.Formats);
-        var snippet = Snippets.FindByText(snapshot.Text);
+        var plainText = ClipboardBridge.GetPlainText(snapshot);
+        var snippet = Snippets.FindByText(plainText);
         if (snippet is not null)
         {
             return new HistoryItemViewModel(snapshot.Id, snippet.DisplayName, $"{Translate("RegisteredSnippetMasked")} - {formats}");
         }
 
-        if (Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(snapshot.Text))
+        if (Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(plainText))
         {
             return new HistoryItemViewModel(snapshot.Id, Translate("MaskedSensitive"), formats);
         }
 
-        return new HistoryItemViewModel(snapshot.Id, snapshot.Preview, formats);
+        return new HistoryItemViewModel(snapshot.Id, CreatePreviewText(snapshot, plainText), formats);
+    }
+
+    private static string CreatePreviewText(ClipboardSnapshot snapshot, string? plainText)
+    {
+        return string.IsNullOrWhiteSpace(plainText)
+            ? snapshot.Preview
+            : plainText.ReplaceLineEndings(" ").Trim();
     }
 
     private IReadOnlyList<QuickMenuItem> CreateSnippetMenuItems(IEnumerable<Snippet> snippets)

@@ -866,36 +866,46 @@ public sealed class CliptonRuntime : IDisposable
     public HistoryItemViewModel CreateHistoryItemViewModel(ClipboardSnapshot snapshot)
     {
         var formats = string.Join(", ", snapshot.Formats);
-        var snippet = Snippets.FindByText(snapshot.Text);
+        var plainText = ClipboardBridge.GetPlainText(snapshot);
+        var snippet = Snippets.FindByText(plainText);
         if (snippet is not null)
         {
             return new HistoryItemViewModel(snapshot.Id, snippet.DisplayName, $"{Translate("RegisteredSnippetMasked")} - {formats}");
         }
 
-        if (Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(snapshot.Text))
+        if (Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(plainText))
         {
             return new HistoryItemViewModel(snapshot.Id, MaskedPreview, $"{Translate("MaskedSensitive")} - {formats}");
         }
 
-        return new HistoryItemViewModel(snapshot.Id, snapshot.Preview, formats);
+        return new HistoryItemViewModel(snapshot.Id, CreatePreviewText(snapshot, plainText), formats);
     }
 
     private bool IsMaskedHistoryItem(ClipboardSnapshot snapshot)
     {
-        return Snippets.FindByText(snapshot.Text) is not null
-            || (Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(snapshot.Text));
+        var plainText = ClipboardBridge.GetPlainText(snapshot);
+        return Snippets.FindByText(plainText) is not null
+            || (Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(plainText));
     }
 
     private MaskedHistoryKind GetMaskedHistoryKind(ClipboardSnapshot snapshot)
     {
-        if (Snippets.FindByText(snapshot.Text) is not null)
+        var plainText = ClipboardBridge.GetPlainText(snapshot);
+        if (Snippets.FindByText(plainText) is not null)
         {
             return MaskedHistoryKind.RegisteredSnippet;
         }
 
-        return Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(snapshot.Text)
+        return Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(plainText)
             ? MaskedHistoryKind.Sensitive
             : MaskedHistoryKind.None;
+    }
+
+    private static string CreatePreviewText(ClipboardSnapshot snapshot, string? plainText)
+    {
+        return string.IsNullOrWhiteSpace(plainText)
+            ? snapshot.Preview
+            : plainText.ReplaceLineEndings(" ").Trim();
     }
 
     private IReadOnlyList<QuickMenuItem> CreateSnippetMenuItems(IEnumerable<Snippet> snippets)
