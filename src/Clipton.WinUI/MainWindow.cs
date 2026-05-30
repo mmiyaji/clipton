@@ -15,16 +15,17 @@ namespace Clipton.WinUI;
 public sealed class MainWindow : Window
 {
     private const int HistoryDisplayBatchSize = 50;
+    private const double SettingsPageMaxWidth = 920;
     private const double SettingControlHeight = 36;
     private const string TermsUrl = "https://mmiyaji.github.io/clipton/terms/";
     private const string PrivacyUrl = "https://mmiyaji.github.io/clipton/privacy/";
     private readonly CliptonRuntime _runtime;
     private readonly Grid _root = new();
     private readonly StackPanel _sidebar = new() { Padding = new Thickness(18, 22, 14, 18), Spacing = 12 };
-    private readonly StackPanel _generalPage = new() { Spacing = 18, MaxWidth = 920 };
-    private readonly StackPanel _historyPage = new() { Spacing = 18, MaxWidth = 920 };
-    private readonly StackPanel _snippetPage = new() { Spacing = 18, MaxWidth = 920 };
-    private readonly StackPanel _aboutPage = new() { Spacing = 18, MaxWidth = 920 };
+    private readonly StackPanel _generalPage = SettingsPage();
+    private readonly StackPanel _historyPage = SettingsPage();
+    private readonly StackPanel _snippetPage = SettingsPage();
+    private readonly StackPanel _aboutPage = SettingsPage();
     private readonly StackPanel _historyItemsPanel = new() { Spacing = 6 };
     private readonly StackPanel _snippetItemsPanel = new() { Spacing = 6 };
     private readonly List<Border> _cards = [];
@@ -236,6 +237,7 @@ public sealed class MainWindow : Window
         Grid.SetColumn(scroller, 1);
         var contentHost = new Grid { HorizontalAlignment = HorizontalAlignment.Left };
         scroller.Content = contentHost;
+        scroller.SizeChanged += (_, e) => UpdateSettingsPageWidth(Math.Max(0, e.NewSize.Width - scroller.Padding.Left - scroller.Padding.Right));
         contentHost.Children.Add(_generalPage);
         contentHost.Children.Add(_historyPage);
         contentHost.Children.Add(_snippetPage);
@@ -902,6 +904,7 @@ public sealed class MainWindow : Window
     {
         var card = new Border
         {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
             Padding = new Thickness(18),
             CornerRadius = new CornerRadius(6),
             BorderThickness = new Thickness(1),
@@ -911,6 +914,15 @@ public sealed class MainWindow : Window
         };
         _cards.Add(card);
         return card;
+    }
+
+    private void UpdateSettingsPageWidth(double availableWidth)
+    {
+        var width = Math.Min(SettingsPageMaxWidth, availableWidth);
+        foreach (var page in new[] { _generalPage, _historyPage, _snippetPage, _aboutPage })
+        {
+            page.Width = width;
+        }
     }
 
     private UIElement SettingCard(string glyph, string titleKey, string descriptionKey, FrameworkElement control)
@@ -1237,6 +1249,13 @@ public sealed class MainWindow : Window
     private static TextBlock Header(double size = 28) => new() { FontSize = size, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
 
     private static TextBlock Description() => new() { Foreground = Brush("#667085"), TextWrapping = TextWrapping.Wrap };
+
+    private static StackPanel SettingsPage() => new()
+    {
+        Spacing = 18,
+        MaxWidth = SettingsPageMaxWidth,
+        HorizontalAlignment = HorizontalAlignment.Left
+    };
 
     private static ToggleSwitch CompactToggle() => new()
     {
