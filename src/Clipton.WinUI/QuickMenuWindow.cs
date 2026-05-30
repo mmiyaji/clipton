@@ -19,6 +19,9 @@ public sealed class QuickMenuWindow : Window
 {
     private const int MaxMenuLineLength = 34;
     private const int HostWindowSize = 1;
+    private const int ScreenEdgePadding = 8;
+    private const int EstimatedRootFlyoutWidth = 380;
+    private const int EstimatedRootFlyoutHeight = 420;
     private readonly QuickMenuNavigator _navigator;
     private readonly IReadOnlyList<QuickMenuItem> _rootItems;
     private readonly Grid _host = new();
@@ -911,9 +914,26 @@ public sealed class QuickMenuWindow : Window
         }
 
         var point = Forms.Cursor.Position;
+        var workingArea = Forms.Screen.FromPoint(point).WorkingArea;
+        _flyout.Placement = GetRootFlyoutPlacement(point, workingArea);
+        var anchorX = Math.Clamp(point.X, workingArea.Left + ScreenEdgePadding, workingArea.Right - ScreenEdgePadding - HostWindowSize);
+        var anchorY = Math.Clamp(point.Y, workingArea.Top + ScreenEdgePadding, workingArea.Bottom - ScreenEdgePadding - HostWindowSize);
         _appWindow.Resize(new SizeInt32(HostWindowSize, HostWindowSize));
-        _appWindow.Move(new PointInt32(point.X, point.Y));
+        _appWindow.Move(new PointInt32(anchorX, anchorY));
         NativeMethods.SetForegroundWindow(_hwnd);
+    }
+
+    private static FlyoutPlacementMode GetRootFlyoutPlacement(System.Drawing.Point point, System.Drawing.Rectangle workingArea)
+    {
+        var alignRight = point.X + EstimatedRootFlyoutWidth > workingArea.Right - ScreenEdgePadding;
+        var alignTop = point.Y + EstimatedRootFlyoutHeight > workingArea.Bottom - ScreenEdgePadding;
+        return (alignRight, alignTop) switch
+        {
+            (true, true) => FlyoutPlacementMode.TopEdgeAlignedRight,
+            (true, false) => FlyoutPlacementMode.BottomEdgeAlignedRight,
+            (false, true) => FlyoutPlacementMode.TopEdgeAlignedLeft,
+            _ => FlyoutPlacementMode.BottomEdgeAlignedLeft
+        };
     }
 
     private static string FormatMenuText(string text)
