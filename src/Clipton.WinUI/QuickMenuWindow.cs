@@ -141,7 +141,11 @@ public sealed class QuickMenuWindow : Window
         InstallKeyboardHook();
         InstallMouseHook();
         FocusHostWindow();
-        _flyout.ShowAt(_host);
+        _flyout.ShowAt(_host, new FlyoutShowOptions
+        {
+            Placement = _flyout.Placement,
+            Position = new Windows.Foundation.Point(0, 0)
+        });
         var focusToken = ++_focusToken;
         DispatcherQueue.TryEnqueue(() =>
         {
@@ -915,25 +919,22 @@ public sealed class QuickMenuWindow : Window
 
         var point = Forms.Cursor.Position;
         var workingArea = Forms.Screen.FromPoint(point).WorkingArea;
-        _flyout.Placement = GetRootFlyoutPlacement(point, workingArea);
-        var anchorX = Math.Clamp(point.X, workingArea.Left + ScreenEdgePadding, workingArea.Right - ScreenEdgePadding - HostWindowSize);
-        var anchorY = Math.Clamp(point.Y, workingArea.Top + ScreenEdgePadding, workingArea.Bottom - ScreenEdgePadding - HostWindowSize);
+        var anchor = GetRootFlyoutAnchor(point, workingArea);
+        _flyout.Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft;
         _appWindow.Resize(new SizeInt32(HostWindowSize, HostWindowSize));
-        _appWindow.Move(new PointInt32(anchorX, anchorY));
+        _appWindow.Move(new PointInt32(anchor.X, anchor.Y));
         NativeMethods.SetForegroundWindow(_hwnd);
     }
 
-    private static FlyoutPlacementMode GetRootFlyoutPlacement(System.Drawing.Point point, System.Drawing.Rectangle workingArea)
+    private static System.Drawing.Point GetRootFlyoutAnchor(System.Drawing.Point point, System.Drawing.Rectangle workingArea)
     {
-        var alignRight = point.X + EstimatedRootFlyoutWidth > workingArea.Right - ScreenEdgePadding;
-        var alignTop = point.Y + EstimatedRootFlyoutHeight > workingArea.Bottom - ScreenEdgePadding;
-        return (alignRight, alignTop) switch
-        {
-            (true, true) => FlyoutPlacementMode.TopEdgeAlignedRight,
-            (true, false) => FlyoutPlacementMode.BottomEdgeAlignedRight,
-            (false, true) => FlyoutPlacementMode.TopEdgeAlignedLeft,
-            _ => FlyoutPlacementMode.BottomEdgeAlignedLeft
-        };
+        var minX = workingArea.Left + ScreenEdgePadding;
+        var minY = workingArea.Top + ScreenEdgePadding;
+        var maxX = Math.Max(minX, workingArea.Right - ScreenEdgePadding - EstimatedRootFlyoutWidth);
+        var maxY = Math.Max(minY, workingArea.Bottom - ScreenEdgePadding - EstimatedRootFlyoutHeight);
+        return new System.Drawing.Point(
+            Math.Clamp(point.X, minX, maxX),
+            Math.Clamp(point.Y, minY, maxY));
     }
 
     private static string FormatMenuText(string text)
