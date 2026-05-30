@@ -87,8 +87,10 @@ public sealed class MainWindow : Window
     private readonly Button _importHistoryButton = new();
     private readonly Button _clearButton = new();
     private readonly Border _historySearchHost = new();
+    private Forms.Form? _historySearchOverlay;
     private Forms.Panel? _historySearchPanel;
     private Forms.TextBox? _historySearchBox;
+    private Forms.Form? _maskPatternsOverlay;
     private Forms.TextBox? _maskPatternsBox;
     private readonly Button _advancedHistorySearchButton = new();
     private readonly Button _clearHistorySearchButton = new();
@@ -144,8 +146,10 @@ public sealed class MainWindow : Window
         RefreshTexts();
         RefreshItems();
         Closed += (_, _) => _runtime.OnMainWindowClosed(this);
+        Closed += (_, _) => _historySearchOverlay?.Dispose();
         Closed += (_, _) => _historySearchPanel?.Dispose();
         Closed += (_, _) => _historySearchBox?.Dispose();
+        Closed += (_, _) => _maskPatternsOverlay?.Dispose();
         Closed += (_, _) => _maskPatternsBox?.Dispose();
     }
 
@@ -585,10 +589,20 @@ public sealed class MainWindow : Window
         }
 
         var backColor = HistorySearchBackColor();
+        _historySearchOverlay = new Forms.Form
+        {
+            FormBorderStyle = Forms.FormBorderStyle.None,
+            ShowInTaskbar = false,
+            StartPosition = Forms.FormStartPosition.Manual,
+            BackColor = backColor,
+            Padding = new Forms.Padding(0),
+            TopMost = false,
+            Visible = false
+        };
         _historySearchPanel = new Forms.Panel
         {
             BackColor = backColor,
-            Visible = false
+            Dock = Forms.DockStyle.Fill
         };
         _historySearchPanel.Paint += (_, args) => PaintNativeInputBorder(args.Graphics, _historySearchPanel, _historySearchBox);
         var icon = new Forms.Label
@@ -625,8 +639,9 @@ public sealed class MainWindow : Window
         };
         _historySearchPanel.Controls.Add(_historySearchBox);
         _historySearchPanel.Controls.Add(icon);
-        _historySearchPanel.CreateControl();
-        NativeMethods.SetParent(_historySearchPanel.Handle, _hwnd);
+        _historySearchOverlay.Controls.Add(_historySearchPanel);
+        _historySearchOverlay.Show(new WindowHandle(_hwnd));
+        _historySearchOverlay.Hide();
         PositionNativeChildInputs();
     }
 
@@ -638,8 +653,21 @@ public sealed class MainWindow : Window
             return;
         }
 
+        var backColor = HistorySearchBackColor();
+        _maskPatternsOverlay = new Forms.Form
+        {
+            FormBorderStyle = Forms.FormBorderStyle.None,
+            ShowInTaskbar = false,
+            StartPosition = Forms.FormStartPosition.Manual,
+            BackColor = backColor,
+            Padding = new Forms.Padding(8),
+            TopMost = false,
+            Visible = false
+        };
+        _maskPatternsOverlay.Paint += (_, args) => PaintNativeInputBorder(args.Graphics, _maskPatternsOverlay, _maskPatternsBox);
         _maskPatternsBox = new Forms.TextBox
         {
+            Dock = Forms.DockStyle.Fill,
             BorderStyle = Forms.BorderStyle.None,
             Multiline = true,
             AcceptsReturn = true,
@@ -647,12 +675,15 @@ public sealed class MainWindow : Window
             ScrollBars = Forms.ScrollBars.Vertical,
             Font = DialogFont(10f),
             Text = string.Join(Environment.NewLine, _runtime.Settings.CustomMaskPatterns),
-            BackColor = HistorySearchBackColor(),
+            BackColor = backColor,
             ForeColor = HistorySearchForeColor(),
-            Visible = false
+            Visible = true
         };
-        _maskPatternsBox.CreateControl();
-        NativeMethods.SetParent(_maskPatternsBox.Handle, _hwnd);
+        _maskPatternsBox.Enter += (_, _) => _maskPatternsOverlay.Invalidate();
+        _maskPatternsBox.Leave += (_, _) => _maskPatternsOverlay.Invalidate();
+        _maskPatternsOverlay.Controls.Add(_maskPatternsBox);
+        _maskPatternsOverlay.Show(new WindowHandle(_hwnd));
+        _maskPatternsOverlay.Hide();
         PositionNativeChildInputs();
     }
 
@@ -673,50 +704,42 @@ public sealed class MainWindow : Window
 
     private void PositionNativeHistorySearchBox()
     {
-        if (_historySearchPanel is null || _historySearchPanel.IsDisposed || _hwnd == IntPtr.Zero)
+        if (_historySearchOverlay is null || _historySearchOverlay.IsDisposed || _hwnd == IntPtr.Zero)
         {
             return;
         }
 
         if (_selectedPageIndex != 1 || !TryGetVisibleNativeChildBounds(_historySearchHost, out var x, out var y, out var width, out var height))
         {
-            _historySearchPanel.Visible = false;
-            NativeMethods.ShowWindow(_historySearchPanel.Handle, NativeMethods.SwHide);
+            _historySearchOverlay.Hide();
             return;
         }
 
-        NativeMethods.MoveWindow(_historySearchPanel.Handle, x, y, width, height, true);
-        _historySearchPanel.Visible = true;
-        NativeMethods.ShowWindow(_historySearchPanel.Handle, NativeMethods.SwShow);
-        NativeMethods.SetWindowPos(_historySearchPanel.Handle, NativeMethods.HwndTop, x, y, width, height, NativeMethods.SwpNoActivate | NativeMethods.SwpShowWindow);
+        _historySearchOverlay.SetBounds(x, y, width, height);
+        if (!_historySearchOverlay.Visible)
+        {
+            _historySearchOverlay.Show(new WindowHandle(_hwnd));
+        }
     }
 
     private void PositionNativeMaskPatternsBox()
     {
-        if (_maskPatternsBox is null || _maskPatternsBox.IsDisposed || _hwnd == IntPtr.Zero)
+        if (_maskPatternsOverlay is null || _maskPatternsOverlay.IsDisposed || _hwnd == IntPtr.Zero)
         {
             return;
         }
 
         if (_selectedPageIndex != 1 || !_maskDefinitionsExpanded || !TryGetVisibleNativeChildBounds(_maskPatternsHost, out var x, out var y, out var width, out var height))
         {
-            _maskPatternsBox.Visible = false;
-            NativeMethods.ShowWindow(_maskPatternsBox.Handle, NativeMethods.SwHide);
+            _maskPatternsOverlay.Hide();
             return;
         }
 
-        var padding = Math.Max(6, (int)Math.Round(NativeMethods.GetDpiForWindow(_hwnd) / 96.0 * 8));
-        NativeMethods.MoveWindow(_maskPatternsBox.Handle, x + padding, y + padding, Math.Max(1, width - (padding * 2)), Math.Max(1, height - (padding * 2)), true);
-        _maskPatternsBox.Visible = true;
-        NativeMethods.ShowWindow(_maskPatternsBox.Handle, NativeMethods.SwShow);
-        NativeMethods.SetWindowPos(
-            _maskPatternsBox.Handle,
-            NativeMethods.HwndTop,
-            x + padding,
-            y + padding,
-            Math.Max(1, width - (padding * 2)),
-            Math.Max(1, height - (padding * 2)),
-            NativeMethods.SwpNoActivate | NativeMethods.SwpShowWindow);
+        _maskPatternsOverlay.SetBounds(x, y, width, height);
+        if (!_maskPatternsOverlay.Visible)
+        {
+            _maskPatternsOverlay.Show(new WindowHandle(_hwnd));
+        }
     }
 
     private bool TryGetVisibleNativeChildBounds(FrameworkElement host, out int x, out int y, out int width, out int height)
@@ -744,8 +767,18 @@ public sealed class MainWindow : Window
 
         var rootPoint = _contentScroller.TransformToVisual(_root).TransformPoint(new Windows.Foundation.Point(visibleLeft, visibleTop));
         var scale = NativeMethods.GetDpiForWindow(_hwnd) / 96.0;
-        x = (int)Math.Round(rootPoint.X * scale);
-        y = (int)Math.Round(rootPoint.Y * scale);
+        var screenPoint = new NativeMethods.Point
+        {
+            X = (int)Math.Round(rootPoint.X * scale),
+            Y = (int)Math.Round(rootPoint.Y * scale)
+        };
+        if (!NativeMethods.ClientToScreen(_hwnd, ref screenPoint))
+        {
+            return false;
+        }
+
+        x = screenPoint.X;
+        y = screenPoint.Y;
         width = Math.Max(1, (int)Math.Round((visibleRight - visibleLeft) * scale));
         height = Math.Max(1, (int)Math.Round((visibleBottom - visibleTop) * scale));
         return true;
@@ -1692,6 +1725,7 @@ public sealed class MainWindow : Window
         var mutedColor = HistorySearchMutedColor();
         if (_historySearchPanel is not null)
         {
+            _historySearchOverlay!.BackColor = backColor;
             _historySearchPanel.BackColor = backColor;
             foreach (Forms.Control control in _historySearchPanel.Controls)
             {
@@ -1710,6 +1744,7 @@ public sealed class MainWindow : Window
 
         if (_maskPatternsBox is not null)
         {
+            _maskPatternsOverlay!.BackColor = backColor;
             _maskPatternsBox.BackColor = backColor;
             _maskPatternsBox.ForeColor = foreColor;
         }
@@ -2072,14 +2107,8 @@ public sealed class MainWindow : Window
     {
         if (msg == NativeMethods.WmClose && !_runtime.IsExiting)
         {
-            if (_historySearchPanel is not null)
-            {
-                NativeMethods.ShowWindow(_historySearchPanel.Handle, NativeMethods.SwHide);
-            }
-            if (_maskPatternsBox is not null)
-            {
-                NativeMethods.ShowWindow(_maskPatternsBox.Handle, NativeMethods.SwHide);
-            }
+            _historySearchOverlay?.Hide();
+            _maskPatternsOverlay?.Hide();
             _appWindow?.Hide();
             _hiddenToTray = true;
             return IntPtr.Zero;

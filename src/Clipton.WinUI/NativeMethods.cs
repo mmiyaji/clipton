@@ -44,11 +44,6 @@ internal static class NativeMethods
     internal const uint KeyeventfKeyup = 0x0002;
     internal const int SwHide = 0;
     internal const int SwShow = 5;
-    internal static readonly IntPtr HwndTop = IntPtr.Zero;
-    internal const uint SwpNoSize = 0x0001;
-    internal const uint SwpNoMove = 0x0002;
-    internal const uint SwpNoActivate = 0x0010;
-    internal const uint SwpShowWindow = 0x0040;
 
     internal delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
 
@@ -98,21 +93,6 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool ClientToScreen(IntPtr hWnd, ref Point lpPoint);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    internal static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool MoveWindow(IntPtr hWnd, int x, int y, int width, int height, bool repaint);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
