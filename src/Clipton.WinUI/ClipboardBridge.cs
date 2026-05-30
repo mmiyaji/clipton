@@ -1,6 +1,8 @@
 using System.Collections.Specialized;
 using System.Drawing.Imaging;
+using System.Net;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using Clipton.Core;
 using Forms = System.Windows.Forms;
 
@@ -10,11 +12,27 @@ public static class ClipboardBridge
 {
     public static ClipboardSnapshot? Capture() => WithClipboardRetry(CaptureOnce);
 
+    public static string? GetPlainText(ClipboardSnapshot snapshot)
+    {
+        return !string.IsNullOrEmpty(snapshot.Text)
+            ? snapshot.Text
+            : ExtractPlainText(snapshot.Rtf, snapshot.Html);
+    }
+
     public static void Put(ClipboardSnapshot snapshot, bool asPlainText)
     {
         WithClipboardRetry(() =>
         {
             PutOnce(snapshot, asPlainText);
+            return true;
+        });
+    }
+
+    public static void PutText(string text)
+    {
+        WithClipboardRetry(() =>
+        {
+            Forms.Clipboard.SetText(text, Forms.TextDataFormat.UnicodeText);
             return true;
         });
     }
@@ -62,6 +80,12 @@ public static class ClipboardBridge
                 if (!string.IsNullOrEmpty(html)) formats.Add(ClipboardFormatKind.Html);
             }
 
+            if (string.IsNullOrEmpty(text))
+            {
+                text = ExtractPlainText(rtf, html);
+                if (!string.IsNullOrEmpty(text)) formats.Add(ClipboardFormatKind.Text);
+            }
+
             if (Forms.Clipboard.ContainsFileDropList())
             {
                 filePaths = Forms.Clipboard.GetFileDropList().Cast<string>().ToArray();
@@ -92,9 +116,10 @@ public static class ClipboardBridge
 
     private static void PutOnce(ClipboardSnapshot snapshot, bool asPlainText)
     {
-        if (asPlainText && !string.IsNullOrEmpty(snapshot.Text))
+        var plainText = GetPlainText(snapshot);
+        if (asPlainText && !string.IsNullOrEmpty(plainText))
         {
-            Forms.Clipboard.SetText(snapshot.Text, Forms.TextDataFormat.UnicodeText);
+            Forms.Clipboard.SetText(plainText, Forms.TextDataFormat.UnicodeText);
             return;
         }
 
@@ -120,6 +145,70 @@ public static class ClipboardBridge
         Forms.Clipboard.SetDataObject(data, copy: true);
     }
 
+    private static string? ExtractPlainText(string? rtf, string? html)
+    {
+        var fromRtf = ExtractPlainTextFromRtf(rtf);
+        if (!string.IsNullOrWhiteSpace(fromRtf))
+        {
+            return fromRtf;
+        }
+
+        var fromHtml = ExtractPlainTextFromHtml(html);
+        return string.IsNullOrWhiteSpace(fromHtml) ? null : fromHtml;
+    }
+
+    private static string? ExtractPlainTextFromRtf(string? rtf)
+    {
+        if (string.IsNullOrWhiteSpace(rtf))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var box = new Forms.RichTextBox();
+            box.Rtf = rtf;
+            return box.Text;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    private static string? ExtractPlainTextFromHtml(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+        {
+            return null;
+        }
+
+        var fragment = ExtractHtmlFragment(html);
+        fragment = Regex.Replace(fragment, @"(?is)<\s*(br|/p|/div|/li|/tr|/h[1-6])\b[^>]*>", "\n");
+        fragment = Regex.Replace(fragment, @"(?is)<\s*(script|style)\b[^>]*>.*?<\s*/\s*\1\s*>", string.Empty);
+        fragment = Regex.Replace(fragment, @"(?s)<[^>]+>", string.Empty);
+        fragment = WebUtility.HtmlDecode(fragment);
+        fragment = Regex.Replace(fragment, @"[ \t\f\v]+", " ");
+        fragment = Regex.Replace(fragment, @"\r\n|\r", "\n");
+        fragment = Regex.Replace(fragment, @"\n{3,}", "\n\n");
+        return fragment.Trim();
+    }
+
+    private static string ExtractHtmlFragment(string html)
+    {
+        const string startMarker = "<!--StartFragment-->";
+        const string endMarker = "<!--EndFragment-->";
+        var start = html.IndexOf(startMarker, StringComparison.OrdinalIgnoreCase);
+        var end = html.IndexOf(endMarker, StringComparison.OrdinalIgnoreCase);
+        if (start >= 0 && end > start)
+        {
+            start += startMarker.Length;
+            return html[start..end];
+        }
+
+        return html;
+    }
+
     private static T? WithClipboardRetry<T>(Func<T?> action)
     {
         const int maxAttempts = 20;
@@ -129,7 +218,7 @@ public static class ClipboardBridge
             {
                 return action();
             }
-            catch (ExternalException) when (attempt < maxAttempts - 1)
+            catch (Exception exception) when (attempt < maxAttempts - 1 && exception is ExternalException or COMException)
             {
                 Thread.Sleep(75);
             }

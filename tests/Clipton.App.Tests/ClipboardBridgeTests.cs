@@ -32,6 +32,40 @@ public sealed class ClipboardBridgeTests
     }
 
     [Fact]
+    public void Capture_ExtractsPlainTextFromHtmlWhenUnicodeTextIsMissing()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var data = new DataObject();
+            data.SetText("Version:1.0\r\nStartHTML:00000097\r\nEndHTML:00000162\r\nStartFragment:00000129\r\nEndFragment:00000130\r\n<html><body><!--StartFragment--><p>Hello<br>World</p><!--EndFragment--></body></html>", TextDataFormat.Html);
+            Clipboard.SetDataObject(data, copy: true);
+
+            var snapshot = ClipboardTestHelpers.Capture();
+
+            Assert.Contains(ClipboardFormatKind.Text, snapshot.Formats);
+            Assert.Contains(ClipboardFormatKind.Html, snapshot.Formats);
+            Assert.Equal("Hello\nWorld", snapshot.Text);
+        });
+    }
+
+    [Fact]
+    public void Capture_ExtractsPlainTextFromRtfWhenUnicodeTextIsMissing()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var data = new DataObject();
+            data.SetText(@"{\rtf1\ansi Rtf only}", TextDataFormat.Rtf);
+            Clipboard.SetDataObject(data, copy: true);
+
+            var snapshot = ClipboardTestHelpers.Capture();
+
+            Assert.Contains(ClipboardFormatKind.Text, snapshot.Formats);
+            Assert.Contains(ClipboardFormatKind.RichText, snapshot.Formats);
+            Assert.Equal("Rtf only", snapshot.Text);
+        });
+    }
+
+    [Fact]
     public void Put_WritesPlainTextWhenRequested()
     {
         StaTestRunner.Run(() =>
@@ -41,6 +75,23 @@ public sealed class ClipboardBridgeTests
             ClipboardBridge.Put(snapshot, asPlainText: true);
 
             Assert.Equal("Hello", ClipboardTestHelpers.GetText(TextDataFormat.UnicodeText));
+        });
+    }
+
+    [Fact]
+    public void Put_WritesExtractedPlainTextWhenRequested()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var snapshot = new ClipboardSnapshot(
+                "html",
+                DateTimeOffset.UtcNow,
+                [ClipboardFormatKind.Html],
+                html: "Version:1.0\r\nStartHTML:00000097\r\nEndHTML:00000162\r\nStartFragment:00000129\r\nEndFragment:00000130\r\n<html><body><!--StartFragment--><b>HTML only</b><!--EndFragment--></body></html>");
+
+            ClipboardBridge.Put(snapshot, asPlainText: true);
+
+            Assert.Equal("HTML only", ClipboardTestHelpers.GetText(TextDataFormat.UnicodeText));
         });
     }
 

@@ -71,6 +71,8 @@ public sealed class CliptonRuntime : IDisposable
 
     public string PackageStatus => GetPackageStatus();
 
+    public bool IsExiting { get; private set; }
+
     public void Start()
     {
         EnsureDefaultSnippets();
@@ -85,7 +87,7 @@ public sealed class CliptonRuntime : IDisposable
         _mainWindow ??= new MainWindow(this);
         _mainWindow.RefreshTexts();
         _mainWindow.RefreshItems();
-        _mainWindow.Activate();
+        _mainWindow.ShowSettingsWindow();
     }
 
     public void OnMainWindowClosed(MainWindow window)
@@ -117,6 +119,17 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         ClipboardBridge.Put(ClipboardBridge.FromSnippet(snippet), asPlainText: true);
+        SendPaste();
+    }
+
+    public void PasteText(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        ClipboardBridge.PutText(text);
         SendPaste();
     }
 
@@ -274,10 +287,17 @@ public sealed class CliptonRuntime : IDisposable
 
     public void Dispose()
     {
+        IsExiting = true;
         SaveHistory();
         _messageWindow?.Dispose();
         _notifyIcon?.Dispose();
         _quickMenuWindow?.Dismiss();
+    }
+
+    public void ExitApplication()
+    {
+        IsExiting = true;
+        Application.Current.Exit();
     }
 
     private void CaptureClipboardOnUiThread()
@@ -395,11 +415,37 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
+        var oldMenu = _notifyIcon.ContextMenuStrip;
         var menu = new Forms.ContextMenuStrip();
-        menu.Items.Add(Translate("History"), null, (_, _) => _dispatcherQueue.TryEnqueue(ShowQuickMenu));
-        menu.Items.Add(Translate("Settings"), null, (_, _) => _dispatcherQueue.TryEnqueue(ShowMainWindow));
-        menu.Items.Add(Translate("Exit"), null, (_, _) => _dispatcherQueue.TryEnqueue(Application.Current.Exit));
+        menu.Items.Add(CreateTrayMenuItem(Translate("History"), "\uE81C", (_, _) => _dispatcherQueue.TryEnqueue(ShowQuickMenu)));
+        menu.Items.Add(CreateTrayMenuItem(Translate("Settings"), "\uE713", (_, _) => _dispatcherQueue.TryEnqueue(ShowMainWindow)));
+        menu.Items.Add(CreateTrayMenuItem(Translate("Exit"), "\uE8BB", (_, _) => _dispatcherQueue.TryEnqueue(ExitApplication)));
         _notifyIcon.ContextMenuStrip = menu;
+        oldMenu?.Dispose();
+    }
+
+    private static Forms.ToolStripMenuItem CreateTrayMenuItem(string text, string glyph, EventHandler onClick)
+    {
+        return new Forms.ToolStripMenuItem(text, CreateTrayMenuGlyph(glyph), onClick);
+    }
+
+    private static Drawing.Bitmap CreateTrayMenuGlyph(string glyph)
+    {
+        const int size = 18;
+        var bitmap = new Drawing.Bitmap(size, size);
+        using var graphics = Drawing.Graphics.FromImage(bitmap);
+        graphics.Clear(Drawing.Color.Transparent);
+        graphics.TextRenderingHint = Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+        using var font = new Drawing.Font("Segoe Fluent Icons", 10.5f, Drawing.FontStyle.Regular, Drawing.GraphicsUnit.Point);
+        using var brush = new Drawing.SolidBrush(Drawing.Color.FromArgb(220, 72, 72, 72));
+        using var format = new Drawing.StringFormat
+        {
+            Alignment = Drawing.StringAlignment.Center,
+            LineAlignment = Drawing.StringAlignment.Center,
+            FormatFlags = Drawing.StringFormatFlags.NoWrap
+        };
+        graphics.DrawString(glyph, font, brush, new Drawing.RectangleF(0, 0, size, size), format);
+        return bitmap;
     }
 
     private void ShowQuickMenu()
@@ -454,7 +500,9 @@ public sealed class CliptonRuntime : IDisposable
                 "Clipton",
                 "*",
                 "Enter",
-                ShowMainWindow));
+                ShowMainWindow,
+                IconGlyph: "\uE713",
+                IconFontFamily: "Segoe Fluent Icons"));
         }
 
         if (menuItems.Count == 0)
@@ -464,7 +512,9 @@ public sealed class CliptonRuntime : IDisposable
                 Translate("Settings"),
                 "-",
                 "Enter",
-                ShowMainWindow));
+                ShowMainWindow,
+                IconGlyph: "\uE713",
+                IconFontFamily: "Segoe Fluent Icons"));
         }
 
         _quickMenuWindow?.Dismiss();
@@ -720,13 +770,15 @@ public sealed class CliptonRuntime : IDisposable
         var revealedHeader = IsMaskedHistoryItem(item) && !item.Formats.Contains(ClipboardFormatKind.Image)
             ? item.Preview
             : null;
+        var plainText = ClipboardBridge.GetPlainText(item);
         return new QuickMenuItem(
             header,
             display.FormatSummary,
             GetKindLabel(item),
-            !string.IsNullOrEmpty(item.Text) ? "Enter / T" : "Enter",
+            !string.IsNullOrEmpty(plainText) ? "Enter / T" : "Enter",
             () => PasteHistoryItem(item.Id, asPlainText: false),
-            !string.IsNullOrEmpty(item.Text) ? () => PasteHistoryItem(item.Id, asPlainText: true) : null,
+            !string.IsNullOrEmpty(plainText) ? () => PasteHistoryItem(item.Id, asPlainText: true) : null,
+            PasteOptions: CreateTextPasteOptions(plainText),
             IconGlyph: GetHistoryIconGlyph(item),
             IconFontFamily: GetHistoryIconFontFamily(item),
             IconImagePath: SaveHistoryThumbnail(item),
@@ -748,7 +800,7 @@ public sealed class CliptonRuntime : IDisposable
     {
         if (item.Formats.Contains(ClipboardFormatKind.FileDrop))
         {
-            return "\uE8B7";
+            return "\uE8A5";
         }
 
         if (item.Formats.Contains(ClipboardFormatKind.Image))
@@ -891,7 +943,32 @@ public sealed class CliptonRuntime : IDisposable
             "S",
             "Enter",
             () => PasteSnippet(snippet.Folder, snippet.Name),
+            PasteOptions: CreateTextPasteOptions(snippet.Text),
             IconGlyph: "S");
+    }
+
+    private IReadOnlyList<QuickMenuPasteOption> CreateTextPasteOptions(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return [];
+        }
+
+        return
+        [
+            new QuickMenuPasteOption(Translate("PastePlain"), "\uE8D2", () => PasteText(text)),
+            new QuickMenuPasteOption(Translate("PasteNoLineBreaks"), "\uE8EE", () => PasteText(RemoveLineBreaks(text))),
+            new QuickMenuPasteOption(Translate("PasteUppercase"), "AA", () => PasteText(text.ToUpperInvariant()), "Segoe UI"),
+            new QuickMenuPasteOption(Translate("PasteLowercase"), "aa", () => PasteText(text.ToLowerInvariant()), "Segoe UI"),
+            new QuickMenuPasteOption(Translate("PasteTrimmed"), "\uE8C6", () => PasteText(text.Trim()))
+        ];
+    }
+
+    private static string RemoveLineBreaks(string text)
+    {
+        return string.Join(
+            " ",
+            text.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
     }
 
     private static string NormalizeFolder(string? folder)

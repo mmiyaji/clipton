@@ -53,7 +53,7 @@ public sealed class MainWindow : Window
     private readonly ToggleSwitch _pauseCaptureToggle = CompactToggle();
     private readonly ToggleSwitch _persistHistoryToggle = CompactToggle();
     private readonly ToggleSwitch _maskSensitiveContentToggle = CompactToggle();
-    private readonly Button _maxHistoryItemsButton = new();
+    private readonly ComboBox _maxHistoryItemsBox = new();
     private readonly ToggleSwitch _folderModeToggle = CompactToggle();
     private readonly ToggleSwitch _simpleContextMenuToggle = CompactToggle();
     private readonly Button _registerFromHistoryButton = new();
@@ -75,10 +75,16 @@ public sealed class MainWindow : Window
     private int _historyVisibleLimit = HistoryDisplayBatchSize;
     private bool _loading;
     private int _selectedPageIndex;
+    private Microsoft.UI.Windowing.AppWindow? _appWindow;
+    private readonly NativeMethods.WindowProc _windowProc;
+    private IntPtr _hwnd;
+    private IntPtr _originalWndProc;
+    private bool _hiddenToTray;
 
     public MainWindow(CliptonRuntime runtime)
     {
         _runtime = runtime;
+        _windowProc = WindowProc;
         Title = "Clipton";
         BuildUi();
         ApplyTheme();
@@ -86,6 +92,17 @@ public sealed class MainWindow : Window
         RefreshTexts();
         RefreshItems();
         Closed += (_, _) => _runtime.OnMainWindowClosed(this);
+    }
+
+    public void ShowSettingsWindow()
+    {
+        if (_hiddenToTray)
+        {
+            _appWindow?.Show();
+            _hiddenToTray = false;
+        }
+
+        Activate();
     }
 
     public void RefreshItems()
@@ -170,7 +187,8 @@ public sealed class MainWindow : Window
         _pauseCaptureToggle.IsOn = _runtime.Settings.PauseCapture;
         _persistHistoryToggle.IsOn = _runtime.Settings.PersistEncryptedHistory;
         _maskSensitiveContentToggle.IsOn = _runtime.Settings.MaskSensitiveContent;
-        _maxHistoryItemsButton.Content = _runtime.Settings.MaxHistoryItems.ToString();
+        EnsureHistoryLimitComboItem(_runtime.Settings.MaxHistoryItems);
+        SetComboSelection(_maxHistoryItemsBox, _runtime.Settings.MaxHistoryItems.ToString());
         _folderModeToggle.IsOn = _runtime.Settings.FolderMode;
         _simpleContextMenuToggle.IsOn = _runtime.Settings.SimpleContextMenuMode;
         EnsureHotkeyComboItem(_runtime.Settings.Hotkey);
@@ -293,9 +311,14 @@ public sealed class MainWindow : Window
 
         _historyPage.Children.Add(SettingCard("\uE769", "PauseCapture", "PauseCaptureDescription", _pauseCaptureToggle));
         _historyPage.Children.Add(SettingCard("\uE72E", "PersistHistory", "PersistHistoryDescription", _persistHistoryToggle));
-        _maxHistoryItemsButton.MinWidth = 120;
-        _maxHistoryItemsButton.Click += (_, _) => ChangeMaxHistoryItems();
-        _historyPage.Children.Add(SettingCard("\uE81C", "MaxHistoryItems", "MaxHistoryItemsDescription", _maxHistoryItemsButton));
+        _maxHistoryItemsBox.Width = 180;
+        foreach (var count in new[] { 50, 100, 200, 500, 1000 })
+        {
+            _maxHistoryItemsBox.Items.Add(new ComboBoxItem { Tag = count.ToString(), Content = count.ToString() });
+        }
+
+        _maxHistoryItemsBox.SelectionChanged += (_, _) => ChangeMaxHistoryItems();
+        _historyPage.Children.Add(SettingCard("\uE81C", "MaxHistoryItems", "MaxHistoryItemsDescription", _maxHistoryItemsBox));
         _historyPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", _maskSensitiveContentToggle));
 
         _historyPage.Children.Add(SectionHeader("HistorySection"));
@@ -513,19 +536,18 @@ public sealed class MainWindow : Window
 
     private void ChangeMaxHistoryItems()
     {
-        if (_loading)
+        if (_loading || _maxHistoryItemsBox.SelectedItem is not ComboBoxItem selected || selected.Tag is not string tag)
         {
             return;
         }
 
-        var count = PromptForHistoryLimit();
-        if (count is null || _runtime.Settings.MaxHistoryItems == count.Value)
+        var count = int.TryParse(tag, out var parsed) ? Math.Clamp(parsed, 1, 1000) : _runtime.Settings.MaxHistoryItems;
+        if (_runtime.Settings.MaxHistoryItems == count)
         {
             return;
         }
 
-        _runtime.SetMaxHistoryItems(count.Value);
-        _maxHistoryItemsButton.Content = count.Value.ToString();
+        _runtime.SetMaxHistoryItems(count);
     }
 
     private void RegisterSelectedHistory()
@@ -641,7 +663,9 @@ public sealed class MainWindow : Window
     {
         Text = text,
         Dock = Forms.DockStyle.Fill,
-        TextAlign = System.Drawing.ContentAlignment.MiddleLeft
+        AutoSize = false,
+        TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+        ForeColor = IsDark ? System.Drawing.Color.FromArgb(220, 220, 220) : System.Drawing.Color.FromArgb(42, 42, 42)
     };
 
     private Forms.TextBox DialogTextBox(string text) => new()
@@ -652,71 +676,6 @@ public sealed class MainWindow : Window
         ForeColor = IsDark ? System.Drawing.Color.White : System.Drawing.Color.Black,
         BorderStyle = Forms.BorderStyle.FixedSingle
     };
-
-    private int? PromptForHistoryLimit()
-    {
-        using var form = new Forms.Form
-        {
-            Text = _runtime.Translate("MaxHistoryItems"),
-            Icon = AppAssets.LoadAppIcon(_runtime.EffectiveTheme),
-            Width = 380,
-            Height = 160,
-            MinimizeBox = false,
-            MaximizeBox = false,
-            FormBorderStyle = Forms.FormBorderStyle.FixedDialog,
-            StartPosition = Forms.FormStartPosition.CenterScreen,
-            BackColor = IsDark ? System.Drawing.Color.FromArgb(32, 32, 32) : System.Drawing.Color.White,
-            ForeColor = IsDark ? System.Drawing.Color.White : System.Drawing.Color.Black
-        };
-
-        var layout = new Forms.TableLayoutPanel
-        {
-            Dock = Forms.DockStyle.Fill,
-            Padding = new Forms.Padding(16),
-            ColumnCount = 1,
-            RowCount = 3
-        };
-        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 32));
-        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 34));
-        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 44));
-
-        var input = new Forms.NumericUpDown
-        {
-            Minimum = 1,
-            Maximum = 1000,
-            Increment = 10,
-            Value = Math.Clamp(_runtime.Settings.MaxHistoryItems, 1, 1000),
-            Dock = Forms.DockStyle.Left,
-            Width = 120,
-            BackColor = IsDark ? System.Drawing.Color.FromArgb(43, 43, 43) : System.Drawing.Color.White,
-            ForeColor = IsDark ? System.Drawing.Color.White : System.Drawing.Color.Black
-        };
-
-        var buttons = new Forms.FlowLayoutPanel
-        {
-            FlowDirection = Forms.FlowDirection.RightToLeft,
-            Dock = Forms.DockStyle.Fill
-        };
-        var okButton = new Forms.Button { Text = _runtime.Translate("Save"), DialogResult = Forms.DialogResult.OK, Width = 96 };
-        var cancelButton = new Forms.Button { Text = _runtime.Translate("Cancel"), DialogResult = Forms.DialogResult.Cancel, Width = 96 };
-        buttons.Controls.Add(okButton);
-        buttons.Controls.Add(cancelButton);
-
-        layout.Controls.Add(DialogLabel(_runtime.Translate("MaxHistoryItemsDescription")), 0, 0);
-        layout.Controls.Add(input, 0, 1);
-        layout.Controls.Add(buttons, 0, 2);
-        form.Controls.Add(layout);
-        form.AcceptButton = okButton;
-        form.CancelButton = cancelButton;
-        form.Shown += (_, _) =>
-        {
-            ApplyFormTitleBarTheme(form);
-            input.Focus();
-            input.Select(0, input.Text.Length);
-        };
-
-        return form.ShowDialog() == Forms.DialogResult.OK ? (int)input.Value : null;
-    }
 
     private string? PromptForText(string title, string message, string initialValue)
     {
@@ -1096,10 +1055,26 @@ public sealed class MainWindow : Window
 
     private void SizeWindow()
     {
-        var hwnd = WindowNative.GetWindowHandle(this);
-        var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
-        var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
-        appWindow.Resize(new SizeInt32(1120, 760));
+        _hwnd = WindowNative.GetWindowHandle(this);
+        var windowId = Win32Interop.GetWindowIdFromWindow(_hwnd);
+        _appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
+        _appWindow.Resize(new SizeInt32(1120, 760));
+        _originalWndProc = NativeMethods.SetWindowLongPtr(
+            _hwnd,
+            NativeMethods.GwlWndproc,
+            Marshal.GetFunctionPointerForDelegate(_windowProc));
+    }
+
+    private IntPtr WindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
+    {
+        if (msg == NativeMethods.WmClose && !_runtime.IsExiting)
+        {
+            _appWindow?.Hide();
+            _hiddenToTray = true;
+            return IntPtr.Zero;
+        }
+
+        return NativeMethods.CallWindowProc(_originalWndProc, hWnd, msg, wParam, lParam);
     }
 
     private void ApplyTitleBarTheme()
@@ -1228,6 +1203,21 @@ public sealed class MainWindow : Window
         }
 
         _hotkeyBox.Items.Add(new ComboBoxItem { Content = hotkey, Tag = hotkey });
+    }
+
+    private void EnsureHistoryLimitComboItem(int count)
+    {
+        var tag = count.ToString();
+        foreach (ComboBoxItem item in _maxHistoryItemsBox.Items)
+        {
+            if (Equals(item.Tag, tag))
+            {
+                item.Content = tag;
+                return;
+            }
+        }
+
+        _maxHistoryItemsBox.Items.Add(new ComboBoxItem { Content = tag, Tag = tag });
     }
 
     private static string CreateSnippetName(string text)

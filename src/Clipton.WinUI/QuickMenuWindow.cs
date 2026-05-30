@@ -18,6 +18,7 @@ namespace Clipton.WinUI;
 public sealed class QuickMenuWindow : Window
 {
     private const int MaxMenuLineLength = 34;
+    private const int HostWindowSize = 1;
     private readonly QuickMenuNavigator _navigator;
     private readonly IReadOnlyList<QuickMenuItem> _rootItems;
     private readonly Grid _host = new();
@@ -232,7 +233,7 @@ public sealed class QuickMenuWindow : Window
             case NativeMethods.VkM:
                 DispatcherQueue.TryEnqueue(() => ToggleDisplayMode(revealMaskedItems: !_revealMaskedItems));
                 break;
-            case NativeMethods.VkD:
+            case NativeMethods.VkD when controlDown:
                 DispatcherQueue.TryEnqueue(() => ToggleDisplayMode(showCapturedAt: !_showCapturedAt));
                 break;
             case 'T':
@@ -274,10 +275,10 @@ public sealed class QuickMenuWindow : Window
     {
         _revealMaskedItems = revealMaskedItems ?? _revealMaskedItems;
         _showCapturedAt = showCapturedAt ?? _showCapturedAt;
-        RefreshVisibleText(_flyout.Items);
+        RefreshVisibleItems(_flyout.Items);
     }
 
-    private void RefreshVisibleText(IList<MenuFlyoutItemBase> items)
+    private void RefreshVisibleItems(IList<MenuFlyoutItemBase> items)
     {
         foreach (var element in items)
         {
@@ -289,12 +290,13 @@ public sealed class QuickMenuWindow : Window
                         subItem.Text = BuildDisplayText(folder);
                     }
 
-                    RefreshVisibleText(subItem.Items);
+                    RefreshVisibleItems(subItem.Items);
                     break;
                 case MenuFlyoutItem flyoutItem:
                     if (flyoutItem.Tag is QuickMenuItem item)
                     {
                         flyoutItem.Text = BuildDisplayText(item);
+                        flyoutItem.KeyboardAcceleratorTextOverride = BuildCommandHint(item);
                     }
 
                     break;
@@ -536,9 +538,19 @@ public sealed class QuickMenuWindow : Window
             var flyoutItem = new MenuFlyoutItem
             {
                 Text = BuildDisplayText(item),
-                KeyboardAcceleratorTextOverride = item.CommandHint,
+                KeyboardAcceleratorTextOverride = BuildCommandHint(item),
                 Icon = CreateIcon(item)
             };
+            if (item.PasteOptions is { Count: > 0 })
+            {
+                flyoutItem.ContextFlyout = CreatePasteOptionsFlyout(item);
+                flyoutItem.RightTapped += (_, _) =>
+                {
+                    SyncFocusedIndex();
+                    FocusMenuItem(IndexOf(_activeFocusableItems, flyoutItem));
+                };
+            }
+
             if (!string.IsNullOrWhiteSpace(item.IconImagePath) && File.Exists(item.IconImagePath))
             {
                 flyoutItem.Loaded += (_, _) => InsertImagePreview(flyoutItem, item.IconImagePath);
@@ -556,18 +568,47 @@ public sealed class QuickMenuWindow : Window
         }
     }
 
+    private MenuFlyout CreatePasteOptionsFlyout(QuickMenuItem item)
+    {
+        var flyout = new MenuFlyout
+        {
+            Placement = FlyoutPlacementMode.RightEdgeAlignedTop
+        };
+
+        foreach (var option in item.PasteOptions ?? [])
+        {
+            var optionItem = new MenuFlyoutItem
+            {
+                Text = option.Text,
+                Icon = CreateOptionIcon(option)
+            };
+            optionItem.Click += (_, _) => InvokePasteOption(option);
+            flyout.Items.Add(optionItem);
+        }
+
+        return flyout;
+    }
+
     private string BuildDisplayText(QuickMenuItem item)
     {
         var title = _revealMaskedItems && !string.IsNullOrWhiteSpace(item.RevealedTitle)
             ? item.RevealedTitle!
             : item.Title;
         var text = FormatMenuText(title);
-        if (_showCapturedAt && item.CapturedAt is { } capturedAt)
+        return text;
+    }
+
+    private string BuildCommandHint(QuickMenuItem item)
+    {
+        if (!_showCapturedAt || item.CapturedAt is not { } capturedAt)
         {
-            text = $"{text}{Environment.NewLine}{capturedAt.LocalDateTime:yyyy-MM-dd HH:mm:ss}";
+            return item.CommandHint;
         }
 
-        return text;
+        var capturedAtText = capturedAt.LocalDateTime.ToString("yyyy/MM/dd HH:mm");
+        return string.IsNullOrWhiteSpace(item.CommandHint)
+            ? capturedAtText
+            : $"{item.CommandHint}  |  {capturedAtText}";
     }
 
     private QuickMenuItem? GetFocusedMenuItem()
@@ -710,6 +751,17 @@ public sealed class QuickMenuWindow : Window
         }));
     }
 
+    private void InvokePasteOption(QuickMenuPasteOption option)
+    {
+        _flyout.Hide();
+        _appWindow?.Hide();
+        _ = Task.Delay(90).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
+        {
+            option.Invoke();
+            Dismiss();
+        }));
+    }
+
     private void PositionNearCursor()
     {
         _hwnd = WindowNative.GetWindowHandle(this);
@@ -725,7 +777,7 @@ public sealed class QuickMenuWindow : Window
         }
 
         var point = Forms.Cursor.Position;
-        _appWindow.Resize(new SizeInt32(8, 8));
+        _appWindow.Resize(new SizeInt32(HostWindowSize, HostWindowSize));
         _appWindow.Move(new PointInt32(point.X, point.Y));
         NativeMethods.SetForegroundWindow(_hwnd);
     }
@@ -760,6 +812,21 @@ public sealed class QuickMenuWindow : Window
             FontFamily = new FontFamily(item.IconFontFamily ?? "Segoe UI"),
             FontSize = !string.IsNullOrWhiteSpace(item.IconImagePath) ? 13 : 12,
             Opacity = !string.IsNullOrWhiteSpace(item.IconImagePath) ? 0.78 : 1
+        };
+    }
+
+    private static IconElement? CreateOptionIcon(QuickMenuPasteOption option)
+    {
+        if (string.IsNullOrWhiteSpace(option.IconGlyph))
+        {
+            return null;
+        }
+
+        return new FontIcon
+        {
+            Glyph = option.IconGlyph,
+            FontFamily = new FontFamily(option.IconFontFamily ?? "Segoe Fluent Icons"),
+            FontSize = 12
         };
     }
 
@@ -865,6 +932,7 @@ public sealed record QuickMenuItem(
     IReadOnlyList<QuickMenuItem>? Children = null,
     Func<IReadOnlyList<QuickMenuItem>>? LazyChildren = null,
     bool IsSeparator = false,
+    IReadOnlyList<QuickMenuPasteOption>? PasteOptions = null,
     string? IconGlyph = null,
     string? IconFontFamily = null,
     string? IconImagePath = null,
@@ -896,3 +964,9 @@ public sealed record QuickMenuItem(
 
     public override string ToString() => Title;
 }
+
+public sealed record QuickMenuPasteOption(
+    string Text,
+    string IconGlyph,
+    Action Invoke,
+    string? IconFontFamily = null);
