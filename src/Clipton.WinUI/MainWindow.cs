@@ -19,6 +19,8 @@ public sealed class MainWindow : Window
     private const double SidebarExpandedWidth = 248;
     private const double SidebarCollapsedWidth = 72;
     private const double ContentMinWidth = 680;
+    private const double SidebarAutoCollapseWidth = 1040;
+    private const double SidebarAutoExpandWidth = 1120;
     private const double SettingControlHeight = 36;
     private const string TermsUrl = "https://mmiyaji.github.io/clipton/terms/";
     private const string PrivacyUrl = "https://mmiyaji.github.io/clipton/privacy/";
@@ -88,6 +90,7 @@ public sealed class MainWindow : Window
     private bool _loading;
     private int _selectedPageIndex;
     private bool _sidebarCollapsed;
+    private bool _autoSidebarApplied;
     private Microsoft.UI.Windowing.AppWindow? _appWindow;
     private readonly NativeMethods.WindowProc _windowProc;
     private IntPtr _hwnd;
@@ -219,6 +222,7 @@ public sealed class MainWindow : Window
     {
         _root.ColumnDefinitions.Add(_sidebarColumn);
         _root.ColumnDefinitions.Add(_contentColumn);
+        _root.SizeChanged += (_, e) => UpdateSidebarForWindowWidth(e.NewSize.Width);
         Content = _root;
 
         Grid.SetColumn(_sidebarFrame, 0);
@@ -910,6 +914,11 @@ public sealed class MainWindow : Window
 
     private void SetSidebarCollapsed(bool collapsed)
     {
+        if (_sidebarCollapsed == collapsed)
+        {
+            return;
+        }
+
         _sidebarCollapsed = collapsed;
         _sidebarColumn.Width = new GridLength(collapsed ? SidebarCollapsedWidth : SidebarExpandedWidth);
         _sidebar.Padding = collapsed ? new Thickness(10, 22, 10, 18) : new Thickness(18, 22, 14, 18);
@@ -925,6 +934,22 @@ public sealed class MainWindow : Window
 
         UpdateNavButtonContents();
         UpdateSidebarToggleContent();
+    }
+
+    private void UpdateSidebarForWindowWidth(double width)
+    {
+        if (width <= SidebarAutoCollapseWidth)
+        {
+            _autoSidebarApplied = true;
+            SetSidebarCollapsed(true);
+            return;
+        }
+
+        if (width >= SidebarAutoExpandWidth && _autoSidebarApplied)
+        {
+            _autoSidebarApplied = false;
+            SetSidebarCollapsed(false);
+        }
     }
 
     private void UpdateNavButtonContents()
