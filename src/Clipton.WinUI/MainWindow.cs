@@ -863,6 +863,7 @@ public sealed class MainWindow : Window
         _root.Background = Brush(dark ? "#202020" : "#F5F5F5");
         _sidebar.Background = Brush(dark ? "#171717" : "#F7F7F7");
         ApplyTitleBarTheme();
+        ApplyWindowIcon();
         foreach (var card in _cards)
         {
             card.Background = CardBackground();
@@ -1059,10 +1060,20 @@ public sealed class MainWindow : Window
         var windowId = Win32Interop.GetWindowIdFromWindow(_hwnd);
         _appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
         _appWindow.Resize(new SizeInt32(1120, 760));
+        ApplyWindowIcon();
         _originalWndProc = NativeMethods.SetWindowLongPtr(
             _hwnd,
             NativeMethods.GwlWndproc,
             Marshal.GetFunctionPointerForDelegate(_windowProc));
+    }
+
+    private void ApplyWindowIcon()
+    {
+        var iconPath = AppAssets.GetAppIconPath(_runtime.EffectiveTheme);
+        if (_appWindow is not null && File.Exists(iconPath))
+        {
+            _appWindow.SetIcon(iconPath);
+        }
     }
 
     private IntPtr WindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
