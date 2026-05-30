@@ -767,7 +767,8 @@ public sealed class CliptonRuntime : IDisposable
         CaptureClipboard();
 
         var menuItems = new List<QuickMenuItem>();
-        var historyItems = History.Items.ToArray();
+        var pinnedIds = Settings.PinnedHistoryIds.ToHashSet(StringComparer.Ordinal);
+        var historyItems = History.Items.Where(item => !pinnedIds.Contains(item.Id)).ToArray();
         var pinnedItems = Settings.PinnedHistoryIds
             .Select(History.Find)
             .OfType<ClipboardSnapshot>()
