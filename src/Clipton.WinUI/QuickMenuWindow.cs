@@ -18,6 +18,7 @@ namespace Clipton.WinUI;
 
 public sealed class QuickMenuWindow : Window
 {
+    private const string UiFontFamily = "Segoe UI Variable Text";
     private const int MaxMenuLineLength = 34;
     private const int HostWindowSize = 1;
     private const int ScreenEdgePadding = 8;
@@ -451,13 +452,14 @@ public sealed class QuickMenuWindow : Window
         using var form = new Forms.Form
         {
             Text = _searchTitle,
-            Width = 560,
+            Width = 640,
             Height = 170,
             MinimizeBox = false,
             MaximizeBox = false,
             FormBorderStyle = Forms.FormBorderStyle.FixedDialog,
             StartPosition = Forms.FormStartPosition.CenterScreen,
             TopMost = true,
+            Font = DialogFont(9.5f),
             BackColor = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase)
                 ? System.Drawing.Color.FromArgb(32, 32, 32)
                 : System.Drawing.Color.White,
@@ -470,6 +472,7 @@ public sealed class QuickMenuWindow : Window
         {
             Dock = Forms.DockStyle.Fill,
             BorderStyle = Forms.BorderStyle.FixedSingle,
+            Font = DialogFont(10f),
             BackColor = form.BackColor,
             ForeColor = form.ForeColor
         };
@@ -480,10 +483,17 @@ public sealed class QuickMenuWindow : Window
             ColumnCount = 1,
             RowCount = 3
         };
-        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 50));
+        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 46));
         layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 32));
         layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 42));
-        layout.Controls.Add(new Forms.Label { Text = _searchPrompt, Dock = Forms.DockStyle.Fill, TextAlign = System.Drawing.ContentAlignment.MiddleLeft }, 0, 0);
+        layout.Controls.Add(new Forms.Label
+        {
+            Text = _searchPrompt,
+            Dock = Forms.DockStyle.Fill,
+            Font = DialogFont(9.5f),
+            ForeColor = form.ForeColor,
+            TextAlign = System.Drawing.ContentAlignment.MiddleLeft
+        }, 0, 0);
         layout.Controls.Add(input, 0, 1);
 
         var buttons = new Forms.FlowLayoutPanel
@@ -491,8 +501,8 @@ public sealed class QuickMenuWindow : Window
             Dock = Forms.DockStyle.Fill,
             FlowDirection = Forms.FlowDirection.RightToLeft
         };
-        var searchButton = new Forms.Button { Text = _searchButtonText, DialogResult = Forms.DialogResult.OK, Width = 92 };
-        var cancelButton = new Forms.Button { Text = _cancelButtonText, DialogResult = Forms.DialogResult.Cancel, Width = 92 };
+        var searchButton = DialogButton(_searchButtonText, Forms.DialogResult.OK, primary: true);
+        var cancelButton = DialogButton(_cancelButtonText, Forms.DialogResult.Cancel);
         buttons.Controls.Add(searchButton);
         buttons.Controls.Add(cancelButton);
         layout.Controls.Add(buttons, 0, 2);
@@ -506,6 +516,54 @@ public sealed class QuickMenuWindow : Window
         };
 
         return form.ShowDialog() == Forms.DialogResult.OK ? input.Text : null;
+    }
+
+    private Forms.Button DialogButton(string text, Forms.DialogResult result, bool primary = false)
+    {
+        var dark = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase);
+        var button = new Forms.Button
+        {
+            Text = text,
+            DialogResult = result,
+            Width = 96,
+            Height = 30,
+            FlatStyle = Forms.FlatStyle.Flat,
+            Font = DialogFont(9.5f),
+            UseVisualStyleBackColor = false,
+            BackColor = primary
+                ? (dark ? System.Drawing.Color.FromArgb(0, 95, 184) : System.Drawing.Color.FromArgb(0, 120, 212))
+                : (dark ? System.Drawing.Color.FromArgb(43, 43, 43) : System.Drawing.Color.FromArgb(245, 245, 245)),
+            ForeColor = primary || dark ? System.Drawing.Color.White : System.Drawing.Color.FromArgb(32, 32, 32),
+            TextAlign = System.Drawing.ContentAlignment.MiddleCenter,
+            Cursor = Forms.Cursors.Hand,
+            Margin = new Forms.Padding(6, 6, 0, 6)
+        };
+        button.FlatAppearance.BorderSize = primary ? 0 : 1;
+        button.FlatAppearance.BorderColor = dark ? System.Drawing.Color.FromArgb(67, 67, 67) : System.Drawing.Color.FromArgb(218, 218, 218);
+        button.FlatAppearance.MouseOverBackColor = primary
+            ? (dark ? System.Drawing.Color.FromArgb(0, 108, 205) : System.Drawing.Color.FromArgb(0, 103, 192))
+            : (dark ? System.Drawing.Color.FromArgb(54, 54, 54) : System.Drawing.Color.FromArgb(235, 235, 235));
+        button.FlatAppearance.MouseDownBackColor = primary
+            ? (dark ? System.Drawing.Color.FromArgb(0, 82, 158) : System.Drawing.Color.FromArgb(0, 90, 158))
+            : (dark ? System.Drawing.Color.FromArgb(38, 38, 38) : System.Drawing.Color.FromArgb(225, 225, 225));
+        button.Resize += (_, _) => ApplyRoundedRegion(button, 4);
+        ApplyRoundedRegion(button, 4);
+        return button;
+    }
+
+    private static System.Drawing.Font DialogFont(float size) => new(UiFontFamily, size, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+
+    private static void ApplyRoundedRegion(Forms.Control control, int radius)
+    {
+        var bounds = new System.Drawing.Rectangle(0, 0, control.Width, control.Height);
+        using var path = new System.Drawing.Drawing2D.GraphicsPath();
+        var diameter = radius * 2;
+        path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+        path.AddArc(bounds.Right - diameter - 1, bounds.Top, diameter, diameter, 270, 90);
+        path.AddArc(bounds.Right - diameter - 1, bounds.Bottom - diameter - 1, diameter, diameter, 0, 90);
+        path.AddArc(bounds.Left, bounds.Bottom - diameter - 1, diameter, diameter, 90, 90);
+        path.CloseFigure();
+        control.Region = new System.Drawing.Region(path);
     }
 
     private void ApplyFormTitleBarTheme(Forms.Form form)

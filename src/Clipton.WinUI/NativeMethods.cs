@@ -32,6 +32,8 @@ internal static class NativeMethods
     internal const int WmRbuttondown = 0x0204;
     internal const int WmRbuttonup = 0x0205;
     internal const int WmClose = 0x0010;
+    internal const int WmMove = 0x0003;
+    internal const int WmSize = 0x0005;
     internal const int GwlWndproc = -4;
     internal const int GwlExstyle = -20;
     internal const int WsExToolwindow = 0x00000080;
@@ -40,6 +42,8 @@ internal static class NativeMethods
     internal const uint LwaColorKey = 0x00000001;
     internal const uint LwaAlpha = 0x00000002;
     internal const uint KeyeventfKeyup = 0x0002;
+    internal const int SwHide = 0;
+    internal const int SwShow = 5;
 
     internal delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
 
@@ -82,6 +86,13 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     internal static extern IntPtr SetFocus(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    internal static extern uint GetDpiForWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool ClientToScreen(IntPtr hWnd, ref Point lpPoint);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -128,5 +139,12 @@ internal static class NativeMethods
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     internal static extern IntPtr GetModuleHandle(string? lpModuleName);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct Point
+    {
+        public int X;
+        public int Y;
+    }
 
 }

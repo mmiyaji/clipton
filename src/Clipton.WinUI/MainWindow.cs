@@ -14,6 +14,7 @@ namespace Clipton.WinUI;
 
 public sealed class MainWindow : Window
 {
+    private const string UiFontFamily = "Segoe UI Variable Text";
     private const int HistoryDisplayBatchSize = 50;
     private const double SettingsPageMaxWidth = 920;
     private const double SidebarExpandedWidth = 248;
@@ -75,10 +76,15 @@ public sealed class MainWindow : Window
     private readonly Button _exportHistoryButton = new();
     private readonly Button _importHistoryButton = new();
     private readonly Button _clearButton = new();
-    private readonly Button _searchHistoryButton = new();
+    private readonly Border _historySearchHost = new();
+    private Forms.Form? _historySearchOverlay;
+    private Forms.TextBox? _historySearchBox;
+    private SearchIconControl? _historySearchIcon;
+    private readonly Button _advancedHistorySearchButton = new();
     private readonly Button _clearHistorySearchButton = new();
     private readonly Button _loadMoreHistoryButton = new();
     private readonly TextBlock _historySearchStatusText = Description();
+    private readonly TextBlock _historyAdvancedSearchText = Description();
     private readonly TextBlock _selectedSnippetText = Description();
     private readonly Button _newSnippetButton = new();
     private readonly Button _exportSnippetsButton = new();
@@ -93,6 +99,7 @@ public sealed class MainWindow : Window
     private string _historySearchQuery = string.Empty;
     private int _historyVisibleLimit = HistoryDisplayBatchSize;
     private bool _loading;
+    private bool _updatingHistorySearchBox;
     private int _selectedPageIndex;
     private bool _sidebarCollapsed;
     private bool _autoSidebarApplied;
@@ -115,6 +122,7 @@ public sealed class MainWindow : Window
             _snippetDescriptionText,
             _aboutDescriptionText,
             _historySearchStatusText,
+            _historyAdvancedSearchText,
             _selectedSnippetText);
         Title = "Clipton";
         BuildUi();
@@ -123,6 +131,8 @@ public sealed class MainWindow : Window
         RefreshTexts();
         RefreshItems();
         Closed += (_, _) => _runtime.OnMainWindowClosed(this);
+        Closed += (_, _) => _historySearchOverlay?.Dispose();
+        Closed += (_, _) => _historySearchBox?.Dispose();
     }
 
     public void ShowSettingsWindow()
@@ -199,7 +209,12 @@ public sealed class MainWindow : Window
         SetCommandButton(_exportHistoryButton, "\uEDE1", t("Export"));
         SetCommandButton(_importHistoryButton, "\uE896", t("Import"));
         SetCommandButton(_clearButton, "\uE74D", t("ClearHistory"));
-        SetCommandButton(_searchHistoryButton, "\uE721", t("Search"));
+        if (_historySearchBox is not null)
+        {
+            _historySearchBox.PlaceholderText = t("SearchPlaceholder");
+        }
+        SetIconButton(_advancedHistorySearchButton, "\uE71C", t("AdvancedSearch"));
+        _historyAdvancedSearchText.Text = t("SearchPrompt");
         SetCommandButton(_clearHistorySearchButton, "\uE711", t("ClearSearch"));
         _loadMoreHistoryButton.Content = string.Format(t("LoadMoreHistory"), 0);
         SetCommandButton(_newSnippetButton, "\uE710", t("NewSnippet"));
@@ -282,6 +297,7 @@ public sealed class MainWindow : Window
         var contentHost = new Grid { HorizontalAlignment = HorizontalAlignment.Left, MinWidth = ContentMinWidth };
         scroller.Content = contentHost;
         scroller.SizeChanged += (_, e) => UpdateSettingsPageWidth(Math.Max(0, e.NewSize.Width - scroller.Padding.Left - scroller.Padding.Right));
+        scroller.ViewChanged += (_, _) => PositionNativeHistorySearchBox();
         contentHost.Children.Add(_generalPage);
         contentHost.Children.Add(_historyPage);
         contentHost.Children.Add(_snippetPage);
@@ -385,6 +401,8 @@ public sealed class MainWindow : Window
         _historyPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", _maskSensitiveContentToggle));
 
         _historyPage.Children.Add(SectionHeader("HistorySection"));
+        _historyPage.Children.Add(BuildHistorySearchPanel());
+
         var actions = new Grid { ColumnSpacing = 12 };
         actions.ColumnDefinitions.Add(new ColumnDefinition());
         actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -392,13 +410,9 @@ public sealed class MainWindow : Window
         var dataActions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         _registerFromHistoryButton.Click += (_, _) => RegisterSelectedHistory();
         _clearButton.Click += (_, _) => _runtime.ClearHistory();
-        _searchHistoryButton.Click += (_, _) => SearchHistory();
-        _clearHistorySearchButton.Click += (_, _) => ClearHistorySearch();
         _loadMoreHistoryButton.Click += (_, _) => LoadMoreHistory();
         _exportHistoryButton.Click += (_, _) => ExportHistory();
         _importHistoryButton.Click += (_, _) => ImportHistory();
-        primaryActions.Children.Add(_searchHistoryButton);
-        primaryActions.Children.Add(_clearHistorySearchButton);
         primaryActions.Children.Add(_registerFromHistoryButton);
         dataActions.Children.Add(_exportHistoryButton);
         dataActions.Children.Add(_importHistoryButton);
@@ -409,6 +423,187 @@ public sealed class MainWindow : Window
         _historyPage.Children.Add(actions);
         _historyPage.Children.Add(_historySearchStatusText);
         _historyPage.Children.Add(Card(_historyItemsPanel));
+    }
+
+    private UIElement BuildHistorySearchPanel()
+    {
+        _historySearchHost.MinHeight = SettingControlHeight;
+        _historySearchHost.HorizontalAlignment = HorizontalAlignment.Stretch;
+        _historySearchHost.Loaded += (_, _) => EnsureNativeHistorySearchBox();
+        _historySearchHost.SizeChanged += (_, _) => PositionNativeHistorySearchBox();
+
+        _advancedHistorySearchButton.Width = SettingControlHeight;
+        _advancedHistorySearchButton.MinWidth = SettingControlHeight;
+        _advancedHistorySearchButton.Height = SettingControlHeight;
+        _advancedHistorySearchButton.Padding = new Thickness(0);
+        _advancedHistorySearchButton.Opacity = 0.72;
+        _advancedHistorySearchButton.Click += (_, _) => ToggleAdvancedHistorySearch();
+        _clearHistorySearchButton.MinHeight = SettingControlHeight;
+        _clearHistorySearchButton.Click += (_, _) => ClearHistorySearch();
+
+        _historyAdvancedSearchText.Visibility = Visibility.Collapsed;
+        _historyAdvancedSearchText.Margin = new Thickness(2, 0, 0, 0);
+
+        var row = new Grid { ColumnSpacing = 8 };
+        row.ColumnDefinitions.Add(new ColumnDefinition());
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.Children.Add(_historySearchHost);
+        Grid.SetColumn(_advancedHistorySearchButton, 1);
+        row.Children.Add(_advancedHistorySearchButton);
+        Grid.SetColumn(_clearHistorySearchButton, 2);
+        row.Children.Add(_clearHistorySearchButton);
+
+        return new StackPanel
+        {
+            Spacing = 8,
+            Children =
+            {
+                row,
+                _historyAdvancedSearchText
+            }
+        };
+    }
+
+    private void EnsureNativeHistorySearchBox()
+    {
+        if (_historySearchBox is not null || _hwnd == IntPtr.Zero)
+        {
+            PositionNativeHistorySearchBox();
+            return;
+        }
+
+        var backColor = HistorySearchBackColor();
+        var foreColor = HistorySearchForeColor();
+        var mutedColor = HistorySearchMutedColor();
+        _historySearchOverlay = new Forms.Form
+        {
+            FormBorderStyle = Forms.FormBorderStyle.None,
+            ShowInTaskbar = false,
+            StartPosition = Forms.FormStartPosition.Manual,
+            BackColor = backColor,
+            Padding = new Forms.Padding(0),
+            TopMost = false
+        };
+        _historySearchOverlay.Paint += (_, args) => PaintHistorySearchOverlay(args.Graphics);
+        _historySearchIcon = new SearchIconControl
+        {
+            Dock = Forms.DockStyle.Fill,
+            BackColor = backColor,
+            IconColor = mutedColor
+        };
+        _historySearchBox = new Forms.TextBox
+        {
+            Dock = Forms.DockStyle.Fill,
+            BorderStyle = Forms.BorderStyle.None,
+            Font = DialogFont(10f),
+            PlaceholderText = _runtime.Translate("SearchPlaceholder"),
+            Text = _historySearchQuery,
+            BackColor = backColor,
+            ForeColor = foreColor,
+            Margin = new Forms.Padding(2, 8, 8, 0)
+        };
+        _historySearchBox.Enter += (_, _) => _historySearchOverlay.Invalidate();
+        _historySearchBox.Leave += (_, _) => _historySearchOverlay.Invalidate();
+        _historySearchBox.TextChanged += (_, _) =>
+        {
+            if (_updatingHistorySearchBox)
+            {
+                return;
+            }
+
+            ApplyHistorySearch(_historySearchBox.Text);
+        };
+        var layout = new Forms.TableLayoutPanel
+        {
+            Dock = Forms.DockStyle.Fill,
+            BackColor = backColor,
+            Padding = new Forms.Padding(10, 0, 8, 0),
+            ColumnCount = 2,
+            RowCount = 1
+        };
+        layout.ColumnStyles.Add(new Forms.ColumnStyle(Forms.SizeType.Absolute, 24));
+        layout.ColumnStyles.Add(new Forms.ColumnStyle(Forms.SizeType.Percent, 100));
+        layout.Controls.Add(_historySearchIcon, 0, 0);
+        layout.Controls.Add(_historySearchBox, 1, 0);
+        _historySearchOverlay.Controls.Add(layout);
+        _historySearchOverlay.Show(new WindowHandle(_hwnd));
+        PositionNativeHistorySearchBox();
+    }
+
+    private void PaintHistorySearchOverlay(System.Drawing.Graphics graphics)
+    {
+        if (_historySearchOverlay is null)
+        {
+            return;
+        }
+
+        graphics.Clear(HistorySearchBackColor());
+        var focused = _historySearchBox?.Focused == true;
+        using var borderPen = new System.Drawing.Pen(focused ? HistorySearchAccentColor() : HistorySearchBorderColor());
+        graphics.DrawRectangle(borderPen, 0, 0, _historySearchOverlay.ClientSize.Width - 1, _historySearchOverlay.ClientSize.Height - 1);
+        if (focused)
+        {
+            using var accentPen = new System.Drawing.Pen(HistorySearchAccentColor(), 2);
+            var y = _historySearchOverlay.ClientSize.Height - 2;
+            graphics.DrawLine(accentPen, 2, y, _historySearchOverlay.ClientSize.Width - 3, y);
+        }
+    }
+
+    private System.Drawing.Color HistorySearchBackColor() => IsDark
+        ? System.Drawing.Color.FromArgb(43, 43, 43)
+        : System.Drawing.Color.White;
+
+    private System.Drawing.Color HistorySearchForeColor() => IsDark
+        ? System.Drawing.Color.FromArgb(243, 243, 243)
+        : System.Drawing.Color.FromArgb(31, 31, 31);
+
+    private System.Drawing.Color HistorySearchMutedColor() => IsDark
+        ? System.Drawing.Color.FromArgb(178, 178, 178)
+        : System.Drawing.Color.FromArgb(96, 96, 96);
+
+    private System.Drawing.Color HistorySearchBorderColor() => IsDark
+        ? System.Drawing.Color.FromArgb(72, 72, 72)
+        : System.Drawing.Color.FromArgb(138, 138, 138);
+
+    private System.Drawing.Color HistorySearchAccentColor() => IsDark
+        ? System.Drawing.Color.FromArgb(96, 205, 255)
+        : System.Drawing.Color.FromArgb(0, 95, 184);
+
+    private void PositionNativeHistorySearchBox()
+    {
+        if (_historySearchOverlay is null || _historySearchOverlay.IsDisposed || _historySearchBox is null || _historySearchBox.IsDisposed || _hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        if (_selectedPageIndex != 1 || _historySearchHost.ActualWidth <= 0 || _historySearchHost.ActualHeight <= 0)
+        {
+            _historySearchOverlay.Hide();
+            return;
+        }
+
+        var point = _historySearchHost.TransformToVisual(_root).TransformPoint(new Windows.Foundation.Point(0, 0));
+        var scale = NativeMethods.GetDpiForWindow(_hwnd) / 96.0;
+        var screenPoint = new NativeMethods.Point
+        {
+            X = (int)Math.Round(point.X * scale),
+            Y = (int)Math.Round(point.Y * scale)
+        };
+        if (!NativeMethods.ClientToScreen(_hwnd, ref screenPoint))
+        {
+            return;
+        }
+
+        var width = Math.Max(1, (int)Math.Round(_historySearchHost.ActualWidth * scale));
+        var height = Math.Max(1, (int)Math.Round(SettingControlHeight * scale));
+        _historySearchOverlay.SetBounds(screenPoint.X, screenPoint.Y, width, height);
+        if (!_historySearchOverlay.Visible)
+        {
+            _historySearchOverlay.Show(new WindowHandle(_hwnd));
+        }
+
+        _historySearchOverlay.BringToFront();
     }
 
     private bool HistoryMatchesSearch(ClipboardSnapshot item)
@@ -437,15 +632,15 @@ public sealed class MainWindow : Window
         });
     }
 
-    private void SearchHistory()
+    private void ApplyHistorySearch(string query)
     {
-        var query = PromptForText(_runtime.Translate("SearchHistory"), _runtime.Translate("SearchPrompt"), _historySearchQuery);
-        if (query is null)
+        var normalized = query.Trim();
+        if (string.Equals(_historySearchQuery, normalized, StringComparison.Ordinal))
         {
             return;
         }
 
-        _historySearchQuery = query.Trim();
+        _historySearchQuery = normalized;
         _historyVisibleLimit = HistoryDisplayBatchSize;
         UpdateHistorySearchStatus();
         RefreshItems();
@@ -453,10 +648,14 @@ public sealed class MainWindow : Window
 
     private void ClearHistorySearch()
     {
-        _historySearchQuery = string.Empty;
-        _historyVisibleLimit = HistoryDisplayBatchSize;
-        UpdateHistorySearchStatus();
-        RefreshItems();
+        ApplyHistorySearch(string.Empty);
+    }
+
+    private void ToggleAdvancedHistorySearch()
+    {
+        _historyAdvancedSearchText.Visibility = _historyAdvancedSearchText.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
     }
 
     private void LoadMoreHistory()
@@ -473,6 +672,12 @@ public sealed class MainWindow : Window
             : string.Empty;
         _historySearchStatusText.Visibility = hasQuery ? Visibility.Visible : Visibility.Collapsed;
         _clearHistorySearchButton.Visibility = hasQuery ? Visibility.Visible : Visibility.Collapsed;
+        if (_historySearchBox is not null && !string.Equals(_historySearchBox.Text, _historySearchQuery, StringComparison.Ordinal))
+        {
+            _updatingHistorySearchBox = true;
+            _historySearchBox.Text = _historySearchQuery;
+            _updatingHistorySearchBox = false;
+        }
     }
 
     private void BuildSnippetPage()
@@ -872,6 +1077,7 @@ public sealed class MainWindow : Window
         Dock = Forms.DockStyle.Fill,
         AutoSize = false,
         TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+        Font = DialogFont(9.5f),
         ForeColor = IsDark ? System.Drawing.Color.FromArgb(220, 220, 220) : System.Drawing.Color.FromArgb(42, 42, 42)
     };
 
@@ -879,64 +1085,13 @@ public sealed class MainWindow : Window
     {
         Text = text,
         Dock = Forms.DockStyle.Fill,
+        Font = DialogFont(10f),
         BackColor = IsDark ? System.Drawing.Color.FromArgb(43, 43, 43) : System.Drawing.Color.White,
         ForeColor = IsDark ? System.Drawing.Color.White : System.Drawing.Color.Black,
         BorderStyle = Forms.BorderStyle.FixedSingle
     };
 
-    private string? PromptForText(string title, string message, string initialValue)
-    {
-        using var form = new Forms.Form
-        {
-            Text = title,
-            Icon = AppAssets.LoadAppIcon(_runtime.EffectiveTheme),
-            Width = 560,
-            Height = 190,
-            MinimizeBox = false,
-            MaximizeBox = false,
-            FormBorderStyle = Forms.FormBorderStyle.FixedDialog,
-            StartPosition = Forms.FormStartPosition.CenterScreen,
-            BackColor = IsDark ? System.Drawing.Color.FromArgb(32, 32, 32) : System.Drawing.Color.White,
-            ForeColor = IsDark ? System.Drawing.Color.White : System.Drawing.Color.Black
-        };
-
-        var layout = new Forms.TableLayoutPanel
-        {
-            Dock = Forms.DockStyle.Fill,
-            Padding = new Forms.Padding(16),
-            ColumnCount = 1,
-            RowCount = 3
-        };
-        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 52));
-        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 34));
-        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 44));
-
-        var input = DialogTextBox(initialValue);
-        var buttons = new Forms.FlowLayoutPanel
-        {
-            FlowDirection = Forms.FlowDirection.RightToLeft,
-            Dock = Forms.DockStyle.Fill
-        };
-        var okButton = new Forms.Button { Text = _runtime.Translate("Search"), DialogResult = Forms.DialogResult.OK, Width = 96 };
-        var cancelButton = new Forms.Button { Text = _runtime.Translate("Cancel"), DialogResult = Forms.DialogResult.Cancel, Width = 96 };
-        buttons.Controls.Add(okButton);
-        buttons.Controls.Add(cancelButton);
-
-        layout.Controls.Add(DialogLabel(message), 0, 0);
-        layout.Controls.Add(input, 0, 1);
-        layout.Controls.Add(buttons, 0, 2);
-        form.Controls.Add(layout);
-        form.AcceptButton = okButton;
-        form.CancelButton = cancelButton;
-        form.Shown += (_, _) =>
-        {
-            ApplyFormTitleBarTheme(form);
-            input.Focus();
-            input.SelectAll();
-        };
-
-        return form.ShowDialog() == Forms.DialogResult.OK ? input.Text : null;
-    }
+    private static System.Drawing.Font DialogFont(float size) => new(UiFontFamily, size, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
 
     private string? PromptForHotkey()
     {
@@ -1063,6 +1218,7 @@ public sealed class MainWindow : Window
         }
 
         UpdateSidebarToggleStyle();
+        PositionNativeHistorySearchBox();
     }
 
     private void SetSidebarCollapsed(bool collapsed)
@@ -1164,6 +1320,18 @@ public sealed class MainWindow : Window
         ToolTipService.SetToolTip(button, label);
     }
 
+    private static void SetIconButton(Button button, string glyph, string label)
+    {
+        button.Content = new FontIcon
+        {
+            Glyph = glyph,
+            FontFamily = new FontFamily("Segoe Fluent Icons"),
+            FontSize = 14,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        ToolTipService.SetToolTip(button, label);
+    }
+
     private static void PrepareSidebarButton(Button button)
     {
         button.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -1223,6 +1391,29 @@ public sealed class MainWindow : Window
             card.BorderBrush = CardBorderBrush();
         }
         RefreshThemeTextBrushes();
+        if (_historySearchBox is not null)
+        {
+            _historySearchBox.BackColor = HistorySearchBackColor();
+            _historySearchBox.ForeColor = HistorySearchForeColor();
+        }
+
+        if (_historySearchIcon is not null)
+        {
+            _historySearchIcon.BackColor = HistorySearchBackColor();
+            _historySearchIcon.IconColor = HistorySearchMutedColor();
+            _historySearchIcon.Invalidate();
+        }
+
+        if (_historySearchOverlay is not null)
+        {
+            _historySearchOverlay.BackColor = HistorySearchBackColor();
+            foreach (Forms.Control control in _historySearchOverlay.Controls)
+            {
+                control.BackColor = HistorySearchBackColor();
+            }
+
+            _historySearchOverlay.Invalidate();
+        }
         SelectPage(_selectedPageIndex);
         UpdateSidebarToggleContent();
     }
@@ -1574,12 +1765,44 @@ public sealed class MainWindow : Window
     {
         if (msg == NativeMethods.WmClose && !_runtime.IsExiting)
         {
+            _historySearchOverlay?.Hide();
             _appWindow?.Hide();
             _hiddenToTray = true;
             return IntPtr.Zero;
         }
 
+        if (msg is NativeMethods.WmMove or NativeMethods.WmSize)
+        {
+            Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread()?.TryEnqueue(PositionNativeHistorySearchBox);
+        }
+
         return NativeMethods.CallWindowProc(_originalWndProc, hWnd, msg, wParam, lParam);
+    }
+
+    private sealed class WindowHandle(IntPtr handle) : Forms.IWin32Window
+    {
+        public IntPtr Handle { get; } = handle;
+    }
+
+    private sealed class SearchIconControl : Forms.Control
+    {
+        public System.Drawing.Color IconColor { get; set; }
+
+        protected override void OnPaint(Forms.PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using var pen = new System.Drawing.Pen(IconColor, 1.35f)
+            {
+                StartCap = System.Drawing.Drawing2D.LineCap.Round,
+                EndCap = System.Drawing.Drawing2D.LineCap.Round
+            };
+            var size = Math.Min(11f, Math.Max(9f, ClientSize.Height - 22f));
+            var left = (ClientSize.Width - size) / 2f - 1f;
+            var top = (ClientSize.Height - size) / 2f - 1f;
+            e.Graphics.DrawEllipse(pen, left, top, size, size);
+            e.Graphics.DrawLine(pen, left + size - 1f, top + size - 1f, left + size + 4f, top + size + 4f);
+        }
     }
 
     private void ApplyTitleBarTheme()
