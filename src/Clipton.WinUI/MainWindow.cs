@@ -2,8 +2,10 @@ using Clipton.Core;
 using Microsoft.UI;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
@@ -109,6 +111,7 @@ public sealed class MainWindow : Window
     private IntPtr _hwnd;
     private IntPtr _originalWndProc;
     private bool _hiddenToTray;
+    private Forms.Form? _maskSettingsForm;
 
     public MainWindow(CliptonRuntime runtime)
     {
@@ -404,6 +407,15 @@ public sealed class MainWindow : Window
         maskControls.Children.Add(_maskDefinitionsButton);
         maskControls.Children.Add(ToggleActionHost(_maskSensitiveContentToggle));
         _maskDefinitionsButton.Click += (_, _) => OpenMaskDefinitionSettings();
+        _maskDefinitionsButton.GotFocus += (_, _) => OpenMaskDefinitionSettings();
+        _maskDefinitionsButton.Tapped += (_, _) => OpenMaskDefinitionSettings();
+        _maskDefinitionsButton.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler((_, args) =>
+        {
+            if (Equals(args.GetCurrentPoint(_maskDefinitionsButton).Properties.PointerUpdateKind, Windows.UI.Input.PointerUpdateKind.LeftButtonReleased))
+            {
+                OpenMaskDefinitionSettings();
+            }
+        }), true);
         _historyPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", maskControls));
 
         _historyPage.Children.Add(SectionHeader("HistorySection"));
@@ -852,122 +864,139 @@ public sealed class MainWindow : Window
         _runtime.ClearHistory();
     }
 
-    private async void OpenMaskDefinitionSettings()
+    private void OpenMaskDefinitionSettings()
     {
-        var prefixBox = new NumberBox
+        if (_maskSettingsForm is { IsDisposed: false } existingForm)
         {
-            Value = Math.Clamp(_runtime.Settings.MaskVisiblePrefixLength, 0, 12),
-            Minimum = 0,
-            Maximum = 12,
-            SmallChange = 1,
-            LargeChange = 3,
-            Width = 150,
-            Height = SettingControlHeight,
-            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-
-        var patternBox = new TextBox
-        {
-            Text = string.Join(Environment.NewLine, _runtime.Settings.CustomMaskPatterns),
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.NoWrap,
-            Height = 220,
-            MinWidth = 520,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch,
-            FontFamily = new FontFamily(UiFontFamily),
-            FontSize = 14
-        };
-
-        var errorText = new TextBlock
-        {
-            Foreground = Brush(IsDark ? "#FFB4AB" : "#B3261E"),
-            TextWrapping = TextWrapping.Wrap,
-            Visibility = Visibility.Collapsed
-        };
-
-        var prefixTexts = new StackPanel { Spacing = 3, VerticalAlignment = VerticalAlignment.Center };
-        prefixTexts.Children.Add(new TextBlock
-        {
-            Text = _runtime.Translate("MaskVisiblePrefixLength"),
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            TextWrapping = TextWrapping.Wrap
-        });
-        prefixTexts.Children.Add(new TextBlock
-        {
-            Text = _runtime.Translate("MaskSensitiveContentDescription"),
-            Foreground = DescriptionBrush(),
-            FontSize = 12,
-            TextWrapping = TextWrapping.Wrap
-        });
-
-        var prefixGrid = new Grid { ColumnSpacing = 16 };
-        prefixGrid.ColumnDefinitions.Add(new ColumnDefinition());
-        prefixGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        prefixGrid.Children.Add(prefixTexts);
-        Grid.SetColumn(prefixBox, 1);
-        prefixGrid.Children.Add(prefixBox);
-
-        var patternsPanel = new StackPanel { Spacing = 10 };
-        patternsPanel.Children.Add(new TextBlock
-        {
-            Text = _runtime.Translate("MaskPatternDefinitions"),
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            TextWrapping = TextWrapping.Wrap
-        });
-        patternsPanel.Children.Add(new TextBlock
-        {
-            Text = _runtime.Translate("MaskDefinitionsDescription"),
-            Foreground = DescriptionBrush(),
-            FontSize = 12,
-            TextWrapping = TextWrapping.Wrap
-        });
-        patternsPanel.Children.Add(patternBox);
-        patternsPanel.Children.Add(errorText);
-
-        var content = new StackPanel { Spacing = 12 };
-        content.Children.Add(DialogCard(prefixGrid));
-        content.Children.Add(DialogCard(patternsPanel));
-
-        var dialog = new ContentDialog
-        {
-            XamlRoot = _root.XamlRoot,
-            Title = _runtime.Translate("MaskDefinitions"),
-            Content = content,
-            PrimaryButtonText = _runtime.Translate("Save"),
-            CloseButtonText = _runtime.Translate("Cancel"),
-            DefaultButton = ContentDialogButton.Primary
-        };
-
-        string[] patterns = [];
-        dialog.PrimaryButtonClick += (_, args) =>
-        {
-            patterns = patternBox.Text
-                .ReplaceLineEndings("\n")
-                .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            var invalidPatterns = SensitiveContentDetector.GetInvalidCustomPatterns(patterns);
-            if (invalidPatterns.Length == 0)
-            {
-                return;
-            }
-
-            errorText.Text = string.Format(_runtime.Translate("MaskDefinitionInvalid"), invalidPatterns[0]);
-            errorText.Visibility = Visibility.Visible;
-            args.Cancel = true;
-        };
-
-        var result = await dialog.ShowAsync();
-        if (result != ContentDialogResult.Primary)
-        {
+            existingForm.Activate();
             return;
         }
 
-        var visiblePrefixLength = double.IsNaN(prefixBox.Value)
-            ? 0
-            : (int)Math.Clamp(Math.Round(prefixBox.Value), 0, 12);
-        _runtime.SetMaskDefinitionOptions(visiblePrefixLength, patterns);
-        RefreshItems();
+        var form = new Forms.Form
+        {
+            Text = _runtime.Translate("MaskDefinitions"),
+            Icon = AppAssets.LoadAppIcon(_runtime.EffectiveTheme),
+            Width = 660,
+            Height = 540,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            FormBorderStyle = Forms.FormBorderStyle.FixedDialog,
+            StartPosition = Forms.FormStartPosition.CenterScreen,
+            Font = DialogFont(9.5f),
+            BackColor = DialogBackgroundColor(),
+            ForeColor = DialogForegroundColor()
+        };
+
+        var root = new Forms.TableLayoutPanel
+        {
+            Dock = Forms.DockStyle.Fill,
+            Padding = new Forms.Padding(20),
+            ColumnCount = 1,
+            RowCount = 4
+        };
+        root.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 64));
+        root.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 88));
+        root.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Percent, 100));
+        root.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 52));
+
+        var description = DialogDescriptionLabel(_runtime.Translate("MaskDefinitionsDescription"));
+        var prefixCard = DialogPanel();
+        var prefixGrid = new Forms.TableLayoutPanel { Dock = Forms.DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
+        prefixGrid.ColumnStyles.Add(new Forms.ColumnStyle(Forms.SizeType.Percent, 100));
+        prefixGrid.ColumnStyles.Add(new Forms.ColumnStyle(Forms.SizeType.Absolute, 118));
+        prefixGrid.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Percent, 50));
+        prefixGrid.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Percent, 50));
+        var prefixBox = new Forms.ComboBox
+        {
+            DropDownStyle = Forms.ComboBoxStyle.DropDownList,
+            Dock = Forms.DockStyle.Right,
+            Width = 104,
+            FlatStyle = Forms.FlatStyle.Flat,
+            BackColor = DialogInputColor(),
+            ForeColor = DialogForegroundColor(),
+            Font = DialogFont(10f)
+        };
+        for (var i = 0; i <= 12; i++)
+        {
+            prefixBox.Items.Add(i.ToString());
+        }
+        prefixBox.SelectedItem = Math.Clamp(_runtime.Settings.MaskVisiblePrefixLength, 0, 12).ToString();
+        prefixGrid.Controls.Add(DialogTitleLabel(_runtime.Translate("MaskVisiblePrefixLength")), 0, 0);
+        prefixGrid.Controls.Add(DialogDescriptionLabel(_runtime.Translate("MaskSensitiveContentDescription")), 0, 1);
+        prefixGrid.Controls.Add(prefixBox, 1, 0);
+        prefixGrid.SetRowSpan(prefixBox, 2);
+        prefixCard.Controls.Add(prefixGrid);
+
+        var patternCard = DialogPanel();
+        var patternGrid = new Forms.TableLayoutPanel { Dock = Forms.DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
+        patternGrid.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 30));
+        patternGrid.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 38));
+        patternGrid.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Percent, 100));
+        var patternBox = DialogTextBox(string.Join(Environment.NewLine, _runtime.Settings.CustomMaskPatterns));
+        patternBox.Multiline = true;
+        patternBox.ScrollBars = Forms.ScrollBars.Vertical;
+        patternBox.AcceptsReturn = true;
+        patternBox.AcceptsTab = true;
+        patternGrid.Controls.Add(DialogTitleLabel(_runtime.Translate("MaskPatternDefinitions")), 0, 0);
+        patternGrid.Controls.Add(DialogDescriptionLabel(_runtime.Translate("MaskDefinitionsDescription")), 0, 1);
+        patternGrid.Controls.Add(patternBox, 0, 2);
+        patternCard.Controls.Add(patternGrid);
+
+        var buttons = new Forms.FlowLayoutPanel
+        {
+            FlowDirection = Forms.FlowDirection.RightToLeft,
+            Dock = Forms.DockStyle.Fill,
+            Padding = new Forms.Padding(0, 12, 0, 0)
+        };
+        var saveButton = DialogButton(_runtime.Translate("Save"), primary: true);
+        var cancelButton = DialogButton(_runtime.Translate("Cancel"), primary: false);
+        cancelButton.DialogResult = Forms.DialogResult.Cancel;
+        cancelButton.Click += (_, _) => form.Close();
+        buttons.Controls.Add(saveButton);
+        buttons.Controls.Add(cancelButton);
+
+        root.Controls.Add(description, 0, 0);
+        root.Controls.Add(prefixCard, 0, 1);
+        root.Controls.Add(patternCard, 0, 2);
+        root.Controls.Add(buttons, 0, 3);
+        form.Controls.Add(root);
+        form.CancelButton = cancelButton;
+        form.Shown += (_, _) => ApplyFormTitleBarTheme(form);
+        saveButton.Click += (_, _) =>
+        {
+            var patterns = patternBox.Lines
+                .Select(line => line.Trim())
+                .Where(line => line.Length > 0)
+                .ToArray();
+            var invalidPatterns = SensitiveContentDetector.GetInvalidCustomPatterns(patterns);
+            if (invalidPatterns.Length > 0)
+            {
+                Forms.MessageBox.Show(
+                    string.Format(_runtime.Translate("MaskDefinitionInvalid"), invalidPatterns[0]),
+                    _runtime.Translate("MaskDefinitions"),
+                    Forms.MessageBoxButtons.OK,
+                    Forms.MessageBoxIcon.Warning);
+                return;
+            }
+
+            var visiblePrefixLength = int.TryParse(prefixBox.SelectedItem?.ToString(), out var parsed)
+                ? Math.Clamp(parsed, 0, 12)
+                : 0;
+            _runtime.SetMaskDefinitionOptions(visiblePrefixLength, patterns);
+            RefreshItems();
+            form.DialogResult = Forms.DialogResult.OK;
+            form.Close();
+        };
+        _maskSettingsForm = form;
+        form.FormClosed += (_, _) =>
+        {
+            if (ReferenceEquals(_maskSettingsForm, form))
+            {
+                _maskSettingsForm = null;
+            }
+        };
+        form.Show(new WindowHandle(_hwnd));
+        form.Activate();
     }
 
     private void ChangeMaxHistoryItems()
@@ -1221,15 +1250,89 @@ public sealed class MainWindow : Window
         ForeColor = IsDark ? System.Drawing.Color.FromArgb(220, 220, 220) : System.Drawing.Color.FromArgb(42, 42, 42)
     };
 
+    private Forms.Label DialogTitleLabel(string text) => new()
+    {
+        Text = text,
+        Dock = Forms.DockStyle.Fill,
+        AutoSize = false,
+        TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+        Font = new System.Drawing.Font(UiFontFamily, 10f, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point),
+        ForeColor = DialogForegroundColor()
+    };
+
+    private Forms.Label DialogDescriptionLabel(string text) => new()
+    {
+        Text = text,
+        Dock = Forms.DockStyle.Fill,
+        AutoSize = false,
+        TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+        Font = DialogFont(9f),
+        ForeColor = DialogMutedColor()
+    };
+
     private Forms.TextBox DialogTextBox(string text) => new()
     {
         Text = text,
         Dock = Forms.DockStyle.Fill,
         Font = DialogFont(10f),
-        BackColor = IsDark ? System.Drawing.Color.FromArgb(43, 43, 43) : System.Drawing.Color.White,
-        ForeColor = IsDark ? System.Drawing.Color.White : System.Drawing.Color.Black,
+        BackColor = DialogInputColor(),
+        ForeColor = DialogForegroundColor(),
         BorderStyle = Forms.BorderStyle.FixedSingle
     };
+
+    private Forms.Panel DialogPanel() => new()
+    {
+        Dock = Forms.DockStyle.Fill,
+        Padding = new Forms.Padding(14),
+        BackColor = DialogCardColor()
+    };
+
+    private Forms.Button DialogButton(string text, bool primary)
+    {
+        var button = new Forms.Button
+        {
+            Text = text,
+            Width = 96,
+            Height = 32,
+            FlatStyle = Forms.FlatStyle.Flat,
+            Font = DialogFont(9.5f),
+            BackColor = primary ? DialogAccentColor() : DialogButtonColor(),
+            ForeColor = primary ? System.Drawing.Color.White : DialogForegroundColor()
+        };
+        button.FlatAppearance.BorderColor = primary ? DialogAccentColor() : DialogBorderColor();
+        button.FlatAppearance.BorderSize = 1;
+        return button;
+    }
+
+    private System.Drawing.Color DialogBackgroundColor() => IsDark
+        ? System.Drawing.Color.FromArgb(31, 31, 31)
+        : System.Drawing.Color.FromArgb(243, 243, 243);
+
+    private System.Drawing.Color DialogCardColor() => IsDark
+        ? System.Drawing.Color.FromArgb(43, 43, 43)
+        : System.Drawing.Color.White;
+
+    private System.Drawing.Color DialogInputColor() => IsDark
+        ? System.Drawing.Color.FromArgb(36, 36, 36)
+        : System.Drawing.Color.White;
+
+    private System.Drawing.Color DialogButtonColor() => IsDark
+        ? System.Drawing.Color.FromArgb(49, 49, 49)
+        : System.Drawing.Color.FromArgb(251, 251, 251);
+
+    private System.Drawing.Color DialogForegroundColor() => IsDark
+        ? System.Drawing.Color.FromArgb(243, 243, 243)
+        : System.Drawing.Color.FromArgb(31, 31, 31);
+
+    private System.Drawing.Color DialogMutedColor() => IsDark
+        ? System.Drawing.Color.FromArgb(200, 200, 200)
+        : System.Drawing.Color.FromArgb(96, 96, 96);
+
+    private System.Drawing.Color DialogBorderColor() => IsDark
+        ? System.Drawing.Color.FromArgb(72, 72, 72)
+        : System.Drawing.Color.FromArgb(205, 205, 205);
+
+    private static System.Drawing.Color DialogAccentColor() => System.Drawing.Color.FromArgb(0, 120, 212);
 
     private static System.Drawing.Font DialogFont(float size) => new(UiFontFamily, size, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
 
@@ -1413,6 +1516,7 @@ public sealed class MainWindow : Window
     {
         var label = _runtime.Translate(labelKey);
         button.Content = CreateSidebarButtonContent(glyph, label);
+        AutomationProperties.SetName(button, label);
         ToolTipService.SetToolTip(button, label);
     }
 
@@ -1457,6 +1561,7 @@ public sealed class MainWindow : Window
                 }
             }
         };
+        AutomationProperties.SetName(button, label);
         ToolTipService.SetToolTip(button, label);
     }
 
