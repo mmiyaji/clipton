@@ -16,6 +16,11 @@ public sealed class CliptonRuntime : IDisposable
 {
     private const int HistorySaveDebounceMilliseconds = 500;
     private const int QuickMenuHotkeyDebounceMilliseconds = 160;
+    private const int TrayMenuItemHeight = 36;
+    private const int TrayMenuItemMinWidth = 168;
+    private const int TrayMenuIconLeft = 13;
+    private const int TrayMenuIconSize = 20;
+    private const int TrayMenuTextLeft = 44;
     private const int TempPasteMaxFiles = 100;
     private static readonly TimeSpan TempPasteMaxAge = TimeSpan.FromHours(24);
     private readonly DispatcherQueue _dispatcherQueue;
@@ -506,10 +511,23 @@ public sealed class CliptonRuntime : IDisposable
     {
         return new Forms.ToolStripMenuItem(text, CreateTrayMenuGlyph(glyph, palette.Icon), onClick)
         {
+            AutoSize = false,
+            DisplayStyle = Forms.ToolStripItemDisplayStyle.ImageAndText,
             ForeColor = palette.Text,
-            Margin = new Forms.Padding(2),
-            Padding = new Forms.Padding(8, 6, 14, 6)
+            ImageAlign = Drawing.ContentAlignment.MiddleCenter,
+            Margin = Forms.Padding.Empty,
+            Padding = Forms.Padding.Empty,
+            Size = new Drawing.Size(GetTrayMenuItemWidth(text), TrayMenuItemHeight),
+            TextAlign = Drawing.ContentAlignment.MiddleLeft,
+            TextImageRelation = Forms.TextImageRelation.ImageBeforeText
         };
+    }
+
+    private static int GetTrayMenuItemWidth(string text)
+    {
+        using var font = new Drawing.Font("Segoe UI Variable Text", 9f, Drawing.FontStyle.Regular, Drawing.GraphicsUnit.Point);
+        var textSize = Forms.TextRenderer.MeasureText(text, font);
+        return Math.Max(TrayMenuItemMinWidth, TrayMenuTextLeft + textSize.Width + 24);
     }
 
     private static Drawing.Bitmap CreateTrayMenuGlyph(string glyph, Drawing.Color color)
@@ -573,6 +591,18 @@ public sealed class CliptonRuntime : IDisposable
             e.Graphics.SmoothingMode = previousMode;
         }
 
+        protected override void OnRenderItemImage(Forms.ToolStripItemImageRenderEventArgs e)
+        {
+            if (e.Image is null)
+            {
+                return;
+            }
+
+            var y = (e.Item.Height - TrayMenuIconSize) / 2;
+            var bounds = new Drawing.Rectangle(TrayMenuIconLeft, y, TrayMenuIconSize, TrayMenuIconSize);
+            e.Graphics.DrawImage(e.Image, bounds);
+        }
+
         protected override void OnRenderSeparator(Forms.ToolStripSeparatorRenderEventArgs e)
         {
             if (e.ToolStrip is null)
@@ -587,8 +617,18 @@ public sealed class CliptonRuntime : IDisposable
 
         protected override void OnRenderItemText(Forms.ToolStripItemTextRenderEventArgs e)
         {
-            e.TextColor = palette.Text;
-            base.OnRenderItemText(e);
+            var textBounds = new Drawing.Rectangle(
+                TrayMenuTextLeft,
+                0,
+                Math.Max(0, e.Item.Width - TrayMenuTextLeft - 16),
+                e.Item.Height);
+            Forms.TextRenderer.DrawText(
+                e.Graphics,
+                e.Text,
+                e.TextFont,
+                textBounds,
+                palette.Text,
+                Forms.TextFormatFlags.Left | Forms.TextFormatFlags.VerticalCenter | Forms.TextFormatFlags.SingleLine | Forms.TextFormatFlags.EndEllipsis | Forms.TextFormatFlags.NoPrefix);
         }
     }
 
