@@ -3,6 +3,7 @@ using Clipton.Core;
 using Microsoft.UI;
 using System.Diagnostics;
 using System.Globalization;
+using System.Linq;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -91,7 +92,7 @@ public sealed class MainWindow : Window
     private Forms.Panel? _historySearchPanel;
     private Forms.TextBox? _historySearchBox;
     private Forms.Form? _maskPatternsOverlay;
-    private Forms.TextBox? _maskPatternsBox;
+    private Forms.RichTextBox? _maskPatternsBox;
     private readonly Button _advancedHistorySearchButton = new();
     private readonly Button _clearHistorySearchButton = new();
     private readonly Button _loadMoreHistoryButton = new();
@@ -602,29 +603,30 @@ public sealed class MainWindow : Window
         _historySearchPanel = new Forms.Panel
         {
             BackColor = backColor,
-            Dock = Forms.DockStyle.Fill
+            Dock = Forms.DockStyle.Fill,
+            Padding = new Forms.Padding(10, 0, 10, 0)
         };
         _historySearchPanel.Paint += (_, args) => PaintNativeInputBorder(args.Graphics, _historySearchPanel, _historySearchBox);
+        _historySearchPanel.Resize += (_, _) => LayoutNativeHistorySearchControls();
         var icon = new Forms.Label
         {
             Text = "\uE721",
-            Font = DialogFont(10f),
+            Font = new System.Drawing.Font("Segoe MDL2 Assets", 10f, System.Drawing.FontStyle.Regular),
             ForeColor = HistorySearchMutedColor(),
             BackColor = backColor,
-            Dock = Forms.DockStyle.Left,
             Width = 32,
             TextAlign = System.Drawing.ContentAlignment.MiddleCenter
         };
         _historySearchBox = new Forms.TextBox
         {
-            Dock = Forms.DockStyle.Fill,
+            AutoSize = false,
             BorderStyle = Forms.BorderStyle.None,
             Font = DialogFont(10f),
             PlaceholderText = _runtime.Translate("SearchPlaceholder"),
             Text = _historySearchQuery,
             BackColor = backColor,
             ForeColor = HistorySearchForeColor(),
-            Margin = new Forms.Padding(0, 8, 8, 0)
+            Margin = new Forms.Padding(0)
         };
         _historySearchBox.Enter += (_, _) => _historySearchPanel.Invalidate();
         _historySearchBox.Leave += (_, _) => _historySearchPanel.Invalidate();
@@ -639,6 +641,7 @@ public sealed class MainWindow : Window
         };
         _historySearchPanel.Controls.Add(_historySearchBox);
         _historySearchPanel.Controls.Add(icon);
+        LayoutNativeHistorySearchControls();
         _historySearchOverlay.Controls.Add(_historySearchPanel);
         _historySearchOverlay.Show(new WindowHandle(_hwnd));
         _historySearchOverlay.Hide();
@@ -660,19 +663,17 @@ public sealed class MainWindow : Window
             ShowInTaskbar = false,
             StartPosition = Forms.FormStartPosition.Manual,
             BackColor = backColor,
-            Padding = new Forms.Padding(8),
+            Padding = new Forms.Padding(12),
             TopMost = false,
             Visible = false
         };
-        _maskPatternsOverlay.Paint += (_, args) => PaintNativeInputBorder(args.Graphics, _maskPatternsOverlay, _maskPatternsBox);
-        _maskPatternsBox = new Forms.TextBox
+        _maskPatternsBox = new Forms.RichTextBox
         {
             Dock = Forms.DockStyle.Fill,
             BorderStyle = Forms.BorderStyle.None,
-            Multiline = true,
-            AcceptsReturn = true,
             AcceptsTab = true,
-            ScrollBars = Forms.ScrollBars.Vertical,
+            DetectUrls = false,
+            ScrollBars = Forms.RichTextBoxScrollBars.None,
             Font = DialogFont(10f),
             Text = string.Join(Environment.NewLine, _runtime.Settings.CustomMaskPatterns),
             BackColor = backColor,
@@ -685,6 +686,31 @@ public sealed class MainWindow : Window
         _maskPatternsOverlay.Show(new WindowHandle(_hwnd));
         _maskPatternsOverlay.Hide();
         PositionNativeChildInputs();
+    }
+
+    private void LayoutNativeHistorySearchControls()
+    {
+        if (_historySearchPanel is null || _historySearchBox is null || _historySearchPanel.Controls.Count < 2)
+        {
+            return;
+        }
+
+        var icon = _historySearchPanel.Controls.OfType<Forms.Label>().FirstOrDefault();
+        if (icon is null)
+        {
+            return;
+        }
+
+        var panelHeight = _historySearchPanel.ClientSize.Height;
+        var panelWidth = _historySearchPanel.ClientSize.Width;
+        var leftPadding = 10;
+        var rightPadding = 10;
+        var iconWidth = 24;
+        var textLeft = leftPadding + iconWidth + 4;
+        icon.SetBounds(leftPadding, 0, iconWidth, panelHeight);
+        var textHeight = Math.Min(22, Math.Max(18, panelHeight - 12));
+        var textTop = Math.Max(0, (panelHeight - textHeight) / 2);
+        _historySearchBox.SetBounds(textLeft, textTop, Math.Max(1, panelWidth - textLeft - rightPadding), textHeight);
     }
 
     private void PositionNativeChildInputs()
@@ -784,22 +810,15 @@ public sealed class MainWindow : Window
         return true;
     }
 
-    private void PaintNativeInputBorder(System.Drawing.Graphics graphics, Forms.Control control, Forms.TextBox? textBox)
+    private void PaintNativeInputBorder(System.Drawing.Graphics graphics, Forms.Control control, Forms.Control? textBox)
     {
         graphics.Clear(HistorySearchBackColor());
-        var focused = textBox?.Focused == true;
-        using var borderPen = new System.Drawing.Pen(focused ? HistorySearchAccentColor() : HistorySearchBorderColor());
+        using var borderPen = new System.Drawing.Pen(HistorySearchBorderColor());
         graphics.DrawRectangle(borderPen, 0, 0, control.ClientSize.Width - 1, control.ClientSize.Height - 1);
-        if (focused)
-        {
-            using var accentPen = new System.Drawing.Pen(HistorySearchAccentColor(), 2);
-            var lineY = control.ClientSize.Height - 2;
-            graphics.DrawLine(accentPen, 2, lineY, control.ClientSize.Width - 3, lineY);
-        }
     }
 
     private System.Drawing.Color HistorySearchBackColor() => IsDark
-        ? System.Drawing.Color.FromArgb(43, 43, 43)
+        ? System.Drawing.Color.FromArgb(45, 45, 45)
         : System.Drawing.Color.White;
 
     private System.Drawing.Color HistorySearchForeColor() => IsDark
@@ -811,12 +830,8 @@ public sealed class MainWindow : Window
         : System.Drawing.Color.FromArgb(96, 96, 96);
 
     private System.Drawing.Color HistorySearchBorderColor() => IsDark
-        ? System.Drawing.Color.FromArgb(72, 72, 72)
+        ? System.Drawing.Color.FromArgb(82, 82, 82)
         : System.Drawing.Color.FromArgb(138, 138, 138);
-
-    private System.Drawing.Color HistorySearchAccentColor() => IsDark
-        ? System.Drawing.Color.FromArgb(96, 205, 255)
-        : System.Drawing.Color.FromArgb(0, 95, 184);
 
     private bool HistoryMatchesSearch(ClipboardSnapshot item)
     {
