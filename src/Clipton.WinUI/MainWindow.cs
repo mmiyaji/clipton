@@ -92,7 +92,8 @@ public sealed class MainWindow : Window
     private Forms.Panel? _historySearchPanel;
     private Forms.TextBox? _historySearchBox;
     private Forms.Form? _maskPatternsOverlay;
-    private Forms.RichTextBox? _maskPatternsBox;
+    private Forms.Panel? _maskPatternsPanel;
+    private Forms.TextBox? _maskPatternsBox;
     private readonly Button _advancedHistorySearchButton = new();
     private readonly Button _clearHistorySearchButton = new();
     private readonly Button _loadMoreHistoryButton = new();
@@ -470,7 +471,7 @@ public sealed class MainWindow : Window
         _historyAdvancedSearchText.Visibility = Visibility.Collapsed;
         _historyAdvancedSearchText.Margin = new Thickness(2, 0, 0, 0);
 
-        var row = new Grid { ColumnSpacing = 8 };
+        var row = new Grid { ColumnSpacing = 12 };
         row.ColumnDefinitions.Add(new ColumnDefinition());
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -516,8 +517,7 @@ public sealed class MainWindow : Window
         _maskPatternsHost.MinHeight = 120;
         _maskPatternsHost.HorizontalAlignment = HorizontalAlignment.Stretch;
         _maskPatternsHost.Background = CardBackground();
-        _maskPatternsHost.BorderBrush = CardBorderBrush();
-        _maskPatternsHost.BorderThickness = new Thickness(1);
+        _maskPatternsHost.BorderThickness = new Thickness(0);
         _maskPatternsHost.CornerRadius = new CornerRadius(4);
         _maskPatternsHost.Loaded += (_, _) => EnsureNativeMaskPatternsBox();
         _maskPatternsHost.SizeChanged += (_, _) => PositionNativeChildInputs();
@@ -528,7 +528,8 @@ public sealed class MainWindow : Window
             Content = _runtime.Translate("Save"),
             MinWidth = 96,
             Height = 32,
-            HorizontalAlignment = HorizontalAlignment.Right
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 2, 0, 0)
         };
         AutomationProperties.SetName(saveButton, _runtime.Translate("Save"));
         saveButton.Click += (_, _) => SaveMaskDefinitions();
@@ -663,26 +664,36 @@ public sealed class MainWindow : Window
             ShowInTaskbar = false,
             StartPosition = Forms.FormStartPosition.Manual,
             BackColor = backColor,
-            Padding = new Forms.Padding(12),
+            Padding = new Forms.Padding(0),
             TopMost = false,
             Visible = false
         };
-        _maskPatternsBox = new Forms.RichTextBox
+        _maskPatternsPanel = new Forms.Panel
+        {
+            BackColor = backColor,
+            Dock = Forms.DockStyle.Fill,
+            Padding = new Forms.Padding(12)
+        };
+        _maskPatternsPanel.Paint += (_, args) => PaintNativeInputBorder(args.Graphics, _maskPatternsPanel, _maskPatternsBox);
+        _maskPatternsBox = new Forms.TextBox
         {
             Dock = Forms.DockStyle.Fill,
             BorderStyle = Forms.BorderStyle.None,
+            Multiline = true,
+            AcceptsReturn = true,
             AcceptsTab = true,
-            DetectUrls = false,
-            ScrollBars = Forms.RichTextBoxScrollBars.None,
+            ScrollBars = Forms.ScrollBars.None,
+            WordWrap = false,
             Font = DialogFont(10f),
             Text = string.Join(Environment.NewLine, _runtime.Settings.CustomMaskPatterns),
             BackColor = backColor,
             ForeColor = HistorySearchForeColor(),
             Visible = true
         };
-        _maskPatternsBox.Enter += (_, _) => _maskPatternsOverlay.Invalidate();
-        _maskPatternsBox.Leave += (_, _) => _maskPatternsOverlay.Invalidate();
-        _maskPatternsOverlay.Controls.Add(_maskPatternsBox);
+        _maskPatternsBox.Enter += (_, _) => _maskPatternsPanel.Invalidate();
+        _maskPatternsBox.Leave += (_, _) => _maskPatternsPanel.Invalidate();
+        _maskPatternsPanel.Controls.Add(_maskPatternsBox);
+        _maskPatternsOverlay.Controls.Add(_maskPatternsPanel);
         _maskPatternsOverlay.Show(new WindowHandle(_hwnd));
         _maskPatternsOverlay.Hide();
         PositionNativeChildInputs();
@@ -813,7 +824,10 @@ public sealed class MainWindow : Window
     private void PaintNativeInputBorder(System.Drawing.Graphics graphics, Forms.Control control, Forms.Control? textBox)
     {
         graphics.Clear(HistorySearchBackColor());
-        using var borderPen = new System.Drawing.Pen(HistorySearchBorderColor());
+        var borderColor = ReferenceEquals(control, _maskPatternsPanel)
+            ? HistorySearchSubtleBorderColor()
+            : HistorySearchBorderColor();
+        using var borderPen = new System.Drawing.Pen(borderColor);
         graphics.DrawRectangle(borderPen, 0, 0, control.ClientSize.Width - 1, control.ClientSize.Height - 1);
     }
 
@@ -832,6 +846,10 @@ public sealed class MainWindow : Window
     private System.Drawing.Color HistorySearchBorderColor() => IsDark
         ? System.Drawing.Color.FromArgb(82, 82, 82)
         : System.Drawing.Color.FromArgb(138, 138, 138);
+
+    private System.Drawing.Color HistorySearchSubtleBorderColor() => IsDark
+        ? System.Drawing.Color.FromArgb(68, 68, 68)
+        : System.Drawing.Color.FromArgb(154, 154, 154);
 
     private bool HistoryMatchesSearch(ClipboardSnapshot item)
     {
@@ -1760,8 +1778,10 @@ public sealed class MainWindow : Window
         if (_maskPatternsBox is not null)
         {
             _maskPatternsOverlay!.BackColor = backColor;
+            _maskPatternsPanel!.BackColor = backColor;
             _maskPatternsBox.BackColor = backColor;
             _maskPatternsBox.ForeColor = foreColor;
+            _maskPatternsPanel.Invalidate();
         }
     }
 
