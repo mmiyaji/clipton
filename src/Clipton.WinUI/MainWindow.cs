@@ -39,6 +39,7 @@ public sealed class MainWindow : Window
     private readonly List<Border> _cards = [];
     private readonly List<Button> _navButtons = [];
     private readonly Dictionary<ToggleSwitch, TextBlock> _toggleStateLabels = [];
+    private readonly List<(TextBlock TextBlock, string Key)> _localizedTextBlocks = [];
     private readonly Button _generalNavButton = new();
     private readonly Button _historyNavButton = new();
     private readonly Button _snippetNavButton = new();
@@ -198,6 +199,8 @@ public sealed class MainWindow : Window
         SetComboBoxText(_themeBox, "light", t("ThemeLight"));
         SetComboBoxText(_themeBox, "dark", t("ThemeDark"));
         SetComboBoxText(_localeBox, "system", t("LanguageSystem"));
+        SetComboBoxText(_localeBox, "en", t("LanguageEnglish"));
+        SetComboBoxText(_localeBox, "ja", t("LanguageJapanese"));
         _startupToggle.IsOn = _runtime.Settings.StartWithWindows;
         _hideSettingsWindowOnStartupToggle.IsOn = _runtime.Settings.HideSettingsWindowOnStartup;
         _pauseCaptureToggle.IsOn = _runtime.Settings.PauseCapture;
@@ -207,6 +210,7 @@ public sealed class MainWindow : Window
         SetComboSelection(_maxHistoryItemsBox, _runtime.Settings.MaxHistoryItems.ToString());
         _folderModeToggle.IsOn = _runtime.Settings.FolderMode;
         RefreshToggleStateLabels();
+        RefreshLocalizedTextBlocks();
         EnsureHotkeyComboItem(_runtime.Settings.Hotkey);
         SetComboSelection(_hotkeyBox, _runtime.Settings.Hotkey);
         SetComboSelection(_themeBox, _runtime.Settings.Theme);
@@ -327,8 +331,8 @@ public sealed class MainWindow : Window
         _generalPage.Children.Add(SettingCard("\uE790", "Theme", "ThemeDescription", _themeBox));
 
         _localeBox.Items.Add(new ComboBoxItem { Tag = "system" });
-        _localeBox.Items.Add(new ComboBoxItem { Content = "English", Tag = "en" });
-        _localeBox.Items.Add(new ComboBoxItem { Content = "Japanese", Tag = "ja" });
+        _localeBox.Items.Add(new ComboBoxItem { Tag = "en" });
+        _localeBox.Items.Add(new ComboBoxItem { Tag = "ja" });
         _localeBox.SelectionChanged += (_, _) =>
         {
             if (_loading || (_localeBox.SelectedItem as ComboBoxItem)?.Tag is not string locale) return;
@@ -498,19 +502,19 @@ public sealed class MainWindow : Window
         var info = new StackPanel { Spacing = 10 };
         info.Children.Add(InfoRow("Product", "Clipton"));
         info.Children.Add(InfoRow("Version", _runtime.AppVersion));
-        info.Children.Add(InfoRow("Package", _runtime.PackageStatus));
+        info.Children.Add(_runtime.PackageStatus == "Unpackaged"
+            ? InfoRow("Package", string.Empty, "PackageUnpackaged")
+            : InfoRow("Package", _runtime.PackageStatus));
         info.Children.Add(InfoRow("Publisher", "Clipton"));
         info.Children.Add(InfoRow("Author", "Clipton contributors"));
-        info.Children.Add(InfoRow("License", _runtime.Translate("LicenseValue")));
+        info.Children.Add(InfoRow("License", string.Empty, "LicenseValue"));
         _aboutPage.Children.Add(Card(info));
 
         var documents = new StackPanel { Spacing = 10 };
-        documents.Children.Add(new TextBlock
-        {
-            Text = _runtime.Translate("LegalDescription"),
-            Foreground = DescriptionBrush(),
-            TextWrapping = TextWrapping.Wrap
-        });
+        documents.Children.Add(LocalizedText("LegalDescription",
+            fontSize: 14,
+            foreground: DescriptionBrush(),
+            wrapping: TextWrapping.Wrap));
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Spacing = 8 };
         _termsButton.Click += (_, _) => OpenExternalUrl(TermsUrl);
         _privacyButton.Click += (_, _) => OpenExternalUrl(PrivacyUrl);
@@ -1068,8 +1072,8 @@ public sealed class MainWindow : Window
         grid.Children.Add(IconCircle(glyph));
 
         var texts = new StackPanel { Spacing = 3 };
-        texts.Children.Add(new TextBlock { Text = _runtime.Translate(titleKey), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        texts.Children.Add(new TextBlock { Text = _runtime.Translate(descriptionKey), FontSize = 12, Foreground = DescriptionBrush(), TextWrapping = TextWrapping.Wrap });
+        texts.Children.Add(LocalizedText(titleKey, fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
+        texts.Children.Add(LocalizedText(descriptionKey, fontSize: 12, foreground: DescriptionBrush(), wrapping: TextWrapping.Wrap));
         Grid.SetColumn(texts, 1);
         grid.Children.Add(texts);
         Grid.SetColumn(actionControl, 2);
@@ -1120,6 +1124,14 @@ public sealed class MainWindow : Window
         }
     }
 
+    private void RefreshLocalizedTextBlocks()
+    {
+        foreach (var (textBlock, key) in _localizedTextBlocks)
+        {
+            textBlock.Text = _runtime.Translate(key);
+        }
+    }
+
     private void UpdateToggleStateLabel(ToggleSwitch toggle)
     {
         if (_toggleStateLabels.TryGetValue(toggle, out var label))
@@ -1128,22 +1140,19 @@ public sealed class MainWindow : Window
         }
     }
 
-    private UIElement InfoRow(string labelKey, string value)
+    private UIElement InfoRow(string labelKey, string value, string? valueKey = null)
     {
         var grid = new Grid { ColumnSpacing = 16 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
-        grid.Children.Add(new TextBlock
-        {
-            Text = _runtime.Translate(labelKey),
-            Foreground = DescriptionBrush(),
-            TextWrapping = TextWrapping.Wrap
-        });
-        var valueText = new TextBlock
-        {
-            Text = value,
-            TextWrapping = TextWrapping.Wrap
-        };
+        grid.Children.Add(LocalizedText(labelKey, foreground: DescriptionBrush(), wrapping: TextWrapping.Wrap));
+        var valueText = valueKey is null
+            ? new TextBlock
+            {
+                Text = value,
+                TextWrapping = TextWrapping.Wrap
+            }
+            : LocalizedText(valueKey, wrapping: TextWrapping.Wrap);
         Grid.SetColumn(valueText, 1);
         grid.Children.Add(valueText);
         return grid;
@@ -1244,14 +1253,47 @@ public sealed class MainWindow : Window
         };
     }
 
-    private UIElement SectionHeader(string key) => new TextBlock
+    private UIElement SectionHeader(string key)
     {
-        Text = _runtime.Translate(key),
-        FontSize = 13,
-        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-        Foreground = DescriptionBrush(),
-        Margin = new Thickness(1, 6, 0, -8)
-    };
+        var text = LocalizedText(
+            key,
+            fontSize: 13,
+            fontWeight: Microsoft.UI.Text.FontWeights.SemiBold,
+            foreground: DescriptionBrush());
+        text.Margin = new Thickness(1, 6, 0, -8);
+        return text;
+    }
+
+    private TextBlock LocalizedText(
+        string key,
+        double? fontSize = null,
+        Windows.UI.Text.FontWeight? fontWeight = null,
+        Brush? foreground = null,
+        TextWrapping wrapping = TextWrapping.NoWrap)
+    {
+        var textBlock = new TextBlock
+        {
+            Text = _runtime.Translate(key),
+            TextWrapping = wrapping
+        };
+        if (fontSize is not null)
+        {
+            textBlock.FontSize = fontSize.Value;
+        }
+
+        if (fontWeight is not null)
+        {
+            textBlock.FontWeight = fontWeight.Value;
+        }
+
+        if (foreground is not null)
+        {
+            textBlock.Foreground = foreground;
+        }
+
+        _localizedTextBlocks.Add((textBlock, key));
+        return textBlock;
+    }
 
     private UIElement IconCircle(string glyph) => new Border
     {

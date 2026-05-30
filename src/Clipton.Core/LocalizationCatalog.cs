@@ -109,11 +109,19 @@ public sealed class LocalizationCatalog
                     ["Language"] = "Language",
                     ["LanguageDescription"] = "Choose the display language for Clipton.",
                     ["LanguageSystem"] = "Use system setting",
+                    ["LanguageEnglish"] = "English",
+                    ["LanguageJapanese"] = "Japanese",
                     ["Theme"] = "Theme",
                     ["ThemeDescription"] = "Choose the window color theme.",
                     ["ThemeSystem"] = "Use system setting",
                     ["ThemeLight"] = "Light",
-                    ["ThemeDark"] = "Dark"
+                    ["ThemeDark"] = "Dark",
+                    ["PackageUnpackaged"] = "Unpackaged",
+                    ["FormatText"] = "Text",
+                    ["FormatRichText"] = "Rich text",
+                    ["FormatHtml"] = "HTML",
+                    ["FormatFileDrop"] = "Files",
+                    ["ClipboardItem"] = "Clipboard item"
                 }),
                 ["ja"] = new ReadOnlyDictionary<string, string>(new Dictionary<string, string>
                 {
@@ -213,11 +221,19 @@ public sealed class LocalizationCatalog
                     ["Language"] = "\u8A00\u8A9E",
                     ["LanguageDescription"] = "Clipton \u306E\u8868\u793A\u8A00\u8A9E\u3092\u9078\u629E\u3057\u307E\u3059\u3002",
                     ["LanguageSystem"] = "\u30B7\u30B9\u30C6\u30E0\u8A2D\u5B9A\u3092\u4F7F\u7528",
+                    ["LanguageEnglish"] = "\u82F1\u8A9E",
+                    ["LanguageJapanese"] = "\u65E5\u672C\u8A9E",
                     ["Theme"] = "\u30C6\u30FC\u30DE",
                     ["ThemeDescription"] = "\u30A6\u30A3\u30F3\u30C9\u30A6\u306E\u8272\u30C6\u30FC\u30DE\u3092\u9078\u629E\u3057\u307E\u3059\u3002",
                     ["ThemeSystem"] = "\u30B7\u30B9\u30C6\u30E0\u8A2D\u5B9A\u3092\u4F7F\u7528",
                     ["ThemeLight"] = "\u30E9\u30A4\u30C8",
-                    ["ThemeDark"] = "\u30C0\u30FC\u30AF"
+                    ["ThemeDark"] = "\u30C0\u30FC\u30AF",
+                    ["PackageUnpackaged"] = "\u672A\u30D1\u30C3\u30B1\u30FC\u30B8",
+                    ["FormatText"] = "\u30C6\u30AD\u30B9\u30C8",
+                    ["FormatRichText"] = "\u30EA\u30C3\u30C1\u30C6\u30AD\u30B9\u30C8",
+                    ["FormatHtml"] = "HTML",
+                    ["FormatFileDrop"] = "\u30D5\u30A1\u30A4\u30EB",
+                    ["ClipboardItem"] = "\u30AF\u30EA\u30C3\u30D7\u30DC\u30FC\u30C9\u9805\u76EE"
                 })
             });
     }

@@ -1099,7 +1099,7 @@ public sealed class CliptonRuntime : IDisposable
 
     public HistoryItemViewModel CreateHistoryItemViewModel(ClipboardSnapshot snapshot)
     {
-        var formats = string.Join(", ", snapshot.Formats);
+        var formats = CreateFormatSummary(snapshot.Formats);
         var plainText = ClipboardBridge.GetPlainText(snapshot);
         var snippet = Snippets.FindByText(plainText);
         if (snippet is not null)
@@ -1135,11 +1135,52 @@ public sealed class CliptonRuntime : IDisposable
             : MaskedHistoryKind.None;
     }
 
-    private static string CreatePreviewText(ClipboardSnapshot snapshot, string? plainText)
+    private string CreatePreviewText(ClipboardSnapshot snapshot, string? plainText)
     {
-        return string.IsNullOrWhiteSpace(plainText)
-            ? snapshot.Preview
-            : NormalizePreviewText(plainText);
+        if (!string.IsNullOrWhiteSpace(plainText))
+        {
+            return NormalizePreviewText(plainText);
+        }
+
+        if (snapshot.FilePaths.Count > 0)
+        {
+            return string.Join(", ", snapshot.FilePaths.Select(Path.GetFileName));
+        }
+
+        if (snapshot.ImagePng is { Length: > 0 })
+        {
+            return Translate("Image");
+        }
+
+        if (!string.IsNullOrWhiteSpace(snapshot.Rtf))
+        {
+            return Translate("FormatRichText");
+        }
+
+        if (!string.IsNullOrWhiteSpace(snapshot.Html))
+        {
+            return Translate("FormatHtml");
+        }
+
+        return Translate("ClipboardItem");
+    }
+
+    private string CreateFormatSummary(IEnumerable<ClipboardFormatKind> formats)
+    {
+        return string.Join(", ", formats.Select(TranslateFormat));
+    }
+
+    private string TranslateFormat(ClipboardFormatKind format)
+    {
+        return format switch
+        {
+            ClipboardFormatKind.Text => Translate("FormatText"),
+            ClipboardFormatKind.RichText => Translate("FormatRichText"),
+            ClipboardFormatKind.Html => Translate("FormatHtml"),
+            ClipboardFormatKind.Image => Translate("Image"),
+            ClipboardFormatKind.FileDrop => Translate("FormatFileDrop"),
+            _ => format.ToString()
+        };
     }
 
     private static string NormalizePreviewText(string text)
