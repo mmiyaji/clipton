@@ -86,6 +86,28 @@ public sealed class CliptonRuntime : IDisposable
         CaptureClipboard();
     }
 
+    public void ShowStartupWindowIfNeeded(bool forceShow)
+    {
+        if (forceShow)
+        {
+            MarkInitialLaunchCompleted();
+            ShowMainWindow();
+            return;
+        }
+
+        if (!Settings.InitialLaunchCompleted)
+        {
+            MarkInitialLaunchCompleted();
+            ShowMainWindow();
+            return;
+        }
+
+        if (!Settings.HideSettingsWindowOnStartup)
+        {
+            ShowMainWindow();
+        }
+    }
+
     public void ShowMainWindow()
     {
         _mainWindow ??= new MainWindow(this);
@@ -183,6 +205,12 @@ public sealed class CliptonRuntime : IDisposable
             Settings.StartWithWindows = previous;
         }
 
+        SaveSettings();
+    }
+
+    public void SetHideSettingsWindowOnStartup(bool enabled)
+    {
+        Settings.HideSettingsWindowOnStartup = enabled;
         SaveSettings();
     }
 
@@ -578,6 +606,17 @@ public sealed class CliptonRuntime : IDisposable
     private void SaveSettings()
     {
         _settingsStore.Save(Settings);
+    }
+
+    private void MarkInitialLaunchCompleted()
+    {
+        if (Settings.InitialLaunchCompleted)
+        {
+            return;
+        }
+
+        Settings.InitialLaunchCompleted = true;
+        SaveSettings();
     }
 
     private static string NormalizeLocale(string locale)

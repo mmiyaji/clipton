@@ -49,6 +49,7 @@ public sealed class MainWindow : Window
     private readonly ComboBox _themeBox = new();
     private readonly ComboBox _localeBox = new();
     private readonly ToggleSwitch _startupToggle = CompactToggle();
+    private readonly ToggleSwitch _hideSettingsWindowOnStartupToggle = CompactToggle();
     private readonly ToggleSwitch _pauseCaptureToggle = CompactToggle();
     private readonly ToggleSwitch _persistHistoryToggle = CompactToggle();
     private readonly ToggleSwitch _maskSensitiveContentToggle = CompactToggle();
@@ -183,6 +184,7 @@ public sealed class MainWindow : Window
         SetComboBoxText(_themeBox, "dark", t("ThemeDark"));
         SetComboBoxText(_localeBox, "system", t("LanguageSystem"));
         _startupToggle.IsOn = _runtime.Settings.StartWithWindows;
+        _hideSettingsWindowOnStartupToggle.IsOn = _runtime.Settings.HideSettingsWindowOnStartup;
         _pauseCaptureToggle.IsOn = _runtime.Settings.PauseCapture;
         _persistHistoryToggle.IsOn = _runtime.Settings.PersistEncryptedHistory;
         _maskSensitiveContentToggle.IsOn = _runtime.Settings.MaskSensitiveContent;
@@ -291,6 +293,8 @@ public sealed class MainWindow : Window
 
         _startupToggle.Toggled += async (_, _) => await SetStartupAsync();
         _generalPage.Children.Add(SettingCard("\uE7C3", "Startup", "StartupDescription", _startupToggle));
+        _hideSettingsWindowOnStartupToggle.Toggled += (_, _) => SaveStartupWindowOptions();
+        _generalPage.Children.Add(SettingCard("\uE8BB", "HideSettingsWindowOnStartup", "HideSettingsWindowOnStartupDescription", _hideSettingsWindowOnStartupToggle));
 
         _generalPage.Children.Add(SectionHeader("QuickMenuSection"));
         _folderModeToggle.Toggled += (_, _) => SaveHistoryOptions();
@@ -489,6 +493,12 @@ public sealed class MainWindow : Window
         if (_loading) return;
         await _runtime.SetStartWithWindowsAsync(_startupToggle.IsOn);
         RefreshTexts();
+    }
+
+    private void SaveStartupWindowOptions()
+    {
+        if (_loading) return;
+        _runtime.SetHideSettingsWindowOnStartup(_hideSettingsWindowOnStartupToggle.IsOn);
     }
 
     private void TryApplyHotkey(string hotkey)

@@ -14,6 +14,8 @@ public sealed class SettingsStoreTests
 
         Assert.True(loaded.PersistEncryptedHistory);
         Assert.Equal(200, loaded.MaxHistoryItems);
+        Assert.True(loaded.HideSettingsWindowOnStartup);
+        Assert.False(loaded.InitialLaunchCompleted);
     }
 
     [Fact]
@@ -53,6 +55,8 @@ public sealed class SettingsStoreTests
             Hotkey = "Ctrl+Alt+V",
             FolderMode = true,
             HistoryPersistenceConfigured = true,
+            HideSettingsWindowOnStartup = false,
+            InitialLaunchCompleted = true,
             Locale = "ja",
             MaxHistoryItems = 42,
             PauseCapture = true,
@@ -69,6 +73,8 @@ public sealed class SettingsStoreTests
         Assert.Equal("ja", loaded.Locale);
         Assert.Equal("dark", loaded.Theme);
         Assert.True(loaded.HistoryPersistenceConfigured);
+        Assert.False(loaded.HideSettingsWindowOnStartup);
+        Assert.True(loaded.InitialLaunchCompleted);
         Assert.Equal(42, loaded.MaxHistoryItems);
         Assert.True(loaded.PauseCapture);
         Assert.True(loaded.PastePlainTextByDefault);

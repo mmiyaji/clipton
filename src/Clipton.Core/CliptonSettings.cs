@@ -6,6 +6,10 @@ public sealed class CliptonSettings
 
     public bool StartWithWindows { get; set; }
 
+    public bool HideSettingsWindowOnStartup { get; set; } = true;
+
+    public bool InitialLaunchCompleted { get; set; }
+
     public bool PastePlainTextByDefault { get; set; }
 
     public bool PauseCapture { get; set; }
