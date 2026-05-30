@@ -543,11 +543,13 @@ public sealed class QuickMenuWindow : Window
             };
             if (item.PasteOptions is { Count: > 0 })
             {
-                flyoutItem.ContextFlyout = CreatePasteOptionsFlyout(item);
-                flyoutItem.RightTapped += (_, _) =>
+                var pasteOptionsFlyout = CreatePasteOptionsFlyout(item);
+                flyoutItem.ContextFlyout = pasteOptionsFlyout;
+                flyoutItem.RightTapped += (_, args) =>
                 {
-                    SyncFocusedIndex();
-                    FocusMenuItem(IndexOf(_activeFocusableItems, flyoutItem));
+                    args.Handled = true;
+                    FocusMenuItemInCurrentContext(flyoutItem);
+                    pasteOptionsFlyout.ShowAt(flyoutItem);
                 };
             }
 
@@ -587,6 +589,23 @@ public sealed class QuickMenuWindow : Window
         }
 
         return flyout;
+    }
+
+    private void FocusMenuItemInCurrentContext(MenuFlyoutItemBase flyoutItem)
+    {
+        if (_parentItem.TryGetValue(flyoutItem, out var parent)
+            && _childFocusableItems.TryGetValue(parent, out var childItems))
+        {
+            _activeFocusableItems = childItems;
+            _activeParent = parent;
+        }
+        else
+        {
+            _activeFocusableItems = _rootFocusableItems;
+            _activeParent = null;
+        }
+
+        FocusMenuItem(IndexOf(_activeFocusableItems, flyoutItem));
     }
 
     private string BuildDisplayText(QuickMenuItem item)
