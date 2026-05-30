@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Clipton.Core;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -450,8 +451,8 @@ public sealed class QuickMenuWindow : Window
         using var form = new Forms.Form
         {
             Text = _searchTitle,
-            Width = 420,
-            Height = 150,
+            Width = 560,
+            Height = 170,
             MinimizeBox = false,
             MaximizeBox = false,
             FormBorderStyle = Forms.FormBorderStyle.FixedDialog,
@@ -479,7 +480,7 @@ public sealed class QuickMenuWindow : Window
             ColumnCount = 1,
             RowCount = 3
         };
-        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 30));
+        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 50));
         layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 32));
         layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 42));
         layout.Controls.Add(new Forms.Label { Text = _searchPrompt, Dock = Forms.DockStyle.Fill, TextAlign = System.Drawing.ContentAlignment.MiddleLeft }, 0, 0);
@@ -547,9 +548,17 @@ public sealed class QuickMenuWindow : Window
 
     private static bool MatchesSearch(QuickMenuItem item, string query)
     {
-        return item.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
-            || item.Subtitle.Contains(query, StringComparison.OrdinalIgnoreCase)
-            || item.KindLabel.Contains(query, StringComparison.OrdinalIgnoreCase);
+        var filter = SearchFilter.Parse(query);
+        if (filter.IsEmpty)
+        {
+            return true;
+        }
+
+        return filter.MatchesDate(item.CapturedAt ?? DateTimeOffset.Now)
+            && filter.MatchesPinned(item.IsPinned)
+            && filter.MatchesUrl(CliptonRuntime.ExtractUrls($"{item.Title} {item.Subtitle} {item.RevealedTitle}").Length > 0)
+            && filter.MatchesType(item.Formats ?? [])
+            && filter.MatchesText(() => $"{item.Title} {item.Subtitle} {item.KindLabel} {item.RevealedTitle}");
     }
 
     private void AddItems(IList<MenuFlyoutItemBase> target, IReadOnlyList<QuickMenuItem> items, MenuFlyoutSubItem? parent)
@@ -1092,7 +1101,9 @@ public sealed record QuickMenuItem(
     string? IconFontFamily = null,
     string? IconImagePath = null,
     string? RevealedTitle = null,
-    DateTimeOffset? CapturedAt = null)
+    DateTimeOffset? CapturedAt = null,
+    bool IsPinned = false,
+    IReadOnlyCollection<ClipboardFormatKind>? Formats = null)
 {
     private IReadOnlyList<QuickMenuItem>? _resolvedChildren = Children;
 

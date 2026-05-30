@@ -1218,7 +1218,9 @@ public sealed class CliptonRuntime : IDisposable
             IconFontFamily: GetHistoryIconFontFamily(item),
             IconImagePath: SaveHistoryThumbnail(item),
             RevealedTitle: revealedHeader,
-            CapturedAt: item.CapturedAt);
+            CapturedAt: item.CapturedAt,
+            IsPinned: IsHistoryPinned(item.Id),
+            Formats: item.Formats);
     }
 
     private string GetHistoryIconGlyph(ClipboardSnapshot item)
@@ -1483,7 +1485,7 @@ public sealed class CliptonRuntime : IDisposable
             : new QuickMenuPasteOption(Translate("PinHistory"), "\uE718", () => TogglePinnedHistoryItem(historyId));
     }
 
-    private static string[] ExtractUrls(string text)
+    public static string[] ExtractUrls(string text)
     {
         return UrlRegex.Matches(text)
             .Select(match => match.Value.TrimEnd('.', ',', ';', ':', '!', '?', ')', ']'))

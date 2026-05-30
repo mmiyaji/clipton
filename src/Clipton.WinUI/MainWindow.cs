@@ -413,26 +413,28 @@ public sealed class MainWindow : Window
 
     private bool HistoryMatchesSearch(ClipboardSnapshot item)
     {
-        if (string.IsNullOrWhiteSpace(_historySearchQuery))
-        {
-            return true;
-        }
-
-        var formats = string.Join(", ", item.Formats);
-        if (formats.Contains(_historySearchQuery, StringComparison.OrdinalIgnoreCase))
+        var filter = SearchFilter.Parse(_historySearchQuery);
+        if (filter.IsEmpty)
         {
             return true;
         }
 
         var plainText = ClipboardBridge.GetPlainText(item);
-        var snippet = _runtime.Snippets.FindByText(plainText);
-        if (snippet is not null)
+        if (!filter.MatchesDate(item.CapturedAt)
+            || !filter.MatchesPinned(_runtime.IsHistoryPinned(item.Id))
+            || !filter.MatchesType(item.Formats)
+            || !filter.MatchesUrl(CliptonRuntime.ExtractUrls(plainText ?? string.Empty).Length > 0))
         {
-            return snippet.DisplayName.Contains(_historySearchQuery, StringComparison.OrdinalIgnoreCase);
+            return false;
         }
 
-        var preview = _runtime.CreateHistoryItemViewModel(item).Preview;
-        return preview.Contains(_historySearchQuery, StringComparison.OrdinalIgnoreCase);
+        return filter.MatchesText(() =>
+        {
+            var formats = string.Join(" ", item.Formats);
+            var snippet = _runtime.Snippets.FindByText(plainText);
+            var preview = _runtime.CreateHistoryItemViewModel(item).Preview;
+            return $"{formats} {snippet?.DisplayName} {preview} {plainText} {string.Join(" ", item.FilePaths)}";
+        });
     }
 
     private void SearchHistory()
@@ -888,8 +890,8 @@ public sealed class MainWindow : Window
         {
             Text = title,
             Icon = AppAssets.LoadAppIcon(_runtime.EffectiveTheme),
-            Width = 440,
-            Height = 170,
+            Width = 560,
+            Height = 190,
             MinimizeBox = false,
             MaximizeBox = false,
             FormBorderStyle = Forms.FormBorderStyle.FixedDialog,
@@ -905,7 +907,7 @@ public sealed class MainWindow : Window
             ColumnCount = 1,
             RowCount = 3
         };
-        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 32));
+        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 52));
         layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 34));
         layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 44));
 
