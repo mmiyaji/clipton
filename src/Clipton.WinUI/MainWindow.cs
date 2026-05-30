@@ -16,11 +16,17 @@ public sealed class MainWindow : Window
 {
     private const int HistoryDisplayBatchSize = 50;
     private const double SettingsPageMaxWidth = 920;
+    private const double SidebarExpandedWidth = 248;
+    private const double SidebarCollapsedWidth = 72;
+    private const double ContentMinWidth = 680;
     private const double SettingControlHeight = 36;
     private const string TermsUrl = "https://mmiyaji.github.io/clipton/terms/";
     private const string PrivacyUrl = "https://mmiyaji.github.io/clipton/privacy/";
     private readonly CliptonRuntime _runtime;
     private readonly Grid _root = new();
+    private readonly ColumnDefinition _sidebarColumn = new() { Width = new GridLength(SidebarExpandedWidth) };
+    private readonly ColumnDefinition _contentColumn = new() { Width = new GridLength(1, GridUnitType.Star), MinWidth = ContentMinWidth };
+    private readonly Grid _sidebarFrame = new();
     private readonly StackPanel _sidebar = new() { Padding = new Thickness(18, 22, 14, 18), Spacing = 12 };
     private readonly StackPanel _generalPage = SettingsPage();
     private readonly StackPanel _historyPage = SettingsPage();
@@ -35,8 +41,11 @@ public sealed class MainWindow : Window
     private readonly Button _historyNavButton = new();
     private readonly Button _snippetNavButton = new();
     private readonly Button _aboutNavButton = new();
+    private readonly Button _sidebarToggleButton = new();
     private readonly TextBlock _titleText = Header(20);
     private readonly TextBlock _hotkeyText = Description();
+    private readonly UIElement _brandHeader;
+    private readonly Border _hotkeyPill;
     private readonly TextBlock _generalHeaderText = Header();
     private readonly TextBlock _generalDescriptionText = Description();
     private readonly TextBlock _historyHeaderText = Header();
@@ -78,6 +87,7 @@ public sealed class MainWindow : Window
     private int _historyVisibleLimit = HistoryDisplayBatchSize;
     private bool _loading;
     private int _selectedPageIndex;
+    private bool _sidebarCollapsed;
     private Microsoft.UI.Windowing.AppWindow? _appWindow;
     private readonly NativeMethods.WindowProc _windowProc;
     private IntPtr _hwnd;
@@ -87,6 +97,8 @@ public sealed class MainWindow : Window
     public MainWindow(CliptonRuntime runtime)
     {
         _runtime = runtime;
+        _brandHeader = BuildBrandHeader();
+        _hotkeyPill = Pill(_hotkeyText);
         _windowProc = WindowProc;
         Title = "Clipton";
         BuildUi();
@@ -156,10 +168,8 @@ public sealed class MainWindow : Window
         var t = _runtime.Translate;
         _titleText.Text = t("AppName");
         _hotkeyText.Text = $"{t("Hotkey")}: {_runtime.Settings.Hotkey}";
-        _generalNavButton.Content = t("General");
-        _historyNavButton.Content = t("History");
-        _snippetNavButton.Content = t("Snippets");
-        _aboutNavButton.Content = t("About");
+        UpdateNavButtonContents();
+        UpdateSidebarToggleContent();
         _generalHeaderText.Text = t("General");
         _generalDescriptionText.Text = t("GeneralDescription");
         _historyHeaderText.Text = t("History");
@@ -207,18 +217,21 @@ public sealed class MainWindow : Window
 
     private void BuildUi()
     {
-        _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(248) });
-        _root.ColumnDefinitions.Add(new ColumnDefinition());
+        _root.ColumnDefinitions.Add(_sidebarColumn);
+        _root.ColumnDefinitions.Add(_contentColumn);
         Content = _root;
 
-        Grid.SetColumn(_sidebar, 0);
-        _sidebar.Children.Add(BuildBrandHeader());
+        Grid.SetColumn(_sidebarFrame, 0);
+        _sidebarFrame.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        _sidebarFrame.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _sidebar.Children.Add(_brandHeader);
         _hotkeyText.Margin = new Thickness(8, 0, 8, 4);
-        _sidebar.Children.Add(Pill(_hotkeyText));
+        _sidebar.Children.Add(_hotkeyPill);
         _generalNavButton.Click += (_, _) => SelectPage(0);
         _historyNavButton.Click += (_, _) => SelectPage(1);
         _snippetNavButton.Click += (_, _) => SelectPage(2);
         _aboutNavButton.Click += (_, _) => SelectPage(3);
+        _sidebarToggleButton.Click += (_, _) => SetSidebarCollapsed(!_sidebarCollapsed);
         _navButtons.AddRange([_generalNavButton, _historyNavButton, _snippetNavButton, _aboutNavButton]);
         foreach (var button in _navButtons)
         {
@@ -231,11 +244,24 @@ public sealed class MainWindow : Window
         _sidebar.Children.Add(_historyNavButton);
         _sidebar.Children.Add(_snippetNavButton);
         _sidebar.Children.Add(_aboutNavButton);
-        _root.Children.Add(_sidebar);
+        _sidebarFrame.Children.Add(_sidebar);
+        Grid.SetRow(_sidebarToggleButton, 1);
+        _sidebarToggleButton.Margin = new Thickness(18, 0, 14, 18);
+        _sidebarToggleButton.HorizontalAlignment = HorizontalAlignment.Stretch;
+        _sidebarToggleButton.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        _sidebarToggleButton.Padding = new Thickness(10, 9, 10, 9);
+        _sidebarFrame.Children.Add(_sidebarToggleButton);
+        _root.Children.Add(_sidebarFrame);
 
-        var scroller = new ScrollViewer { Padding = new Thickness(36, 30, 36, 42), VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        var scroller = new ScrollViewer
+        {
+            MinWidth = ContentMinWidth,
+            Padding = new Thickness(36, 30, 36, 42),
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+        };
         Grid.SetColumn(scroller, 1);
-        var contentHost = new Grid { HorizontalAlignment = HorizontalAlignment.Left };
+        var contentHost = new Grid { HorizontalAlignment = HorizontalAlignment.Left, MinWidth = ContentMinWidth };
         scroller.Content = contentHost;
         scroller.SizeChanged += (_, e) => UpdateSettingsPageWidth(Math.Max(0, e.NewSize.Width - scroller.Padding.Left - scroller.Padding.Right));
         contentHost.Children.Add(_generalPage);
@@ -882,12 +908,91 @@ public sealed class MainWindow : Window
         }
     }
 
+    private void SetSidebarCollapsed(bool collapsed)
+    {
+        _sidebarCollapsed = collapsed;
+        _sidebarColumn.Width = new GridLength(collapsed ? SidebarCollapsedWidth : SidebarExpandedWidth);
+        _sidebar.Padding = collapsed ? new Thickness(10, 22, 10, 18) : new Thickness(18, 22, 14, 18);
+        _sidebar.Spacing = collapsed ? 10 : 12;
+        _titleText.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+        _hotkeyPill.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+        _sidebarToggleButton.Margin = collapsed ? new Thickness(10, 0, 10, 18) : new Thickness(18, 0, 14, 18);
+        foreach (var button in _navButtons)
+        {
+            button.HorizontalContentAlignment = collapsed ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
+            button.Padding = collapsed ? new Thickness(9) : new Thickness(10, 9, 10, 9);
+        }
+
+        UpdateNavButtonContents();
+        UpdateSidebarToggleContent();
+    }
+
+    private void UpdateNavButtonContents()
+    {
+        SetNavButtonContent(_generalNavButton, "\uE80F", "General");
+        SetNavButtonContent(_historyNavButton, "\uE81C", "History");
+        SetNavButtonContent(_snippetNavButton, "\uE8C8", "Snippets");
+        SetNavButtonContent(_aboutNavButton, "\uE946", "About");
+    }
+
+    private void SetNavButtonContent(Button button, string glyph, string labelKey)
+    {
+        var label = _runtime.Translate(labelKey);
+        button.Content = CreateSidebarButtonContent(glyph, label);
+        ToolTipService.SetToolTip(button, label);
+    }
+
+    private void UpdateSidebarToggleContent()
+    {
+        var key = _sidebarCollapsed ? "SidebarExpand" : "SidebarCollapse";
+        var label = _runtime.Translate(key);
+        _sidebarToggleButton.Content = CreateSidebarButtonContent(_sidebarCollapsed ? "\uE76C" : "\uE76B", label);
+        _sidebarToggleButton.HorizontalContentAlignment = _sidebarCollapsed ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
+        _sidebarToggleButton.Padding = _sidebarCollapsed ? new Thickness(9) : new Thickness(10, 9, 10, 9);
+        ToolTipService.SetToolTip(_sidebarToggleButton, label);
+    }
+
+    private UIElement CreateSidebarButtonContent(string glyph, string label)
+    {
+        if (_sidebarCollapsed)
+        {
+            return new FontIcon
+            {
+                Glyph = glyph,
+                FontFamily = new FontFamily("Segoe Fluent Icons"),
+                FontSize = 16
+            };
+        }
+
+        var grid = new Grid { ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.Children.Add(new FontIcon
+        {
+            Glyph = glyph,
+            FontFamily = new FontFamily("Segoe Fluent Icons"),
+            FontSize = 16,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        var text = new TextBlock
+        {
+            Text = label,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(text, 1);
+        grid.Children.Add(text);
+        return grid;
+    }
+
     private void ApplyTheme()
     {
         var dark = IsDark;
         _root.RequestedTheme = dark ? ElementTheme.Dark : ElementTheme.Light;
         _root.Background = Brush(dark ? "#202020" : "#F5F5F5");
         _sidebar.Background = Brush(dark ? "#171717" : "#F7F7F7");
+        _sidebarFrame.Background = Brush(dark ? "#171717" : "#F7F7F7");
         ApplyTitleBarTheme();
         ApplyWindowIcon();
         foreach (var card in _cards)
@@ -896,6 +1001,7 @@ public sealed class MainWindow : Window
             card.BorderBrush = CardBorderBrush();
         }
         SelectPage(_selectedPageIndex);
+        UpdateSidebarToggleContent();
     }
 
     private bool IsDark => string.Equals(_runtime.EffectiveTheme, "dark", StringComparison.OrdinalIgnoreCase);
