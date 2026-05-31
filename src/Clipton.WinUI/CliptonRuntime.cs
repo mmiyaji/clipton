@@ -1303,7 +1303,8 @@ public sealed class CliptonRuntime : IDisposable
             return catalog;
         }
 
-        var snippets = JsonSerializer.Deserialize<Snippet[]>(File.ReadAllText(path)) ?? [];
+        using var stream = File.OpenRead(path);
+        var snippets = JsonSerializer.Deserialize<Snippet[]>(stream) ?? [];
         foreach (var snippet in snippets)
         {
             catalog.Upsert(snippet);
@@ -1315,12 +1316,13 @@ public sealed class CliptonRuntime : IDisposable
     private static void SaveSnippets(string path, SnippetCatalog catalog)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, JsonSerializer.Serialize(catalog.Snippets, new JsonSerializerOptions { WriteIndented = true }));
+        WriteJsonFile(path, catalog.Snippets, new JsonSerializerOptions { WriteIndented = true });
     }
 
     private static T ReadExportFile<T>(string path)
     {
-        return JsonSerializer.Deserialize<T>(File.ReadAllText(path), ExportJsonOptions)
+        using var stream = File.OpenRead(path);
+        return JsonSerializer.Deserialize<T>(stream, ExportJsonOptions)
             ?? throw new InvalidOperationException("The selected file is not a supported Clipton export.");
     }
 
@@ -1332,7 +1334,18 @@ public sealed class CliptonRuntime : IDisposable
             Directory.CreateDirectory(directory);
         }
 
-        File.WriteAllText(path, JsonSerializer.Serialize(value, ExportJsonOptions));
+        WriteJsonFile(path, value, ExportJsonOptions);
+    }
+
+    private static void WriteJsonFile<T>(string path, T value, JsonSerializerOptions options)
+    {
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        File.WriteAllBytes(path, JsonSerializer.SerializeToUtf8Bytes(value, options));
     }
 
     private static readonly JsonSerializerOptions ExportJsonOptions = new()
