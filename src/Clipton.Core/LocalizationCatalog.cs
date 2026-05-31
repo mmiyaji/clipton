@@ -15,6 +15,7 @@ public sealed class LocalizationCatalog
                 {
                     ["AppName"] = "Clipton",
                     ["Image"] = "Image",
+                    ["ImagePreview"] = "Image preview",
                     ["General"] = "General",
                     ["GeneralDescription"] = "Configure how Clipton starts, opens, and presents commands.",
                     ["ActivationSection"] = "Activation",
@@ -163,6 +164,7 @@ public sealed class LocalizationCatalog
                 {
                     ["AppName"] = "Clipton",
                     ["Image"] = "\u753B\u50CF",
+                    ["ImagePreview"] = "\u753B\u50CF\u30D7\u30EC\u30D3\u30E5\u30FC",
                     ["General"] = "\u5168\u822C",
                     ["GeneralDescription"] = "Clipton \u306E\u8D77\u52D5\u3001\u547C\u3073\u51FA\u3057\u3001\u30B3\u30DE\u30F3\u30C9\u8868\u793A\u3092\u8A2D\u5B9A\u3057\u307E\u3059\u3002",
                     ["ActivationSection"] = "\u547C\u3073\u51FA\u3057",

@@ -275,6 +275,7 @@ public sealed class CliptonRuntime : IDisposable
         if (History.Remove(id))
         {
             UnpinHistoryItem(id, refresh: false);
+            DeleteHistoryImageFiles(id);
             QueueHistorySave();
             _mainWindow?.RefreshItems();
         }
@@ -390,6 +391,7 @@ public sealed class CliptonRuntime : IDisposable
         Settings.PinnedHistoryIds = [];
         SaveSettings();
         SaveHistory();
+        ClearHistoryImageFiles();
         _mainWindow?.RefreshItems();
     }
 
@@ -1307,23 +1309,85 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
+    private string? SaveHistoryImagePreview(ClipboardSnapshot item)
+    {
+        if (item.ImagePng is not { Length: > 0 })
+        {
+            return null;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(_thumbnailPath);
+            var path = Path.Combine(_thumbnailPath, $"{item.Id}-preview.png");
+            if (!File.Exists(path))
+            {
+                File.WriteAllBytes(path, item.ImagePng);
+            }
+
+            return path;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void DeleteHistoryImageFiles(string id)
+    {
+        if (!Directory.Exists(_thumbnailPath))
+        {
+            return;
+        }
+
+        foreach (var file in Directory.EnumerateFiles(_thumbnailPath, $"{id}-*.png"))
+        {
+            TryDeleteFile(file);
+        }
+    }
+
+    private void ClearHistoryImageFiles()
+    {
+        if (!Directory.Exists(_thumbnailPath))
+        {
+            return;
+        }
+
+        foreach (var file in Directory.EnumerateFiles(_thumbnailPath, "*.png"))
+        {
+            TryDeleteFile(file);
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch
+        {
+        }
+    }
+
     public HistoryItemViewModel CreateHistoryItemViewModel(ClipboardSnapshot snapshot)
     {
         var formats = CreateFormatSummary(snapshot.Formats);
         var plainText = ClipboardBridge.GetPlainText(snapshot);
-        var imagePath = SaveHistoryThumbnail(snapshot);
+        var thumbnailPath = SaveHistoryThumbnail(snapshot);
+        var previewImagePath = SaveHistoryImagePreview(snapshot);
         var snippet = Snippets.FindByText(plainText);
         if (snippet is not null)
         {
-            return new HistoryItemViewModel(snapshot.Id, snippet.DisplayName, $"{Translate("RegisteredSnippetMasked")} - {formats}", snapshot.CapturedAt, imagePath);
+            return new HistoryItemViewModel(snapshot.Id, snippet.DisplayName, $"{Translate("RegisteredSnippetMasked")} - {formats}", snapshot.CapturedAt, thumbnailPath, previewImagePath);
         }
 
         if (Settings.MaskSensitiveContent && CreateMaskedPreview(plainText) is { } maskedPreview)
         {
-            return new HistoryItemViewModel(snapshot.Id, NormalizePreviewText(maskedPreview), $"{Translate("MaskedSensitive")} - {formats}", snapshot.CapturedAt, imagePath);
+            return new HistoryItemViewModel(snapshot.Id, NormalizePreviewText(maskedPreview), $"{Translate("MaskedSensitive")} - {formats}", snapshot.CapturedAt, thumbnailPath, previewImagePath);
         }
 
-        return new HistoryItemViewModel(snapshot.Id, CreatePreviewText(snapshot, plainText), formats, snapshot.CapturedAt, imagePath);
+        return new HistoryItemViewModel(snapshot.Id, CreatePreviewText(snapshot, plainText), formats, snapshot.CapturedAt, thumbnailPath, previewImagePath);
     }
 
     private bool IsMaskedHistoryItem(ClipboardSnapshot snapshot)

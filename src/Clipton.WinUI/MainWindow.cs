@@ -1481,6 +1481,52 @@ public sealed class MainWindow : Window
         return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
 
+    private async Task ShowHistoryImagePreviewAsync(HistoryItemViewModel item)
+    {
+        if (_root.XamlRoot is null
+            || item.PreviewImagePath is not { } path
+            || !File.Exists(path))
+        {
+            return;
+        }
+
+        var image = new Image
+        {
+            Source = new BitmapImage(new Uri(path)),
+            Stretch = Stretch.Uniform,
+            MaxWidth = 760,
+            MaxHeight = 560,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        var frame = new Border
+        {
+            MinWidth = 360,
+            MinHeight = 240,
+            MaxWidth = 800,
+            MaxHeight = 600,
+            Padding = new Thickness(8),
+            CornerRadius = new CornerRadius(6),
+            BorderThickness = new Thickness(1),
+            BorderBrush = CardBorderBrush(),
+            Background = Brush(IsDark ? "#111111" : "#F7F7F7"),
+            Child = image
+        };
+
+        var dialog = new ContentDialog
+        {
+            Title = _runtime.Translate("ImagePreview"),
+            Content = frame,
+            CloseButtonText = _runtime.Translate("Close"),
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = _root.XamlRoot,
+            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+        };
+
+        await dialog.ShowAsync();
+    }
+
     private void SelectSnippet(SnippetItemViewModel selected)
     {
         SetSelectedSnippet(selected);
@@ -2225,7 +2271,7 @@ public sealed class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center
         };
 
-        if (item.HasPreviewImage && item.PreviewImagePath is { } path && File.Exists(path))
+        if (item.HasPreviewImage && item.ThumbnailImagePath is { } path && File.Exists(path))
         {
             border.BorderBrush = CardBorderBrush();
             border.BorderThickness = new Thickness(1);
@@ -2236,6 +2282,12 @@ public sealed class MainWindow : Window
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
+            border.Tapped += async (_, e) =>
+            {
+                e.Handled = true;
+                await ShowHistoryImagePreviewAsync(item);
+            };
+            ToolTipService.SetToolTip(border, _runtime.Translate("ImagePreview"));
         }
         else
         {
@@ -2545,11 +2597,12 @@ public sealed record HistoryItemViewModel(
     string Preview,
     string FormatSummary,
     DateTimeOffset CapturedAt,
+    string? ThumbnailImagePath = null,
     string? PreviewImagePath = null)
 {
     public string CapturedAtText => CapturedAt.LocalDateTime.ToString("yyyy/MM/dd HH:mm");
 
-    public bool HasPreviewImage => !string.IsNullOrWhiteSpace(PreviewImagePath);
+    public bool HasPreviewImage => !string.IsNullOrWhiteSpace(ThumbnailImagePath);
 
     public override string ToString() => $"{Preview}  {FormatSummary}  {CapturedAtText}";
 }
