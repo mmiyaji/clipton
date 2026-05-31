@@ -51,15 +51,11 @@ public sealed class MainWindow : Window
     private readonly StackPanel _historyItemsPanel = new() { Spacing = 6 };
     private readonly StackPanel _snippetItemsPanel = new() { Spacing = 6 };
     private readonly List<Border> _cards = [];
-    private readonly List<Button> _navButtons = [];
+    private readonly ListView _navListView = new();
+    private readonly List<ListViewItem> _navItems = [];
     private readonly Dictionary<ToggleSwitch, TextBlock> _toggleStateLabels = [];
     private readonly List<(TextBlock TextBlock, string Key)> _localizedTextBlocks = [];
     private readonly List<TextBlock> _descriptionTextBlocks = [];
-    private readonly Button _generalNavButton = new();
-    private readonly Button _historyNavButton = new();
-    private readonly Button _historySettingsNavButton = new();
-    private readonly Button _snippetNavButton = new();
-    private readonly Button _aboutNavButton = new();
     private readonly Button _sidebarToggleButton = new();
     private readonly TextBlock _titleText = Header(20);
     private readonly TextBlock _hotkeyText = Description();
@@ -128,6 +124,7 @@ public sealed class MainWindow : Window
     private string _historySearchQuery = string.Empty;
     private int _historyVisibleLimit = HistoryDisplayBatchSize;
     private bool _loading;
+    private bool _updatingNavSelection;
     private bool _updatingHistorySearchBox;
     private bool _updatingHistorySearchFilters;
     private int _selectedPageIndex;
@@ -304,22 +301,29 @@ public sealed class MainWindow : Window
         _sidebar.Children.Add(_brandHeader);
         _hotkeyText.Margin = new Thickness(8, 0, 8, 4);
         _sidebar.Children.Add(_hotkeyPill);
-        _generalNavButton.Click += (_, _) => SelectPage(0);
-        _historyNavButton.Click += (_, _) => SelectPage(1);
-        _historySettingsNavButton.Click += (_, _) => SelectPage(2);
-        _snippetNavButton.Click += (_, _) => SelectPage(3);
-        _aboutNavButton.Click += (_, _) => SelectPage(4);
-        _sidebarToggleButton.Click += (_, _) => SetSidebarCollapsed(!_sidebarCollapsed);
-        _navButtons.AddRange([_generalNavButton, _historyNavButton, _historySettingsNavButton, _snippetNavButton, _aboutNavButton]);
-        foreach (var button in _navButtons)
+        _navListView.SelectionMode = ListViewSelectionMode.Single;
+        _navListView.IsItemClickEnabled = false;
+        _navListView.Margin = new Thickness(0, 0, 0, 0);
+        _navListView.Background = Brush("#00FFFFFF");
+        _navListView.BorderThickness = new Thickness(0);
+        _navListView.Padding = new Thickness(0);
+        _navListView.SelectionChanged += (_, _) =>
         {
-            PrepareSidebarButton(button);
+            if (_updatingNavSelection || _navListView.SelectedIndex < 0)
+            {
+                return;
+            }
+
+            SelectPage(_navListView.SelectedIndex);
+        };
+        _sidebarToggleButton.Click += (_, _) => SetSidebarCollapsed(!_sidebarCollapsed);
+        foreach (var index in Enumerable.Range(0, 5))
+        {
+            var item = CreateNavItem(index);
+            _navItems.Add(item);
+            _navListView.Items.Add(item);
         }
-        _sidebar.Children.Add(_generalNavButton);
-        _sidebar.Children.Add(_historyNavButton);
-        _sidebar.Children.Add(_historySettingsNavButton);
-        _sidebar.Children.Add(_snippetNavButton);
-        _sidebar.Children.Add(_aboutNavButton);
+        _sidebar.Children.Add(_navListView);
         _sidebarFrame.Children.Add(_sidebar);
         Grid.SetRow(_sidebarToggleButton, 1);
         _sidebarToggleButton.Margin = new Thickness(18, 0, 14, 18);
@@ -1643,10 +1647,12 @@ public sealed class MainWindow : Window
         _historySettingsPage.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
         _snippetPage.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed;
         _aboutPage.Visibility = index == 4 ? Visibility.Visible : Visibility.Collapsed;
-        for (var i = 0; i < _navButtons.Count; i++)
+
+        if (_navListView.SelectedIndex != index)
         {
-            _navButtons[i].Background = i == index ? AccentBrush(34) : Brush("#00FFFFFF");
-            _navButtons[i].BorderBrush = i == index ? AccentBrush(68) : Brush("#00FFFFFF");
+            _updatingNavSelection = true;
+            _navListView.SelectedIndex = index;
+            _updatingNavSelection = false;
         }
 
         UpdateSidebarToggleStyle();
@@ -1666,11 +1672,6 @@ public sealed class MainWindow : Window
         _titleText.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
         _hotkeyPill.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
         _sidebarToggleButton.Margin = collapsed ? new Thickness(10, 0, 10, 18) : new Thickness(18, 0, 14, 18);
-        foreach (var button in _navButtons)
-        {
-            button.HorizontalContentAlignment = collapsed ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
-            button.Padding = collapsed ? new Thickness(9) : new Thickness(10, 9, 10, 9);
-        }
 
         UpdateNavButtonContents();
         UpdateSidebarToggleContent();
@@ -1694,19 +1695,43 @@ public sealed class MainWindow : Window
 
     private void UpdateNavButtonContents()
     {
-        SetNavButtonContent(_generalNavButton, "\uE80F", "General");
-        SetNavButtonContent(_historyNavButton, "\uE81C", "History");
-        SetNavButtonContent(_historySettingsNavButton, "\uE713", "HistorySettings");
-        SetNavButtonContent(_snippetNavButton, "\uE8C8", "Snippets");
-        SetNavButtonContent(_aboutNavButton, "\uE946", "About");
+        SetNavItemContent(0, "\uE80F", "General");
+        SetNavItemContent(1, "\uE81C", "History");
+        SetNavItemContent(2, "\uE713", "HistorySettings");
+        SetNavItemContent(3, "\uE8C8", "Snippets");
+        SetNavItemContent(4, "\uE946", "About");
     }
 
-    private void SetNavButtonContent(Button button, string glyph, string labelKey)
+    private ListViewItem CreateNavItem(int index)
     {
+        var item = new ListViewItem
+        {
+            Tag = index,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            MinHeight = 40,
+            Margin = new Thickness(0, 1, 0, 1),
+            Padding = new Thickness(0),
+            UseSystemFocusVisuals = true
+        };
+        return item;
+    }
+
+    private void SetNavItemContent(int index, string glyph, string labelKey)
+    {
+        if (index < 0 || index >= _navItems.Count)
+        {
+            return;
+        }
+
         var label = _runtime.Translate(labelKey);
-        button.Content = CreateSidebarButtonContent(glyph, label);
-        AutomationProperties.SetName(button, label);
-        ToolTipService.SetToolTip(button, label);
+        var item = _navItems[index];
+        item.Content = CreateSidebarButtonContent(glyph, label);
+        item.HorizontalContentAlignment = _sidebarCollapsed ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
+        item.Padding = _sidebarCollapsed ? new Thickness(0) : new Thickness(0);
+        AutomationProperties.SetName(item, label);
+        ToolTipService.SetToolTip(item, label);
     }
 
     private void UpdateSidebarToggleContent()
@@ -1787,15 +1812,30 @@ public sealed class MainWindow : Window
     {
         if (_sidebarCollapsed)
         {
-            return new FontIcon
+            return new Grid
             {
-                Glyph = glyph,
-                FontFamily = new FontFamily("Segoe Fluent Icons"),
-                FontSize = 16
+                Width = 40,
+                Height = 40,
+                Children =
+                {
+                    new FontIcon
+                    {
+                        Glyph = glyph,
+                        FontFamily = new FontFamily("Segoe Fluent Icons"),
+                        FontSize = 16,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    }
+                }
             };
         }
 
-        var grid = new Grid { ColumnSpacing = 12 };
+        var grid = new Grid
+        {
+            ColumnSpacing = 12,
+            MinHeight = 40,
+            Padding = new Thickness(10, 0, 10, 0)
+        };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.Children.Add(new FontIcon
