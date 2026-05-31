@@ -463,21 +463,14 @@ public sealed class MainWindow : Window
     {
         _historySearchHost.Height = SearchControlHeight;
         _historySearchHost.HorizontalAlignment = HorizontalAlignment.Stretch;
-        _historySearchHost.Background = CardBackground();
-        _historySearchHost.BorderBrush = CardBorderBrush();
-        _historySearchHost.BorderThickness = new Thickness(1);
-        _historySearchHost.CornerRadius = new CornerRadius(4);
-        _historySearchHost.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        _historySearchHost.ColumnDefinitions.Add(new ColumnDefinition());
         _historySearchBox.Height = SearchControlHeight;
         _historySearchBox.MinHeight = SearchControlHeight;
         _historySearchBox.PlaceholderText = _runtime.Translate("SearchPlaceholder");
         _historySearchBox.Text = _historySearchQuery;
-        _historySearchBox.Padding = new Thickness(0, 0, 10, 0);
+        _historySearchBox.Padding = new Thickness(34, 0, 34, 0);
         _historySearchBox.VerticalContentAlignment = VerticalAlignment.Center;
+        _historySearchBox.VerticalAlignment = VerticalAlignment.Stretch;
         _historySearchBox.HorizontalAlignment = HorizontalAlignment.Stretch;
-        _historySearchBox.BorderThickness = new Thickness(0);
-        _historySearchBox.Background = Brush("#00FFFFFF");
         _historySearchBox.TextChanged += (_, _) =>
         {
             if (_updatingHistorySearchBox)
@@ -492,12 +485,12 @@ public sealed class MainWindow : Window
         _historySearchIcon.FontSize = 14;
         _historySearchIcon.Foreground = DescriptionBrush();
         _historySearchIcon.IsHitTestVisible = false;
-        _historySearchIcon.HorizontalAlignment = HorizontalAlignment.Center;
+        _historySearchIcon.HorizontalAlignment = HorizontalAlignment.Left;
         _historySearchIcon.VerticalAlignment = VerticalAlignment.Center;
-        _historySearchIcon.Width = 34;
-        _historySearchHost.Children.Add(_historySearchIcon);
-        Grid.SetColumn(_historySearchBox, 1);
+        _historySearchIcon.Width = 16;
+        _historySearchIcon.Margin = new Thickness(12, 0, 0, 0);
         _historySearchHost.Children.Add(_historySearchBox);
+        _historySearchHost.Children.Add(_historySearchIcon);
 
         _advancedHistorySearchButton.Width = SearchControlHeight;
         _advancedHistorySearchButton.MinWidth = SearchControlHeight;
@@ -1628,8 +1621,6 @@ public sealed class MainWindow : Window
             card.Background = CardBackground();
             card.BorderBrush = CardBorderBrush();
         }
-        _historySearchHost.Background = CardBackground();
-        _historySearchHost.BorderBrush = CardBorderBrush();
         RefreshThemeTextBrushes();
         SelectPage(_selectedPageIndex);
         UpdateSidebarToggleContent();
