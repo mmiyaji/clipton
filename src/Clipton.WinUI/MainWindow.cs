@@ -46,7 +46,9 @@ public sealed class MainWindow : Window
     private readonly StackPanel _historySettingsPage = SettingsPage();
     private readonly StackPanel _snippetPage = SettingsPage();
     private readonly StackPanel _aboutPage = SettingsPage();
-    private readonly StackPanel _historyItemsPanel = new() { Spacing = 6 };
+    private readonly StackPanel _historyListHost = new() { Spacing = 10 };
+    private readonly ListView _historyListView = new();
+    private readonly TextBlock _historyEmptyText = Description();
     private readonly TreeView _snippetTree = new();
     private readonly Dictionary<TreeViewNode, SnippetItemViewModel> _snippetNodes = [];
     private readonly List<Border> _cards = [];
@@ -151,6 +153,7 @@ public sealed class MainWindow : Window
             _snippetDescriptionText,
             _aboutDescriptionText,
             _historySearchStatusText,
+            _historyEmptyText,
             _selectedSnippetText,
             _maskDefinitionsErrorText,
             _maskTestResultText);
@@ -176,31 +179,47 @@ public sealed class MainWindow : Window
 
     public void RefreshItems()
     {
-        _historyItemsPanel.Children.Clear();
+        _historyListView.Items.Clear();
         var historyItems = _runtime.History.Items.Where(HistoryMatchesSearch).ToArray();
         var visibleHistoryItems = historyItems.Take(_historyVisibleLimit).ToArray();
         foreach (var snapshot in visibleHistoryItems)
         {
             var item = _runtime.CreateHistoryItemViewModel(snapshot);
-            var button = ItemButton(item.Preview, item.FormatSummary);
-            button.Click += (_, _) => _selectedHistoryId = item.Id;
-            button.DoubleTapped += (_, _) => _runtime.PasteHistoryItem(item.Id, asPlainText: false);
-            _historyItemsPanel.Children.Add(button);
+            var listItem = new ListViewItem
+            {
+                Content = HistoryListRow(item),
+                Tag = item,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Padding = new Thickness(0),
+                MinHeight = 56,
+                UseSystemFocusVisuals = true
+            };
+            listItem.DoubleTapped += (_, _) => _runtime.PasteHistoryItem(item.Id, asPlainText: false);
+            _historyListView.Items.Add(listItem);
         }
 
+        _historyEmptyText.Text = string.IsNullOrWhiteSpace(_historySearchQuery) ? _runtime.Translate("HistoryEmpty") : _runtime.Translate("NoSearchResults");
+        _historyEmptyText.Visibility = visibleHistoryItems.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        _loadMoreHistoryButton.Visibility = historyItems.Length > visibleHistoryItems.Length ? Visibility.Visible : Visibility.Collapsed;
         if (visibleHistoryItems.Length == 0)
         {
-            _historyItemsPanel.Children.Add(new TextBlock
-            {
-                Text = string.IsNullOrWhiteSpace(_historySearchQuery) ? _runtime.Translate("HistoryEmpty") : _runtime.Translate("NoSearchResults"),
-                Foreground = DescriptionBrush(),
-                Margin = new Thickness(2, 4, 2, 4)
-            });
+            _selectedHistoryId = null;
         }
         else if (historyItems.Length > visibleHistoryItems.Length)
         {
             _loadMoreHistoryButton.Content = string.Format(_runtime.Translate("LoadMoreHistory"), historyItems.Length - visibleHistoryItems.Length);
-            _historyItemsPanel.Children.Add(_loadMoreHistoryButton);
+        }
+
+        if (_selectedHistoryId is not null)
+        {
+            foreach (ListViewItem item in _historyListView.Items)
+            {
+                if (item.Tag is HistoryItemViewModel historyItem && string.Equals(historyItem.Id, _selectedHistoryId, StringComparison.Ordinal))
+                {
+                    _historyListView.SelectedItem = item;
+                    break;
+                }
+            }
         }
 
         RefreshSnippetTree();
@@ -417,6 +436,27 @@ public sealed class MainWindow : Window
         _historyPage.Children.Add(PageHeader(_historyHeaderText, _historyDescriptionText));
         _historyPage.Children.Add(SectionHeader("HistorySection"));
         _historyPage.Children.Add(BuildHistorySearchPanel());
+        _historyListView.SelectionMode = ListViewSelectionMode.Single;
+        _historyListView.HorizontalAlignment = HorizontalAlignment.Stretch;
+        _historyListView.SelectionChanged += (_, _) =>
+        {
+            if (_historyListView.SelectedItem is ListViewItem { Tag: HistoryItemViewModel item })
+            {
+                _selectedHistoryId = item.Id;
+            }
+        };
+        _historyListView.DoubleTapped += (_, _) =>
+        {
+            if (_historyListView.SelectedItem is ListViewItem { Tag: HistoryItemViewModel item })
+            {
+                _runtime.PasteHistoryItem(item.Id, asPlainText: false);
+            }
+        };
+        _historyEmptyText.Margin = new Thickness(4, 6, 4, 6);
+        _loadMoreHistoryButton.HorizontalAlignment = HorizontalAlignment.Left;
+        _historyListHost.Children.Add(_historyListView);
+        _historyListHost.Children.Add(_historyEmptyText);
+        _historyListHost.Children.Add(_loadMoreHistoryButton);
 
         var actions = new Grid { ColumnSpacing = 12 };
         actions.ColumnDefinitions.Add(new ColumnDefinition());
@@ -437,7 +477,7 @@ public sealed class MainWindow : Window
         actions.Children.Add(dataActions);
         _historyPage.Children.Add(actions);
         _historyPage.Children.Add(_historySearchStatusText);
-        _historyPage.Children.Add(Card(_historyItemsPanel));
+        _historyPage.Children.Add(Card(_historyListHost));
     }
 
     private void BuildHistorySettingsPage()
@@ -2132,6 +2172,44 @@ public sealed class MainWindow : Window
         };
     }
 
+    private UIElement HistoryListRow(HistoryItemViewModel item)
+    {
+        var grid = new Grid
+        {
+            ColumnSpacing = 16,
+            Padding = new Thickness(12, 9, 12, 9)
+        };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var texts = new StackPanel { Spacing = 3 };
+        texts.Children.Add(new TextBlock
+        {
+            Text = item.Preview,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        texts.Children.Add(new TextBlock
+        {
+            Text = item.FormatSummary,
+            FontSize = 12,
+            Foreground = DescriptionBrush(),
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        grid.Children.Add(texts);
+
+        var capturedAt = new TextBlock
+        {
+            Text = item.CapturedAtText,
+            FontSize = 12,
+            Foreground = DescriptionBrush(),
+            VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Right
+        };
+        Grid.SetColumn(capturedAt, 1);
+        grid.Children.Add(capturedAt);
+        return grid;
+    }
+
     private UIElement BuildBrandHeader()
     {
         var grid = new Grid { ColumnSpacing = 12, Margin = new Thickness(4, 0, 4, 8) };
@@ -2426,9 +2504,11 @@ public sealed class MainWindow : Window
     }
 }
 
-public sealed record HistoryItemViewModel(string Id, string Preview, string FormatSummary)
+public sealed record HistoryItemViewModel(string Id, string Preview, string FormatSummary, DateTimeOffset CapturedAt)
 {
-    public override string ToString() => $"{Preview}  {FormatSummary}";
+    public string CapturedAtText => CapturedAt.LocalDateTime.ToString("yyyy/MM/dd HH:mm");
+
+    public override string ToString() => $"{Preview}  {FormatSummary}  {CapturedAtText}";
 }
 
 public sealed record SnippetItemViewModel(string Folder, string Name, string DisplayName)
