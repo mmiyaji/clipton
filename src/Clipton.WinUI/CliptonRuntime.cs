@@ -1592,12 +1592,19 @@ public sealed class CliptonRuntime : IDisposable
             "S",
             "Enter",
             () => PasteSnippet(snippet.Folder, snippet.Name),
-            PasteOptions: CreateTextPasteOptions(snippet.Text),
+            PlainTextInvoke: () => PasteSnippet(snippet.Folder, snippet.Name),
+            PasteOptions: CreateTextPasteOptions(() => SnippetTemplateRenderer.Render(snippet.Text)),
             IconGlyph: "S");
     }
 
     private IReadOnlyList<QuickMenuPasteOption> CreateTextPasteOptions(string? text, string? historyId = null)
     {
+        return CreateTextPasteOptions(() => text, historyId);
+    }
+
+    private IReadOnlyList<QuickMenuPasteOption> CreateTextPasteOptions(Func<string?> textFactory, string? historyId = null)
+    {
+        var text = textFactory();
         if (string.IsNullOrEmpty(text))
         {
             return historyId is null
@@ -1607,12 +1614,12 @@ public sealed class CliptonRuntime : IDisposable
 
         var options = new List<QuickMenuPasteOption>
         {
-            new QuickMenuPasteOption(Translate("PastePlain"), "\uE8D2", () => PasteText(text)),
-            new QuickMenuPasteOption(Translate("PasteNoLineBreaks"), "\uE8EE", () => PasteText(RemoveLineBreaks(text))),
-            new QuickMenuPasteOption(Translate("PasteUppercase"), "AA", () => PasteText(text.ToUpperInvariant()), "Segoe UI"),
-            new QuickMenuPasteOption(Translate("PasteLowercase"), "aa", () => PasteText(text.ToLowerInvariant()), "Segoe UI"),
-            new QuickMenuPasteOption(Translate("PasteTrimmed"), "\uE8C6", () => PasteText(text.Trim())),
-            new QuickMenuPasteOption(Translate("PasteJsonString"), "{ }", () => PasteText(JsonSerializer.Serialize(text)), "Segoe UI")
+            new QuickMenuPasteOption(Translate("PastePlain"), "\uE8D2", () => PasteText(textFactory() ?? string.Empty)),
+            new QuickMenuPasteOption(Translate("PasteNoLineBreaks"), "\uE8EE", () => PasteText(RemoveLineBreaks(textFactory() ?? string.Empty))),
+            new QuickMenuPasteOption(Translate("PasteUppercase"), "AA", () => PasteText((textFactory() ?? string.Empty).ToUpperInvariant()), "Segoe UI"),
+            new QuickMenuPasteOption(Translate("PasteLowercase"), "aa", () => PasteText((textFactory() ?? string.Empty).ToLowerInvariant()), "Segoe UI"),
+            new QuickMenuPasteOption(Translate("PasteTrimmed"), "\uE8C6", () => PasteText((textFactory() ?? string.Empty).Trim())),
+            new QuickMenuPasteOption(Translate("PasteJsonString"), "{ }", () => PasteText(JsonSerializer.Serialize(textFactory() ?? string.Empty)), "Segoe UI")
         };
 
         var urls = ExtractUrls(text);

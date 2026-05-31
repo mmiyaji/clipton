@@ -51,6 +51,8 @@ public sealed class QuickMenuWindow : Window
     private long _lastNavigationTick;
     private long _focusToken;
     private IReadOnlyList<QuickMenuItem> _currentItems;
+    private readonly Stack<(IReadOnlyList<QuickMenuItem> Items, QuickMenuItem Parent)> _menuStack = [];
+    private int? _pendingInitialFocusIndex;
     private bool _rebuildingFlyout;
     private bool _revealMaskedItems;
     private bool _showCapturedAt;
@@ -158,7 +160,9 @@ public sealed class QuickMenuWindow : Window
                 }
 
                 FocusHostWindow();
-                FocusMenuItem(0);
+                var focusIndex = _pendingInitialFocusIndex ?? 0;
+                _pendingInitialFocusIndex = null;
+                FocusMenuItem(focusIndex);
             }));
         });
     }
@@ -275,10 +279,10 @@ public sealed class QuickMenuWindow : Window
                 }
                 break;
             case NativeMethods.VkLeft:
-                DispatcherQueue.TryEnqueue(ReturnToParentFocusContext);
+                DispatcherQueue.TryEnqueue(NavigateBackMenu);
                 break;
             case NativeMethods.VkRight:
-                DispatcherQueue.TryEnqueue(EnterChildFocusContext);
+                DispatcherQueue.TryEnqueue(NavigateIntoSelectedFolder);
                 break;
             case NativeMethods.VkReturn:
                 DispatcherQueue.TryEnqueue(() =>
@@ -785,10 +789,9 @@ public sealed class QuickMenuWindow : Window
 
     private QuickMenuItem? GetFocusedMenuItem()
     {
-        if (_activeParent is not null
-            && GetTrackedFocusedMenuItemBase() is { Tag: QuickMenuItem trackedChildItem })
+        if (GetTrackedFocusedMenuItemBase() is { Tag: QuickMenuItem trackedItem })
         {
-            return trackedChildItem;
+            return trackedItem;
         }
 
         if (_host.XamlRoot is null)
@@ -806,6 +809,11 @@ public sealed class QuickMenuWindow : Window
 
     private MenuFlyoutItemBase? GetFocusedMenuItemBase()
     {
+        if (GetTrackedFocusedMenuItemBase() is { } trackedItem)
+        {
+            return trackedItem;
+        }
+
         if (_host.XamlRoot is not null
             && FocusManager.GetFocusedElement(_host.XamlRoot) is MenuFlyoutItemBase focusedItem)
         {
@@ -831,6 +839,7 @@ public sealed class QuickMenuWindow : Window
 
         _focusedIndex = (index + _activeFocusableItems.Count) % _activeFocusableItems.Count;
         _activeFocusableItems[_focusedIndex].Focus(FocusState.Keyboard);
+        SyncNavigatorSelectionFromTrackedFocus();
     }
 
     private void MoveFocus(int delta)
@@ -913,6 +922,81 @@ public sealed class QuickMenuWindow : Window
         FocusMenuItem(IndexOf(_activeFocusableItems, parent));
     }
 
+    private void NavigateIntoSelectedFolder()
+    {
+        if (GetFocusedMenuItem() is not { } selected || !selected.IsFolder)
+        {
+            SyncFocusedIndex();
+            return;
+        }
+
+        var index = IndexOf(_currentItems, selected);
+        if (index < 0)
+        {
+            return;
+        }
+
+        var children = selected.GetChildren();
+        if (children.Count == 0)
+        {
+            return;
+        }
+
+        _navigator.Select(index);
+        _menuStack.Push((_currentItems, selected));
+        _currentItems = children;
+        RebuildOpenFlyout(focusIndex: 0);
+    }
+
+    private void NavigateBackMenu()
+    {
+        if (!_navigator.NavigateBack() && _menuStack.Count == 0)
+        {
+            SyncFocusedIndex();
+            return;
+        }
+
+        if (_menuStack.Count == 0)
+        {
+            _currentItems = _navigator.Items;
+            RebuildOpenFlyout(focusIndex: _navigator.SelectedIndex);
+            return;
+        }
+
+        var previous = _menuStack.Pop();
+        _currentItems = previous.Items;
+        RebuildOpenFlyout(focusIndex: FocusIndexOf(_currentItems, previous.Parent));
+    }
+
+    private void RebuildOpenFlyout(int focusIndex)
+    {
+        _rebuildingFlyout = true;
+        _flyout.Hide();
+        BuildFlyout();
+        _opened = false;
+        _pendingInitialFocusIndex = focusIndex;
+        _ = Task.Delay(120).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
+        {
+            ShowFlyout();
+            EnqueueAfterDelay(320, () => _rebuildingFlyout = false);
+        }));
+    }
+
+    private void SyncNavigatorSelectionFromTrackedFocus()
+    {
+        if (_activeParent is not null
+            || GetTrackedFocusedMenuItemBase() is not { Tag: QuickMenuItem item })
+        {
+            return;
+        }
+
+        var index = IndexOf(_currentItems, item);
+        if (index >= 0)
+        {
+            _navigator.Select(index);
+        }
+    }
+
     private static int IndexOf(IReadOnlyList<MenuFlyoutItemBase> items, MenuFlyoutItemBase item)
     {
         for (var i = 0; i < items.Count; i++)
@@ -920,6 +1004,38 @@ public sealed class QuickMenuWindow : Window
             if (ReferenceEquals(items[i], item))
             {
                 return i;
+            }
+        }
+
+        return 0;
+    }
+
+    private static int IndexOf(IReadOnlyList<QuickMenuItem> items, QuickMenuItem item)
+    {
+        for (var i = 0; i < items.Count; i++)
+        {
+            if (ReferenceEquals(items[i], item))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private static int FocusIndexOf(IReadOnlyList<QuickMenuItem> items, QuickMenuItem item)
+    {
+        var focusIndex = 0;
+        foreach (var current in items)
+        {
+            if (ReferenceEquals(current, item))
+            {
+                return focusIndex;
+            }
+
+            if (!current.IsSeparator)
+            {
+                focusIndex++;
             }
         }
 
