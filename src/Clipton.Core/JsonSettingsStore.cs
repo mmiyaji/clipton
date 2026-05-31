@@ -28,6 +28,7 @@ public sealed class JsonSettingsStore
         }
 
         settings.MaxHistoryItems = Math.Clamp(settings.MaxHistoryItems, 1, 1000);
+        settings.ClipboardCaptureDelayMilliseconds = NormalizeClipboardCaptureDelay(settings.ClipboardCaptureDelayMilliseconds);
         settings.PinnedHistoryIds = settings.PinnedHistoryIds
             .Where(id => !string.IsNullOrWhiteSpace(id))
             .Distinct(StringComparer.Ordinal)
@@ -77,6 +78,13 @@ public sealed class JsonSettingsStore
             "none" or "small" or "large" => value.ToLowerInvariant(),
             _ => "medium"
         };
+    }
+
+    private static int NormalizeClipboardCaptureDelay(int value)
+    {
+        return value is 0 or 50 or 100 or 150 or 250 or 500 or 1000
+            ? value
+            : 150;
     }
 
     private static void NormalizeQuickMenuShortcuts(CliptonSettings settings)

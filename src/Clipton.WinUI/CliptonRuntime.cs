@@ -42,6 +42,7 @@ public sealed class CliptonRuntime : IDisposable
     private long _lastQuickMenuRequestTick;
     private int _quickMenuRequestPending;
     private bool _clipboardServicesStarted;
+    private CancellationTokenSource? _clipboardCaptureDelay;
 
     public CliptonRuntime()
     {
@@ -297,6 +298,12 @@ public sealed class CliptonRuntime : IDisposable
         _mainWindow?.RefreshItems();
     }
 
+    public void SetClipboardCaptureDelay(int milliseconds)
+    {
+        Settings.ClipboardCaptureDelayMilliseconds = NormalizeClipboardCaptureDelay(milliseconds);
+        SaveSettings();
+    }
+
     public void SetFolderMode(bool enabled)
     {
         Settings.FolderMode = enabled;
@@ -535,6 +542,8 @@ public sealed class CliptonRuntime : IDisposable
     public void Dispose()
     {
         IsExiting = true;
+        _clipboardCaptureDelay?.Cancel();
+        _clipboardCaptureDelay?.Dispose();
         SaveHistory();
         _messageWindow?.Dispose();
         _notifyIcon?.Dispose();
@@ -568,7 +577,25 @@ public sealed class CliptonRuntime : IDisposable
 
     private void CaptureClipboardOnUiThread()
     {
-        _dispatcherQueue.TryEnqueue(CaptureClipboard);
+        var delay = Settings.ClipboardCaptureDelayMilliseconds;
+        if (delay <= 0)
+        {
+            _dispatcherQueue.TryEnqueue(CaptureClipboard);
+            return;
+        }
+
+        var captureDelay = new CancellationTokenSource();
+        var previous = Interlocked.Exchange(ref _clipboardCaptureDelay, captureDelay);
+        previous?.Cancel();
+        previous?.Dispose();
+        var token = captureDelay.Token;
+        _ = Task.Delay(delay, token).ContinueWith(task =>
+        {
+            if (!task.IsCanceled)
+            {
+                _dispatcherQueue.TryEnqueue(CaptureClipboard);
+            }
+        }, TaskScheduler.Default);
     }
 
     private void ShowQuickMenuOnUiThread(IntPtr pasteTargetWindow)
@@ -1029,6 +1056,13 @@ public sealed class CliptonRuntime : IDisposable
             "none" or "small" or "large" => size.ToLowerInvariant(),
             _ => "medium"
         };
+    }
+
+    private static int NormalizeClipboardCaptureDelay(int milliseconds)
+    {
+        return milliseconds is 0 or 50 or 100 or 150 or 250 or 500 or 1000
+            ? milliseconds
+            : 150;
     }
 
     private static string NormalizeQuickMenuShortcut(string? shortcut, string fallback, IReadOnlyCollection<string> allowed)

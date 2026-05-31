@@ -21,6 +21,7 @@ public sealed class SettingsStoreTests
         Assert.Equal("Ctrl+D", loaded.QuickMenuShortcuts.ToggleCapturedAt);
         Assert.False(loaded.QuickMenuShowCapturedAt);
         Assert.True(loaded.QuickMenuShowShortcutHints);
+        Assert.Equal(150, loaded.ClipboardCaptureDelayMilliseconds);
         Assert.True(loaded.HideSettingsWindowOnStartup);
         Assert.False(loaded.InitialLaunchCompleted);
     }
@@ -60,6 +61,7 @@ public sealed class SettingsStoreTests
         store.Save(new CliptonSettings
         {
             Hotkey = "Ctrl+Alt+V",
+            ClipboardCaptureDelayMilliseconds = 250,
             FolderMode = true,
             HistoryPersistenceConfigured = true,
             HideSettingsWindowOnStartup = false,
@@ -86,6 +88,7 @@ public sealed class SettingsStoreTests
         var loaded = store.Load();
 
         Assert.Equal("Ctrl+Alt+V", loaded.Hotkey);
+        Assert.Equal(250, loaded.ClipboardCaptureDelayMilliseconds);
         Assert.True(loaded.FolderMode);
         Assert.Equal("ja", loaded.Locale);
         Assert.Equal("dark", loaded.Theme);
@@ -145,6 +148,19 @@ public sealed class SettingsStoreTests
         var loaded = store.Load();
 
         Assert.Equal(1000, loaded.MaxHistoryItems);
+    }
+
+    [Fact]
+    public void Load_NormalizesUnsupportedClipboardCaptureDelay()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"ClipboardCaptureDelayMilliseconds":333}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Equal(150, loaded.ClipboardCaptureDelayMilliseconds);
     }
 
     [Fact]

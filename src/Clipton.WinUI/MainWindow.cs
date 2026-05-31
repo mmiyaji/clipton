@@ -98,6 +98,7 @@ public sealed class MainWindow : Window
     private readonly TextBlock _maskDefinitionsErrorText = Description();
     private readonly TextBlock _maskTestResultText = Description();
     private readonly ComboBox _maxHistoryItemsBox = new();
+    private readonly ComboBox _clipboardCaptureDelayBox = new();
     private readonly ToggleSwitch _folderModeToggle = CompactToggle();
     private readonly Button _registerFromHistoryButton = new();
     private readonly Button _exportHistoryButton = new();
@@ -319,6 +320,13 @@ public sealed class MainWindow : Window
         SetComboBoxText(_quickMenuImagePreviewSizeBox, "small", t("ImagePreviewSizeSmall"));
         SetComboBoxText(_quickMenuImagePreviewSizeBox, "medium", t("ImagePreviewSizeMedium"));
         SetComboBoxText(_quickMenuImagePreviewSizeBox, "large", t("ImagePreviewSizeLarge"));
+        SetComboBoxText(_clipboardCaptureDelayBox, "0", t("ClipboardCaptureDelayImmediate"));
+        SetComboBoxText(_clipboardCaptureDelayBox, "50", string.Format(t("Milliseconds"), 50));
+        SetComboBoxText(_clipboardCaptureDelayBox, "100", string.Format(t("Milliseconds"), 100));
+        SetComboBoxText(_clipboardCaptureDelayBox, "150", string.Format(t("Milliseconds"), 150));
+        SetComboBoxText(_clipboardCaptureDelayBox, "250", string.Format(t("Milliseconds"), 250));
+        SetComboBoxText(_clipboardCaptureDelayBox, "500", string.Format(t("Milliseconds"), 500));
+        SetComboBoxText(_clipboardCaptureDelayBox, "1000", string.Format(t("Milliseconds"), 1000));
         _startupToggle.IsOn = _runtime.Settings.StartWithWindows;
         _hideSettingsWindowOnStartupToggle.IsOn = _runtime.Settings.HideSettingsWindowOnStartup;
         _pauseCaptureToggle.IsOn = _runtime.Settings.PauseCapture;
@@ -326,6 +334,7 @@ public sealed class MainWindow : Window
         _maskSensitiveContentToggle.IsOn = _runtime.Settings.MaskSensitiveContent;
         EnsureHistoryLimitComboItem(_runtime.Settings.MaxHistoryItems);
         SetComboSelection(_maxHistoryItemsBox, _runtime.Settings.MaxHistoryItems.ToString());
+        SetComboSelection(_clipboardCaptureDelayBox, _runtime.Settings.ClipboardCaptureDelayMilliseconds.ToString());
         _folderModeToggle.IsOn = _runtime.Settings.FolderMode;
         _quickMenuShowCapturedAtToggle.IsOn = _runtime.Settings.QuickMenuShowCapturedAt;
         _quickMenuShowShortcutHintsToggle.IsOn = _runtime.Settings.QuickMenuShowShortcutHints;
@@ -663,6 +672,14 @@ public sealed class MainWindow : Window
 
         _maxHistoryItemsBox.SelectionChanged += (_, _) => ChangeMaxHistoryItems();
         _historySettingsPage.Children.Add(SettingCard("\uE81C", "MaxHistoryItems", "MaxHistoryItemsDescription", _maxHistoryItemsBox));
+        _clipboardCaptureDelayBox.Width = 180;
+        foreach (var delay in new[] { 0, 50, 100, 150, 250, 500, 1000 })
+        {
+            _clipboardCaptureDelayBox.Items.Add(new ComboBoxItem { Tag = delay.ToString() });
+        }
+
+        _clipboardCaptureDelayBox.SelectionChanged += (_, _) => ChangeClipboardCaptureDelay();
+        _historySettingsPage.Children.Add(SettingCard("\uE916", "ClipboardCaptureDelay", "ClipboardCaptureDelayDescription", _clipboardCaptureDelayBox));
         var maskControls = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         maskControls.Children.Add(_maskDefinitionsButton);
         maskControls.Children.Add(ToggleActionHost(_maskSensitiveContentToggle));
@@ -1487,6 +1504,22 @@ public sealed class MainWindow : Window
         }
 
         _runtime.SetMaxHistoryItems(count);
+    }
+
+    private void ChangeClipboardCaptureDelay()
+    {
+        if (_loading || _clipboardCaptureDelayBox.SelectedItem is not ComboBoxItem selected || selected.Tag is not string tag)
+        {
+            return;
+        }
+
+        var delay = int.TryParse(tag, out var parsed) ? parsed : _runtime.Settings.ClipboardCaptureDelayMilliseconds;
+        if (_runtime.Settings.ClipboardCaptureDelayMilliseconds == delay)
+        {
+            return;
+        }
+
+        _runtime.SetClipboardCaptureDelay(delay);
     }
 
     private void ChangeQuickMenuImagePreviewSize()

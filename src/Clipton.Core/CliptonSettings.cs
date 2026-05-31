@@ -18,6 +18,8 @@ public sealed class CliptonSettings
 
     public bool HistoryPersistenceConfigured { get; set; }
 
+    public int ClipboardCaptureDelayMilliseconds { get; set; } = 150;
+
     public bool FolderMode { get; set; }
 
     public bool SimpleContextMenuMode { get; set; }
