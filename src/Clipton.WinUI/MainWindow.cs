@@ -1096,12 +1096,12 @@ public sealed class MainWindow : Window
         details.Children.Add(detailsHeader);
         details.Children.Add(_selectedSnippetText);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
-        _newSnippetButton.Click += (_, _) => OpenSnippetEditor(null, string.Empty, string.Empty, string.Empty);
-        _saveSnippetButton.Click += (_, _) =>
+        _newSnippetButton.Click += async (_, _) => await OpenSnippetEditorAsync(null, string.Empty, string.Empty, string.Empty);
+        _saveSnippetButton.Click += async (_, _) =>
         {
             if (_selectedSnippet is null) return;
             var snippet = _runtime.Snippets.Find(_selectedSnippet.Folder, _selectedSnippet.Name);
-            OpenSnippetEditor(_selectedSnippet, snippet?.Folder ?? _selectedSnippet.Folder, snippet?.Name ?? _selectedSnippet.Name, snippet?.Text ?? string.Empty);
+            await OpenSnippetEditorAsync(_selectedSnippet, snippet?.Folder ?? _selectedSnippet.Folder, snippet?.Name ?? _selectedSnippet.Name, snippet?.Text ?? string.Empty);
         };
         _pasteSnippetButton.Click += (_, _) =>
         {
@@ -1261,7 +1261,7 @@ public sealed class MainWindow : Window
         var item = _runtime.History.Find(_selectedHistoryId);
         if (string.IsNullOrWhiteSpace(item?.Text)) return;
         SelectPage(3);
-        OpenSnippetEditor(null, "History", CreateSnippetName(item.Text), item.Text);
+        _ = OpenSnippetEditorAsync(null, "History", CreateSnippetName(item.Text), item.Text);
     }
 
     private void ExportHistory()
@@ -1393,89 +1393,63 @@ public sealed class MainWindow : Window
             : $"{_selectedSnippet.DisplayName}\n{_selectedSnippet.Folder}";
     }
 
-    private void OpenSnippetEditor(SnippetItemViewModel? existing, string folder, string name, string text)
+    private async Task OpenSnippetEditorAsync(SnippetItemViewModel? existing, string folder, string name, string text)
     {
-        using var form = new Forms.Form
-        {
-            Text = _runtime.Translate("SnippetEditor"),
-            Icon = AppAssets.LoadAppIcon(_runtime.EffectiveTheme),
-            Width = 560,
-            Height = 460,
-            MinimizeBox = false,
-            MaximizeBox = false,
-            FormBorderStyle = Forms.FormBorderStyle.FixedDialog,
-            StartPosition = Forms.FormStartPosition.CenterScreen,
-            BackColor = IsDark ? System.Drawing.Color.FromArgb(32, 32, 32) : System.Drawing.Color.White,
-            ForeColor = IsDark ? System.Drawing.Color.White : System.Drawing.Color.Black
-        };
-
-        var table = new Forms.TableLayoutPanel
-        {
-            Dock = Forms.DockStyle.Fill,
-            Padding = new Forms.Padding(18),
-            ColumnCount = 2,
-            RowCount = 7
-        };
-        table.ColumnStyles.Add(new Forms.ColumnStyle(Forms.SizeType.Absolute, 96));
-        table.ColumnStyles.Add(new Forms.ColumnStyle(Forms.SizeType.Percent, 100));
-        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 36));
-        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 36));
-        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Percent, 100));
-        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 34));
-        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 34));
-        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 8));
-        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 44));
-
-        var folderBox = DialogTextBox(folder);
-        var nameBox = DialogTextBox(name);
-        var textBox = DialogTextBox(text);
-        textBox.Multiline = true;
-        textBox.ScrollBars = Forms.ScrollBars.Vertical;
+        var folderBox = SnippetEditorTextBox(folder, _runtime.Translate("SnippetFolder"));
+        var nameBox = SnippetEditorTextBox(name, _runtime.Translate("SnippetName"));
+        var textBox = SnippetEditorTextBox(text, _runtime.Translate("SnippetText"));
         textBox.AcceptsReturn = true;
+        textBox.TextWrapping = TextWrapping.Wrap;
+        textBox.MinHeight = 180;
+        textBox.MaxHeight = 260;
+        ScrollViewer.SetVerticalScrollBarVisibility(textBox, ScrollBarVisibility.Auto);
 
-        table.Controls.Add(DialogLabel(_runtime.Translate("SnippetFolder")), 0, 0);
-        table.Controls.Add(folderBox, 1, 0);
-        table.Controls.Add(DialogLabel(_runtime.Translate("SnippetName")), 0, 1);
-        table.Controls.Add(nameBox, 1, 1);
-        table.Controls.Add(DialogLabel(_runtime.Translate("SnippetText")), 0, 2);
-        table.Controls.Add(textBox, 1, 2);
-        var templateHelp = DialogLabel(_runtime.Translate("SnippetTemplateHelp"));
-        templateHelp.ForeColor = DialogMutedColor();
-        table.Controls.Add(templateHelp, 1, 3);
-        var referenceButton = new Forms.Button
+        var templateHelp = DescriptionText("SnippetTemplateHelp", fontSize: 12, wrapping: TextWrapping.Wrap);
+        var referenceButton = new HyperlinkButton
         {
-            Text = _runtime.Translate("SnippetTemplateReference"),
-            Width = 160,
-            Height = 28,
-            TextAlign = System.Drawing.ContentAlignment.MiddleCenter
+            Content = _runtime.Translate("SnippetTemplateReference"),
+            Padding = new Thickness(0),
+            HorizontalAlignment = HorizontalAlignment.Left
         };
         referenceButton.Click += (_, _) => OpenExternalUrl(SnippetVariablesUrl);
-        table.Controls.Add(referenceButton, 1, 4);
 
-        var buttons = new Forms.FlowLayoutPanel
+        var content = new StackPanel
         {
-            FlowDirection = Forms.FlowDirection.RightToLeft,
-            Dock = Forms.DockStyle.Fill
+            Spacing = 12,
+            MinWidth = 520,
+            Children =
+            {
+                SnippetEditorField("SnippetFolder", folderBox),
+                SnippetEditorField("SnippetName", nameBox),
+                SnippetEditorField("SnippetText", textBox),
+                templateHelp,
+                referenceButton
+            }
         };
-        var saveButton = new Forms.Button { Text = _runtime.Translate("Save"), DialogResult = Forms.DialogResult.OK, Width = 96 };
-        var cancelButton = new Forms.Button { Text = _runtime.Translate("Cancel"), DialogResult = Forms.DialogResult.Cancel, Width = 96 };
-        buttons.Controls.Add(saveButton);
-        buttons.Controls.Add(cancelButton);
-        table.Controls.Add(buttons, 0, 6);
-        table.SetColumnSpan(buttons, 2);
 
-        form.Controls.Add(table);
-        form.AcceptButton = saveButton;
-        form.CancelButton = cancelButton;
-        form.Shown += (_, _) => ApplyFormTitleBarTheme(form);
-        if (form.ShowDialog() != Forms.DialogResult.OK)
+        var dialog = new ContentDialog
+        {
+            Title = _runtime.Translate("SnippetEditor"),
+            Content = content,
+            PrimaryButtonText = _runtime.Translate("Save"),
+            CloseButtonText = _runtime.Translate("Cancel"),
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = _root.XamlRoot,
+            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+        };
+        dialog.IsPrimaryButtonEnabled = CanSaveSnippet(nameBox.Text, textBox.Text);
+        nameBox.TextChanged += (_, _) => dialog.IsPrimaryButtonEnabled = CanSaveSnippet(nameBox.Text, textBox.Text);
+        textBox.TextChanged += (_, _) => dialog.IsPrimaryButtonEnabled = CanSaveSnippet(nameBox.Text, textBox.Text);
+
+        var result = await dialog.ShowAsync();
+        if (result != ContentDialogResult.Primary)
         {
             return;
         }
 
         var newName = nameBox.Text.Trim();
         var newText = textBox.Text;
-        if (string.IsNullOrWhiteSpace(newName) || string.IsNullOrWhiteSpace(newText))
+        if (!CanSaveSnippet(newName, newText))
         {
             return;
         }
@@ -1492,6 +1466,31 @@ public sealed class MainWindow : Window
         _selectedSnippet = SnippetItemViewModel.FromSnippet(new Snippet(newName, newText, newFolder));
         UpdateSelectedSnippetText();
         RefreshItems();
+    }
+
+    private static bool CanSaveSnippet(string name, string text)
+    {
+        return !string.IsNullOrWhiteSpace(name) && !string.IsNullOrWhiteSpace(text);
+    }
+
+    private UIElement SnippetEditorField(string labelKey, TextBox input)
+    {
+        var panel = new StackPanel { Spacing = 6 };
+        panel.Children.Add(LocalizedText(labelKey, fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
+        panel.Children.Add(input);
+        return panel;
+    }
+
+    private TextBox SnippetEditorTextBox(string text, string placeholder)
+    {
+        return new TextBox
+        {
+            Text = text,
+            PlaceholderText = placeholder,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            MinHeight = 36,
+            Padding = new Thickness(12, 6, 12, 6)
+        };
     }
 
     private Forms.Label DialogLabel(string text) => new()
