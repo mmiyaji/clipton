@@ -286,12 +286,8 @@ public sealed class QuickMenuWindow : Window
                 }
                 break;
             case NativeMethods.VkRight:
-                if (GetFocusedMenuItemBase() is { } focusedMenuItem
-                    && _childFocusableItems.ContainsKey(focusedMenuItem))
-                {
-                    DispatcherQueue.TryEnqueue(EnterChildFocusContext);
-                    handled = false;
-                }
+                DispatcherQueue.TryEnqueue(PrepareRightKeyNavigation);
+                handled = false;
                 break;
             case NativeMethods.VkReturn:
                 DispatcherQueue.TryEnqueue(() =>
@@ -727,7 +723,7 @@ public sealed class QuickMenuWindow : Window
     {
         var flyout = new MenuFlyout
         {
-            Placement = FlyoutPlacementMode.RightEdgeAlignedTop
+            Placement = FlyoutPlacementMode.LeftEdgeAlignedTop
         };
 
         foreach (var option in item.PasteOptions ?? [])
@@ -929,6 +925,11 @@ public sealed class QuickMenuWindow : Window
             return;
         }
 
+        if (_activeParent is null)
+        {
+            SyncFocusedIndex();
+        }
+
         if (GetFocusedMenuItemBase() is not { } focusedItem
             || !_childFocusableItems.TryGetValue(focusedItem, out var childItems)
             || childItems.Count == 0)
@@ -946,6 +947,36 @@ public sealed class QuickMenuWindow : Window
         _activeFocusableItems = childItems;
         _activeParent = focusedItem;
         FocusMenuItem(0);
+    }
+
+    private void PrepareRightKeyNavigation()
+    {
+        if (_host.XamlRoot is null)
+        {
+            return;
+        }
+
+        if (_activeParent is null)
+        {
+            SyncFocusedIndex();
+        }
+
+        if (GetFocusedMenuItemBase() is not { } focusedItem
+            || !_childFocusableItems.TryGetValue(focusedItem, out var childItems)
+            || childItems.Count == 0)
+        {
+            return;
+        }
+
+        if (_pasteOptionsFlyouts.TryGetValue(focusedItem, out var pasteOptionsFlyout))
+        {
+            ShowPasteOptionsForItem(focusedItem, pasteOptionsFlyout, focusOptions: true);
+            return;
+        }
+
+        _activeFocusableItems = childItems;
+        _activeParent = focusedItem;
+        _focusedIndex = 0;
     }
 
     private void ReturnToParentFocusContext()
