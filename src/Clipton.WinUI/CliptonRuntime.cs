@@ -299,6 +299,42 @@ public sealed class CliptonRuntime : IDisposable
         SaveSettings();
     }
 
+    public void SetQuickMenuShortcut(string action, string shortcut)
+    {
+        Settings.QuickMenuShortcuts ??= new QuickMenuShortcutSettings();
+        switch (action)
+        {
+            case nameof(QuickMenuShortcutSettings.Search):
+                Settings.QuickMenuShortcuts.Search = NormalizeQuickMenuShortcut(
+                    shortcut,
+                    QuickMenuShortcutSettings.DefaultSearch,
+                    ["Ctrl+S", "Ctrl+F", "S", "F"]);
+                break;
+            case nameof(QuickMenuShortcutSettings.PastePlainText):
+                Settings.QuickMenuShortcuts.PastePlainText = NormalizeQuickMenuShortcut(
+                    shortcut,
+                    QuickMenuShortcutSettings.DefaultPastePlainText,
+                    ["T", "P", "Ctrl+T", "Ctrl+P"]);
+                break;
+            case nameof(QuickMenuShortcutSettings.ToggleMaskReveal):
+                Settings.QuickMenuShortcuts.ToggleMaskReveal = NormalizeQuickMenuShortcut(
+                    shortcut,
+                    QuickMenuShortcutSettings.DefaultToggleMaskReveal,
+                    ["M", "Ctrl+M"]);
+                break;
+            case nameof(QuickMenuShortcutSettings.ToggleCapturedAt):
+                Settings.QuickMenuShortcuts.ToggleCapturedAt = NormalizeQuickMenuShortcut(
+                    shortcut,
+                    QuickMenuShortcutSettings.DefaultToggleCapturedAt,
+                    ["Ctrl+D", "D"]);
+                break;
+            default:
+                return;
+        }
+
+        SaveSettings();
+    }
+
     public void RemoveHistoryItem(string id)
     {
         if (History.Remove(id))
@@ -888,6 +924,7 @@ public sealed class CliptonRuntime : IDisposable
             menuItems,
             EffectiveTheme,
             Settings.QuickMenuImagePreviewSize,
+            Settings.QuickMenuShortcuts,
             Translate("Search"),
             Translate("SearchPrompt"),
             Translate("Search"),
@@ -947,6 +984,32 @@ public sealed class CliptonRuntime : IDisposable
             "none" or "small" or "large" => size.ToLowerInvariant(),
             _ => "medium"
         };
+    }
+
+    private static string NormalizeQuickMenuShortcut(string? shortcut, string fallback, IReadOnlyCollection<string> allowed)
+    {
+        if (string.IsNullOrWhiteSpace(shortcut))
+        {
+            return fallback;
+        }
+
+        var parts = shortcut.Split('+', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+        {
+            return fallback;
+        }
+
+        if (parts.Take(parts.Length - 1).Any(part => !part.Equals("Ctrl", StringComparison.OrdinalIgnoreCase)
+            && !part.Equals("Control", StringComparison.OrdinalIgnoreCase)))
+        {
+            return fallback;
+        }
+
+        var control = parts.Take(parts.Length - 1).Any(part => part.Equals("Ctrl", StringComparison.OrdinalIgnoreCase)
+            || part.Equals("Control", StringComparison.OrdinalIgnoreCase));
+        var key = parts[^1].ToUpperInvariant();
+        var normalized = control ? $"Ctrl+{key}" : key;
+        return allowed.FirstOrDefault(item => item.Equals(normalized, StringComparison.OrdinalIgnoreCase)) ?? fallback;
     }
 
     private static string ResolveLocale(string locale)

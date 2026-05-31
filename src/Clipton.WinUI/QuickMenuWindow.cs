@@ -34,6 +34,7 @@ public sealed class QuickMenuWindow : Window
     private readonly string _cancelButtonText;
     private readonly string _noSearchResultsText;
     private readonly string _imagePreviewSize;
+    private readonly QuickMenuShortcutSettings _shortcuts;
     private readonly NativeMethods.LowLevelKeyboardProc _keyboardProc;
     private readonly NativeMethods.LowLevelMouseProc _mouseProc;
     private readonly List<MenuFlyoutItemBase> _rootFocusableItems = [];
@@ -64,6 +65,7 @@ public sealed class QuickMenuWindow : Window
         IReadOnlyList<QuickMenuItem> items,
         string theme,
         string imagePreviewSize,
+        QuickMenuShortcutSettings shortcuts,
         string searchTitle,
         string searchPrompt,
         string searchButtonText,
@@ -75,6 +77,7 @@ public sealed class QuickMenuWindow : Window
         _currentItems = items;
         _theme = theme;
         _imagePreviewSize = NormalizeImagePreviewSize(imagePreviewSize);
+        _shortcuts = shortcuts;
         _searchTitle = searchTitle;
         _searchPrompt = searchPrompt;
         _searchButtonText = searchButtonText;
@@ -258,9 +261,33 @@ public sealed class QuickMenuWindow : Window
         var handled = true;
         var key = Marshal.ReadInt32(lParam);
         var controlDown = (NativeMethods.GetAsyncKeyState(NativeMethods.VkControl) & 0x8000) != 0;
-        if (controlDown && key == NativeMethods.VkS)
+        if (MatchesShortcut(key, controlDown, _shortcuts.Search))
         {
             DispatcherQueue.TryEnqueue(SearchMenu);
+            return 1;
+        }
+
+        if (MatchesShortcut(key, controlDown, _shortcuts.ToggleMaskReveal))
+        {
+            DispatcherQueue.TryEnqueue(() => ToggleDisplayMode(revealMaskedItems: !_revealMaskedItems));
+            return 1;
+        }
+
+        if (MatchesShortcut(key, controlDown, _shortcuts.ToggleCapturedAt))
+        {
+            DispatcherQueue.TryEnqueue(() => ToggleDisplayMode(showCapturedAt: !_showCapturedAt));
+            return 1;
+        }
+
+        if (MatchesShortcut(key, controlDown, _shortcuts.PastePlainText))
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (GetFocusedMenuItem() is { } item)
+                {
+                    Invoke(item, asPlainText: true);
+                }
+            });
             return 1;
         }
 
@@ -311,21 +338,6 @@ public sealed class QuickMenuWindow : Window
                     }
                 });
                 break;
-            case NativeMethods.VkM:
-                DispatcherQueue.TryEnqueue(() => ToggleDisplayMode(revealMaskedItems: !_revealMaskedItems));
-                break;
-            case NativeMethods.VkD when controlDown:
-                DispatcherQueue.TryEnqueue(() => ToggleDisplayMode(showCapturedAt: !_showCapturedAt));
-                break;
-            case 'T':
-                DispatcherQueue.TryEnqueue(() =>
-                {
-                    if (GetFocusedMenuItem() is { } item)
-                    {
-                        Invoke(item, asPlainText: true);
-                    }
-                });
-                break;
             case NativeMethods.VkEscape:
                 Dismiss();
                 break;
@@ -337,6 +349,33 @@ public sealed class QuickMenuWindow : Window
         return handled
             ? 1
             : NativeMethods.CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
+    }
+
+    private static bool MatchesShortcut(int key, bool controlDown, string shortcut)
+    {
+        if (string.IsNullOrWhiteSpace(shortcut))
+        {
+            return false;
+        }
+
+        var parts = shortcut.Split('+', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+        {
+            return false;
+        }
+
+        var requiresControl = parts.Take(parts.Length - 1).Any(part => part.Equals("Ctrl", StringComparison.OrdinalIgnoreCase)
+            || part.Equals("Control", StringComparison.OrdinalIgnoreCase));
+        if (requiresControl != controlDown)
+        {
+            return false;
+        }
+
+        var keyName = parts[^1];
+        return keyName.Length == 1 && char.IsLetterOrDigit(keyName[0])
+            ? key == char.ToUpperInvariant(keyName[0])
+            : keyName.Equals("Enter", StringComparison.OrdinalIgnoreCase) && key == NativeMethods.VkReturn
+                || keyName.Equals("Esc", StringComparison.OrdinalIgnoreCase) && key == NativeMethods.VkEscape;
     }
 
     private bool ShouldHandleNavigationKey(int key)
@@ -462,6 +501,7 @@ public sealed class QuickMenuWindow : Window
             items,
             _theme,
             _imagePreviewSize,
+            _shortcuts,
             _searchTitle,
             _searchPrompt,
             _searchButtonText,

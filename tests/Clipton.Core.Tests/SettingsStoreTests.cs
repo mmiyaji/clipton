@@ -15,6 +15,10 @@ public sealed class SettingsStoreTests
         Assert.True(loaded.PersistEncryptedHistory);
         Assert.Equal(200, loaded.MaxHistoryItems);
         Assert.Equal("medium", loaded.QuickMenuImagePreviewSize);
+        Assert.Equal("Ctrl+S", loaded.QuickMenuShortcuts.Search);
+        Assert.Equal("T", loaded.QuickMenuShortcuts.PastePlainText);
+        Assert.Equal("M", loaded.QuickMenuShortcuts.ToggleMaskReveal);
+        Assert.Equal("Ctrl+D", loaded.QuickMenuShortcuts.ToggleCapturedAt);
         Assert.True(loaded.HideSettingsWindowOnStartup);
         Assert.False(loaded.InitialLaunchCompleted);
     }
@@ -64,6 +68,13 @@ public sealed class SettingsStoreTests
             PastePlainTextByDefault = true,
             PersistEncryptedHistory = true,
             QuickMenuImagePreviewSize = "large",
+            QuickMenuShortcuts = new QuickMenuShortcutSettings
+            {
+                Search = "Ctrl+F",
+                PastePlainText = "Ctrl+P",
+                ToggleMaskReveal = "Ctrl+M",
+                ToggleCapturedAt = "D"
+            },
             StartWithWindows = true,
             Theme = "dark"
         });
@@ -82,6 +93,10 @@ public sealed class SettingsStoreTests
         Assert.True(loaded.PastePlainTextByDefault);
         Assert.True(loaded.PersistEncryptedHistory);
         Assert.Equal("large", loaded.QuickMenuImagePreviewSize);
+        Assert.Equal("Ctrl+F", loaded.QuickMenuShortcuts.Search);
+        Assert.Equal("Ctrl+P", loaded.QuickMenuShortcuts.PastePlainText);
+        Assert.Equal("Ctrl+M", loaded.QuickMenuShortcuts.ToggleMaskReveal);
+        Assert.Equal("D", loaded.QuickMenuShortcuts.ToggleCapturedAt);
         Assert.True(loaded.StartWithWindows);
     }
 
@@ -137,5 +152,21 @@ public sealed class SettingsStoreTests
         var loaded = store.Load();
 
         Assert.Equal("medium", loaded.QuickMenuImagePreviewSize);
+    }
+
+    [Fact]
+    public void Load_NormalizesUnsupportedQuickMenuShortcuts()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"QuickMenuShortcuts":{"Search":"Alt+S","PastePlainText":"Ctrl+P","ToggleMaskReveal":"Ctrl+M","ToggleCapturedAt":"d"}}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Equal("Ctrl+S", loaded.QuickMenuShortcuts.Search);
+        Assert.Equal("Ctrl+P", loaded.QuickMenuShortcuts.PastePlainText);
+        Assert.Equal("Ctrl+M", loaded.QuickMenuShortcuts.ToggleMaskReveal);
+        Assert.Equal("D", loaded.QuickMenuShortcuts.ToggleCapturedAt);
     }
 }

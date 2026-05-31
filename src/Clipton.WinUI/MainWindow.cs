@@ -79,6 +79,10 @@ public sealed class MainWindow : Window
     private readonly ComboBox _themeBox = new();
     private readonly ComboBox _localeBox = new();
     private readonly ComboBox _quickMenuImagePreviewSizeBox = new();
+    private readonly ComboBox _quickMenuSearchShortcutBox = new();
+    private readonly ComboBox _quickMenuPlainTextShortcutBox = new();
+    private readonly ComboBox _quickMenuMaskShortcutBox = new();
+    private readonly ComboBox _quickMenuCapturedAtShortcutBox = new();
     private readonly ToggleSwitch _startupToggle = CompactToggle();
     private readonly ToggleSwitch _hideSettingsWindowOnStartupToggle = CompactToggle();
     private readonly ToggleSwitch _pauseCaptureToggle = CompactToggle();
@@ -303,6 +307,10 @@ public sealed class MainWindow : Window
         SetComboSelection(_themeBox, _runtime.Settings.Theme);
         SetComboSelection(_localeBox, _runtime.Settings.Locale);
         SetComboSelection(_quickMenuImagePreviewSizeBox, _runtime.Settings.QuickMenuImagePreviewSize);
+        SetComboSelection(_quickMenuSearchShortcutBox, _runtime.Settings.QuickMenuShortcuts.Search);
+        SetComboSelection(_quickMenuPlainTextShortcutBox, _runtime.Settings.QuickMenuShortcuts.PastePlainText);
+        SetComboSelection(_quickMenuMaskShortcutBox, _runtime.Settings.QuickMenuShortcuts.ToggleMaskReveal);
+        SetComboSelection(_quickMenuCapturedAtShortcutBox, _runtime.Settings.QuickMenuShortcuts.ToggleCapturedAt);
         UpdateSelectedSnippetText();
         UpdateHistorySearchStatus();
         UpdateMaskTestPreview();
@@ -452,7 +460,107 @@ public sealed class MainWindow : Window
         _quickMenuImagePreviewSizeBox.Width = 180;
         _quickMenuImagePreviewSizeBox.SelectionChanged += (_, _) => ChangeQuickMenuImagePreviewSize();
         _generalPage.Children.Add(SettingCard("\uEB9F", "ImagePreviewSize", "ImagePreviewSizeDescription", _quickMenuImagePreviewSizeBox));
+
+        _generalPage.Children.Add(SectionHeader("QuickMenuShortcutsSection"));
+        _generalPage.Children.Add(BuildQuickMenuShortcutsPanel());
     }
+
+    private UIElement BuildQuickMenuShortcutsPanel()
+    {
+        ConfigureShortcutCombo(
+            _quickMenuSearchShortcutBox,
+            nameof(QuickMenuShortcutSettings.Search),
+            ["Ctrl+S", "Ctrl+F", "S", "F"]);
+        ConfigureShortcutCombo(
+            _quickMenuPlainTextShortcutBox,
+            nameof(QuickMenuShortcutSettings.PastePlainText),
+            ["T", "P", "Ctrl+T", "Ctrl+P"]);
+        ConfigureShortcutCombo(
+            _quickMenuMaskShortcutBox,
+            nameof(QuickMenuShortcutSettings.ToggleMaskReveal),
+            ["M", "Ctrl+M"]);
+        ConfigureShortcutCombo(
+            _quickMenuCapturedAtShortcutBox,
+            nameof(QuickMenuShortcutSettings.ToggleCapturedAt),
+            ["Ctrl+D", "D"]);
+
+        var rows = new StackPanel { Spacing = 0 };
+        rows.Children.Add(ShortcutSettingRow("QuickMenuShortcutSearch", "QuickMenuShortcutSearchDescription", _quickMenuSearchShortcutBox));
+        rows.Children.Add(RowSeparator());
+        rows.Children.Add(ShortcutSettingRow("QuickMenuShortcutPastePlainText", "QuickMenuShortcutPastePlainTextDescription", _quickMenuPlainTextShortcutBox));
+        rows.Children.Add(RowSeparator());
+        rows.Children.Add(ShortcutSettingRow("QuickMenuShortcutToggleMask", "QuickMenuShortcutToggleMaskDescription", _quickMenuMaskShortcutBox));
+        rows.Children.Add(RowSeparator());
+        rows.Children.Add(ShortcutSettingRow("QuickMenuShortcutToggleCapturedAt", "QuickMenuShortcutToggleCapturedAtDescription", _quickMenuCapturedAtShortcutBox));
+        rows.Children.Add(RowSeparator());
+        rows.Children.Add(ShortcutReadOnlyRow("QuickMenuShortcutNavigate", "QuickMenuShortcutNavigateDescription", "\u2191 / \u2193 / \u2190 / \u2192"));
+        rows.Children.Add(RowSeparator());
+        rows.Children.Add(ShortcutReadOnlyRow("QuickMenuShortcutConfirm", "QuickMenuShortcutConfirmDescription", "Enter"));
+        rows.Children.Add(RowSeparator());
+        rows.Children.Add(ShortcutReadOnlyRow("QuickMenuShortcutCancel", "QuickMenuShortcutCancelDescription", "Esc"));
+        return Card(rows, new Thickness(0));
+    }
+
+    private void ConfigureShortcutCombo(ComboBox comboBox, string action, IEnumerable<string> shortcuts)
+    {
+        comboBox.Items.Clear();
+        foreach (var shortcut in shortcuts)
+        {
+            comboBox.Items.Add(new ComboBoxItem { Content = shortcut, Tag = shortcut });
+        }
+
+        comboBox.Width = 150;
+        AlignSettingControl(comboBox);
+        comboBox.SelectionChanged += (_, _) => ChangeQuickMenuShortcut(action, comboBox);
+    }
+
+    private UIElement ShortcutSettingRow(string titleKey, string descriptionKey, FrameworkElement control)
+    {
+        control.HorizontalAlignment = HorizontalAlignment.Right;
+        var row = ShortcutRow(titleKey, descriptionKey);
+        Grid.SetColumn(control, 1);
+        row.Children.Add(control);
+        return row;
+    }
+
+    private UIElement ShortcutReadOnlyRow(string titleKey, string descriptionKey, string shortcut)
+    {
+        var row = ShortcutRow(titleKey, descriptionKey);
+        var keyText = new TextBlock
+        {
+            Text = shortcut,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        };
+        Grid.SetColumn(keyText, 1);
+        row.Children.Add(keyText);
+        return row;
+    }
+
+    private Grid ShortcutRow(string titleKey, string descriptionKey)
+    {
+        var row = new Grid
+        {
+            Padding = new Thickness(16, 11, 16, 11),
+            ColumnSpacing = 16,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        row.ColumnDefinitions.Add(new ColumnDefinition());
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var texts = new StackPanel { Spacing = 3 };
+        texts.Children.Add(LocalizedText(titleKey, fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
+        texts.Children.Add(DescriptionText(descriptionKey, fontSize: 12, wrapping: TextWrapping.Wrap));
+        row.Children.Add(texts);
+        return row;
+    }
+
+    private Border RowSeparator() => new()
+    {
+        Height = 1,
+        Margin = new Thickness(16, 0, 16, 0),
+        Background = CardBorderBrush()
+    };
 
     private void BuildHistoryPage()
     {
@@ -1352,6 +1460,16 @@ public sealed class MainWindow : Window
         }
 
         _runtime.SetQuickMenuImagePreviewSize(size);
+    }
+
+    private void ChangeQuickMenuShortcut(string action, ComboBox comboBox)
+    {
+        if (_loading || comboBox.SelectedItem is not ComboBoxItem selected || selected.Tag is not string shortcut)
+        {
+            return;
+        }
+
+        _runtime.SetQuickMenuShortcut(action, shortcut);
     }
 
     private void RegisterSelectedHistory()

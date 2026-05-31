@@ -24,6 +24,8 @@ public sealed class CliptonSettings
 
     public string QuickMenuImagePreviewSize { get; set; } = "medium";
 
+    public QuickMenuShortcutSettings QuickMenuShortcuts { get; set; } = new();
+
     public bool MaskSensitiveContent { get; set; } = true;
 
     public int MaskVisiblePrefixLength { get; set; } = 3;
@@ -37,4 +39,20 @@ public sealed class CliptonSettings
     public string Theme { get; set; } = "light";
 
     public string Locale { get; set; } = "en";
+}
+
+public sealed class QuickMenuShortcutSettings
+{
+    public const string DefaultSearch = "Ctrl+S";
+    public const string DefaultPastePlainText = "T";
+    public const string DefaultToggleMaskReveal = "M";
+    public const string DefaultToggleCapturedAt = "Ctrl+D";
+
+    public string Search { get; set; } = DefaultSearch;
+
+    public string PastePlainText { get; set; } = DefaultPastePlainText;
+
+    public string ToggleMaskReveal { get; set; } = DefaultToggleMaskReveal;
+
+    public string ToggleCapturedAt { get; set; } = DefaultToggleCapturedAt;
 }
