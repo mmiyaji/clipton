@@ -44,6 +44,7 @@ public sealed class QuickMenuWindow : Window
     private readonly Dictionary<MenuFlyoutItemBase, List<MenuFlyoutItemBase>> _childFocusableItems = [];
     private readonly Dictionary<MenuFlyoutItemBase, MenuFlyoutItemBase> _parentItem = [];
     private readonly Dictionary<MenuFlyoutItemBase, MenuFlyout> _pasteOptionsFlyouts = [];
+    private readonly HashSet<MenuFlyoutSubItem> _builtSubmenus = [];
     private IReadOnlyList<MenuFlyoutItemBase> _activeFocusableItems = [];
     private MenuFlyoutItemBase? _activeParent;
     private int _focusedIndex = -1;
@@ -136,7 +137,17 @@ public sealed class QuickMenuWindow : Window
         {
             _flyout.Hide();
             _appWindow?.Hide();
+            _rootFocusableItems.Clear();
+            _childFocusableItems.Clear();
+            _parentItem.Clear();
+            _pasteOptionsFlyouts.Clear();
+            _builtSubmenus.Clear();
+            _activeFocusableItems = [];
+            _activeParent = null;
+            _hoveredPasteOptionsItem = null;
+            _replacementWindow = null;
             Dismissed?.Invoke(this, EventArgs.Empty);
+            Close();
         });
     }
 
@@ -443,6 +454,7 @@ public sealed class QuickMenuWindow : Window
         _childFocusableItems.Clear();
         _parentItem.Clear();
         _pasteOptionsFlyouts.Clear();
+        _builtSubmenus.Clear();
         _activeFocusableItems = _rootFocusableItems;
         _activeParent = null;
         _focusedIndex = -1;
@@ -770,7 +782,13 @@ public sealed class QuickMenuWindow : Window
                 }
 
                 _childFocusableItems[subItem] = [];
-                AddItems(subItem.Items, item.GetChildren(), subItem);
+                subItem.Items.Add(new MenuFlyoutItem
+                {
+                    Text = "...",
+                    IsEnabled = false
+                });
+                subItem.PointerEntered += (_, _) => EnsureSubmenuBuilt(subItem);
+                subItem.Tapped += (_, _) => EnsureSubmenuBuilt(subItem);
                 target.Add(subItem);
                 continue;
             }
@@ -896,6 +914,27 @@ public sealed class QuickMenuWindow : Window
         }
 
         return flyout;
+    }
+
+    private void EnsureSubmenuBuilt(MenuFlyoutSubItem subItem)
+    {
+        if (_builtSubmenus.Contains(subItem) || subItem.Tag is not QuickMenuItem item)
+        {
+            return;
+        }
+
+        subItem.Items.Clear();
+        if (_childFocusableItems.TryGetValue(subItem, out var childItems))
+        {
+            childItems.Clear();
+        }
+        else
+        {
+            _childFocusableItems[subItem] = [];
+        }
+
+        AddItems(subItem.Items, item.GetChildren(), subItem);
+        _builtSubmenus.Add(subItem);
     }
 
     private MenuFlyoutItem CreatePasteOptionMenuItem(QuickMenuPasteOption option)
@@ -1095,8 +1134,18 @@ public sealed class QuickMenuWindow : Window
             SyncFocusedIndex();
         }
 
-        if (GetFocusedMenuItemBase() is not { } focusedItem
-            || !_childFocusableItems.TryGetValue(focusedItem, out var childItems)
+        if (GetFocusedMenuItemBase() is not { } focusedItem)
+        {
+            SyncFocusedIndex();
+            return;
+        }
+
+        if (focusedItem is MenuFlyoutSubItem subItem)
+        {
+            EnsureSubmenuBuilt(subItem);
+        }
+
+        if (!_childFocusableItems.TryGetValue(focusedItem, out var childItems)
             || childItems.Count == 0)
         {
             SyncFocusedIndex();
