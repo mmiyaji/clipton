@@ -1586,7 +1586,7 @@ public sealed class MainWindow : Window
             var item = SnippetItemViewModel.FromSnippet(snippet);
             var snippetNode = new TreeViewNode
             {
-                Content = SnippetTreeRow("\uE8C8", item.Name, item.Folder, item)
+                Content = SnippetTreeRow("\uE8A5", item.Name, item.Folder, item)
             };
             _snippetNodes[snippetNode] = item;
 
@@ -1674,14 +1674,14 @@ public sealed class MainWindow : Window
             Padding = new Thickness(2, 4, 2, 4),
             Tag = item
         };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
         row.ColumnDefinitions.Add(new ColumnDefinition());
         row.Children.Add(new FontIcon
         {
             Glyph = glyph,
             FontFamily = new FontFamily("Segoe Fluent Icons"),
-            FontSize = 15,
-            Foreground = item is null ? DescriptionBrush() : null,
+            FontSize = item is null ? 15 : 16,
+            Foreground = item is null ? DescriptionBrush() : Brush(IsDark ? "#DADADA" : "#4A4A4A"),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         });
