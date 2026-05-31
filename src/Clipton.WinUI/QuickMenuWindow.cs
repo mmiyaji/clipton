@@ -785,6 +785,12 @@ public sealed class QuickMenuWindow : Window
 
     private QuickMenuItem? GetFocusedMenuItem()
     {
+        if (_activeParent is not null
+            && GetTrackedFocusedMenuItemBase() is { Tag: QuickMenuItem trackedChildItem })
+        {
+            return trackedChildItem;
+        }
+
         if (_host.XamlRoot is null)
         {
             return _navigator.SelectedItem;
@@ -794,8 +800,26 @@ public sealed class QuickMenuWindow : Window
         {
             MenuFlyoutItem { Tag: QuickMenuItem item } => item,
             MenuFlyoutSubItem { Tag: QuickMenuItem item } => item,
-            _ => _navigator.SelectedItem
+            _ => GetTrackedFocusedMenuItemBase() is { Tag: QuickMenuItem item } ? item : _navigator.SelectedItem
         };
+    }
+
+    private MenuFlyoutItemBase? GetFocusedMenuItemBase()
+    {
+        if (_host.XamlRoot is not null
+            && FocusManager.GetFocusedElement(_host.XamlRoot) is MenuFlyoutItemBase focusedItem)
+        {
+            return focusedItem;
+        }
+
+        return GetTrackedFocusedMenuItemBase();
+    }
+
+    private MenuFlyoutItemBase? GetTrackedFocusedMenuItemBase()
+    {
+        return _focusedIndex >= 0 && _focusedIndex < _activeFocusableItems.Count
+            ? _activeFocusableItems[_focusedIndex]
+            : null;
     }
 
     private void FocusMenuItem(int index)
@@ -853,7 +877,7 @@ public sealed class QuickMenuWindow : Window
             return;
         }
 
-        if (FocusManager.GetFocusedElement(_host.XamlRoot) is not MenuFlyoutSubItem focusedFolder
+        if (GetFocusedMenuItemBase() is not MenuFlyoutSubItem focusedFolder
             || !_childFocusableItems.TryGetValue(focusedFolder, out var childItems)
             || childItems.Count == 0)
         {
@@ -863,11 +887,7 @@ public sealed class QuickMenuWindow : Window
 
         _activeFocusableItems = childItems;
         _activeParent = focusedFolder;
-        SyncFocusedIndex();
-        if (_focusedIndex < 0 || _focusedIndex >= _activeFocusableItems.Count)
-        {
-            FocusMenuItem(0);
-        }
+        FocusMenuItem(0);
     }
 
     private void ReturnToParentFocusContext()

@@ -1209,18 +1209,53 @@ public sealed class CliptonRuntime : IDisposable
     private void SendPaste()
     {
         RestorePasteTarget();
+        Thread.Sleep(60);
         NativeMethods.keybd_event(NativeMethods.VkControl, 0, 0, UIntPtr.Zero);
         NativeMethods.keybd_event(NativeMethods.VkV, 0, 0, UIntPtr.Zero);
+        Thread.Sleep(20);
         NativeMethods.keybd_event(NativeMethods.VkV, 0, NativeMethods.KeyeventfKeyup, UIntPtr.Zero);
         NativeMethods.keybd_event(NativeMethods.VkControl, 0, NativeMethods.KeyeventfKeyup, UIntPtr.Zero);
     }
 
     private void RestorePasteTarget()
     {
-        if (_pasteTargetWindow != IntPtr.Zero)
+        if (_pasteTargetWindow == IntPtr.Zero)
         {
+            return;
+        }
+
+        var currentThread = NativeMethods.GetCurrentThreadId();
+        var targetThread = NativeMethods.GetWindowThreadProcessId(_pasteTargetWindow, out _);
+        var foreground = NativeMethods.GetForegroundWindow();
+        var foregroundThread = foreground == IntPtr.Zero
+            ? 0
+            : NativeMethods.GetWindowThreadProcessId(foreground, out _);
+
+        var attachedTarget = targetThread != 0 && targetThread != currentThread && NativeMethods.AttachThreadInput(currentThread, targetThread, true);
+        var attachedForeground = foregroundThread != 0
+            && foregroundThread != currentThread
+            && foregroundThread != targetThread
+            && NativeMethods.AttachThreadInput(currentThread, foregroundThread, true);
+
+        try
+        {
+            NativeMethods.BringWindowToTop(_pasteTargetWindow);
             NativeMethods.SetForegroundWindow(_pasteTargetWindow);
-            Thread.Sleep(80);
+            NativeMethods.SetActiveWindow(_pasteTargetWindow);
+            NativeMethods.SetFocus(_pasteTargetWindow);
+            Thread.Sleep(160);
+        }
+        finally
+        {
+            if (attachedForeground)
+            {
+                NativeMethods.AttachThreadInput(currentThread, foregroundThread, false);
+            }
+
+            if (attachedTarget)
+            {
+                NativeMethods.AttachThreadInput(currentThread, targetThread, false);
+            }
         }
     }
 
