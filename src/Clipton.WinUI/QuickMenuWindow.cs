@@ -657,6 +657,11 @@ public sealed class QuickMenuWindow : Window
                     _childFocusableItems[optionSubItem].Add(optionItem);
                 }
 
+                if (!string.IsNullOrWhiteSpace(item.IconImagePath) && File.Exists(item.IconImagePath))
+                {
+                    optionSubItem.Loaded += (_, _) => InsertImagePreview(optionSubItem, item.IconImagePath);
+                }
+
                 target.Add(optionSubItem);
                 continue;
             }
@@ -1106,7 +1111,7 @@ public sealed class QuickMenuWindow : Window
         };
     }
 
-    private static void InsertImagePreview(MenuFlyoutItem flyoutItem, string? imagePath)
+    private static void InsertImagePreview(MenuFlyoutItemBase flyoutItem, string? imagePath)
     {
         if (string.IsNullOrWhiteSpace(imagePath) || !File.Exists(imagePath))
         {
