@@ -34,6 +34,7 @@ public sealed class MainWindow : Window
     private const string TermsUrl = "https://mmiyaji.github.io/clipton/terms/";
     private const string PrivacyUrl = "https://mmiyaji.github.io/clipton/privacy/";
     private const string AuthorUrl = "https://ruhenheim.org";
+    private const string SnippetVariablesUrl = "https://mmiyaji.github.io/clipton/snippet-variables/";
     private readonly CliptonRuntime _runtime;
     private readonly Grid _root = new();
     private readonly ColumnDefinition _sidebarColumn = new() { Width = new GridLength(SidebarExpandedWidth) };
@@ -1413,13 +1414,14 @@ public sealed class MainWindow : Window
             Dock = Forms.DockStyle.Fill,
             Padding = new Forms.Padding(18),
             ColumnCount = 2,
-            RowCount = 6
+            RowCount = 7
         };
         table.ColumnStyles.Add(new Forms.ColumnStyle(Forms.SizeType.Absolute, 96));
         table.ColumnStyles.Add(new Forms.ColumnStyle(Forms.SizeType.Percent, 100));
         table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 36));
         table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 36));
         table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Percent, 100));
+        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 34));
         table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 34));
         table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 8));
         table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 44));
@@ -1440,6 +1442,15 @@ public sealed class MainWindow : Window
         var templateHelp = DialogLabel(_runtime.Translate("SnippetTemplateHelp"));
         templateHelp.ForeColor = DialogMutedColor();
         table.Controls.Add(templateHelp, 1, 3);
+        var referenceButton = new Forms.Button
+        {
+            Text = _runtime.Translate("SnippetTemplateReference"),
+            Width = 160,
+            Height = 28,
+            TextAlign = System.Drawing.ContentAlignment.MiddleCenter
+        };
+        referenceButton.Click += (_, _) => OpenExternalUrl(SnippetVariablesUrl);
+        table.Controls.Add(referenceButton, 1, 4);
 
         var buttons = new Forms.FlowLayoutPanel
         {
@@ -1450,7 +1461,7 @@ public sealed class MainWindow : Window
         var cancelButton = new Forms.Button { Text = _runtime.Translate("Cancel"), DialogResult = Forms.DialogResult.Cancel, Width = 96 };
         buttons.Controls.Add(saveButton);
         buttons.Controls.Add(cancelButton);
-        table.Controls.Add(buttons, 0, 5);
+        table.Controls.Add(buttons, 0, 6);
         table.SetColumnSpan(buttons, 2);
 
         form.Controls.Add(table);
