@@ -352,7 +352,7 @@ public sealed class MainWindow : Window
         }
 
         _contentScroller.MinWidth = ContentMinWidth;
-        _contentScroller.Padding = new Thickness(36, 30, 36, 24);
+        _contentScroller.Padding = new Thickness(36, 30, 36, 0);
         _contentScroller.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
         _contentScroller.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         var contentHost = new Grid { HorizontalAlignment = HorizontalAlignment.Left, MinWidth = ContentMinWidth };
