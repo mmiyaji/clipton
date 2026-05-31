@@ -112,7 +112,6 @@ public sealed class MainWindow : Window
     private readonly Button _loadMoreHistoryButton = new();
     private readonly TextBlock _historySearchStatusText = Description();
     private readonly TextBlock _selectedSnippetText = Description();
-    private readonly Button _newSnippetFolderButton = new();
     private readonly Button _newSnippetButton = new();
     private readonly Button _exportSnippetsButton = new();
     private readonly Button _importSnippetsButton = new();
@@ -262,7 +261,6 @@ public sealed class MainWindow : Window
         SetHistoryFilterToggle(_historyPinnedFilter, t("PinnedHistory"));
         SetHistoryFilterToggle(_historyUrlFilter, t("SearchFilterUrl"));
         _loadMoreHistoryButton.Content = string.Format(t("LoadMoreHistory"), 0);
-        SetCommandButton(_newSnippetFolderButton, "\uE8B7", t("NewSnippetFolder"));
         SetCommandButton(_newSnippetButton, "\uE710", t("NewSnippet"));
         SetCommandButton(_exportSnippetsButton, "\uEDE1", t("Export"));
         SetCommandButton(_importSnippetsButton, "\uE896", t("Import"));
@@ -1167,10 +1165,7 @@ public sealed class MainWindow : Window
         detailsHeader.Children.Add(snippetDataActions);
         details.Children.Add(detailsHeader);
         details.Children.Add(_selectedSnippetText);
-        var buttonRows = new StackPanel { Spacing = 8 };
-        var createButtons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Spacing = 8 };
-        var itemButtons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
-        _newSnippetFolderButton.Click += async (_, _) => await OpenSnippetFolderEditorAsync(_selectedSnippetFolder);
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         _newSnippetButton.Click += async (_, _) => await OpenSnippetEditorAsync(null, _selectedSnippetFolder, string.Empty, string.Empty);
         _saveSnippetButton.Click += async (_, _) =>
         {
@@ -1195,14 +1190,11 @@ public sealed class MainWindow : Window
         };
         _exportSnippetsButton.Click += async (_, _) => await ExportSnippetsAsync();
         _importSnippetsButton.Click += async (_, _) => await ImportSnippetsAsync();
-        createButtons.Children.Add(_newSnippetFolderButton);
-        createButtons.Children.Add(_newSnippetButton);
-        itemButtons.Children.Add(_saveSnippetButton);
-        itemButtons.Children.Add(_pasteSnippetButton);
-        itemButtons.Children.Add(_deleteSnippetButton);
-        buttonRows.Children.Add(createButtons);
-        buttonRows.Children.Add(itemButtons);
-        details.Children.Add(buttonRows);
+        buttons.Children.Add(_newSnippetButton);
+        buttons.Children.Add(_saveSnippetButton);
+        buttons.Children.Add(_pasteSnippetButton);
+        buttons.Children.Add(_deleteSnippetButton);
+        details.Children.Add(buttons);
         var detailsCard = Card(details);
         Grid.SetColumn(detailsCard, 1);
         grid.Children.Add(detailsCard);
@@ -1629,8 +1621,8 @@ public sealed class MainWindow : Window
 
     private IEnumerable<string> CollectSnippetFolders()
     {
-        return _runtime.Settings.SnippetFolders
-            .Concat(_runtime.Snippets.Snippets.Select(snippet => snippet.Folder))
+        return _runtime.Snippets.Snippets
+            .Select(snippet => snippet.Folder)
             .SelectMany(GetFolderAndParents)
             .Where(folder => !string.IsNullOrWhiteSpace(folder))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -1755,62 +1747,6 @@ public sealed class MainWindow : Window
         return false;
     }
 
-    private async Task OpenSnippetFolderEditorAsync(string parentFolder)
-    {
-        if (_root.XamlRoot is null)
-        {
-            return;
-        }
-
-        var folderBox = SnippetEditorTextBox(string.Empty, _runtime.Translate("SnippetFolderPath"));
-        var parent = NormalizeSnippetFolder(parentFolder);
-        if (!string.IsNullOrWhiteSpace(parent))
-        {
-            folderBox.PlaceholderText = $"{parent}/...";
-        }
-
-        var content = new StackPanel
-        {
-            Spacing = 12,
-            MinWidth = 420,
-            Children =
-            {
-                SnippetEditorField("SnippetFolderPath", folderBox)
-            }
-        };
-
-        var dialog = new ContentDialog
-        {
-            Title = _runtime.Translate("NewSnippetFolder"),
-            Content = content,
-            PrimaryButtonText = _runtime.Translate("Save"),
-            CloseButtonText = _runtime.Translate("Cancel"),
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = _root.XamlRoot,
-            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
-        };
-        dialog.IsPrimaryButtonEnabled = false;
-        folderBox.TextChanged += (_, _) => dialog.IsPrimaryButtonEnabled = !string.IsNullOrWhiteSpace(folderBox.Text);
-
-        var result = await dialog.ShowAsync();
-        if (result != ContentDialogResult.Primary)
-        {
-            return;
-        }
-
-        var folder = ResolveSnippetFolderInput(parent, folderBox.Text);
-        if (string.IsNullOrWhiteSpace(folder))
-        {
-            return;
-        }
-
-        _runtime.AddSnippetFolder(folder);
-        _selectedSnippet = null;
-        _selectedSnippetFolder = folder;
-        UpdateSelectedSnippetText();
-        RefreshItems();
-    }
-
     private async Task OpenSnippetEditorAsync(SnippetItemViewModel? existing, string folder, string name, string text)
     {
         var folderBox = SnippetEditorTextBox(folder, _runtime.Translate("SnippetFolder"));
@@ -1865,14 +1801,15 @@ public sealed class MainWindow : Window
             return;
         }
 
-        var newName = nameBox.Text.Trim();
+        var parsed = ParseSnippetNameAndFolder(folderBox.Text, nameBox.Text);
+        var newName = parsed.Name;
         var newText = textBox.Text;
         if (!CanSaveSnippet(newName, newText))
         {
             return;
         }
 
-        var newFolder = folderBox.Text.Trim();
+        var newFolder = parsed.Folder;
         if (existing is not null
             && (!string.Equals(existing.Name, newName, StringComparison.Ordinal)
                 || !string.Equals(existing.Folder, newFolder, StringComparison.Ordinal)))
@@ -1909,21 +1846,17 @@ public sealed class MainWindow : Window
         };
     }
 
-    private static string ResolveSnippetFolderInput(string parentFolder, string input)
+    private static (string Folder, string Name) ParseSnippetNameAndFolder(string folder, string name)
     {
-        var normalized = NormalizeSnippetFolder(input);
-        var parent = NormalizeSnippetFolder(parentFolder);
-        if (string.IsNullOrWhiteSpace(normalized))
+        var trimmedName = name.Trim();
+        var parts = trimmedName
+            .Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length <= 1)
         {
-            return string.Empty;
+            return (NormalizeSnippetFolder(folder), trimmedName);
         }
 
-        if (string.IsNullOrWhiteSpace(parent) || normalized.Contains('/'))
-        {
-            return normalized;
-        }
-
-        return $"{parent}/{normalized}";
+        return (string.Join("/", parts.Take(parts.Length - 1)), parts[^1]);
     }
 
     private static IEnumerable<string> GetFolderAndParents(string? folder)

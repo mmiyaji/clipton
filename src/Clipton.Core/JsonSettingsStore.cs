@@ -32,12 +32,6 @@ public sealed class JsonSettingsStore
             .Where(id => !string.IsNullOrWhiteSpace(id))
             .Distinct(StringComparer.Ordinal)
             .ToArray();
-        settings.SnippetFolders = settings.SnippetFolders
-            .Select(NormalizeFolder)
-            .Where(folder => !string.IsNullOrWhiteSpace(folder))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(folder => folder, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
         settings.Locale = NormalizeLocale(settings.Locale);
         settings.Theme = NormalizeTheme(settings.Theme);
         return settings;
@@ -74,11 +68,4 @@ public sealed class JsonSettingsStore
         return string.Equals(theme, "dark", StringComparison.OrdinalIgnoreCase) ? "dark" : "light";
     }
 
-    private static string NormalizeFolder(string? folder)
-    {
-        return string.Join(
-            "/",
-            (folder ?? string.Empty)
-                .Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-    }
 }
