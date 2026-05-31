@@ -2176,11 +2176,14 @@ public sealed class MainWindow : Window
     {
         var grid = new Grid
         {
-            ColumnSpacing = 16,
+            ColumnSpacing = 12,
             Padding = new Thickness(22, 9, 12, 9)
         };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        grid.Children.Add(HistoryPreviewSlot(item));
 
         var texts = new StackPanel { Spacing = 3 };
         texts.Children.Add(new TextBlock
@@ -2195,6 +2198,7 @@ public sealed class MainWindow : Window
             Foreground = DescriptionBrush(),
             TextTrimming = TextTrimming.CharacterEllipsis
         });
+        Grid.SetColumn(texts, 1);
         grid.Children.Add(texts);
 
         var capturedAt = new TextBlock
@@ -2205,9 +2209,41 @@ public sealed class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             TextAlignment = TextAlignment.Right
         };
-        Grid.SetColumn(capturedAt, 1);
+        Grid.SetColumn(capturedAt, 2);
         grid.Children.Add(capturedAt);
         return grid;
+    }
+
+    private UIElement HistoryPreviewSlot(HistoryItemViewModel item)
+    {
+        var border = new Border
+        {
+            Width = 44,
+            Height = 44,
+            CornerRadius = new CornerRadius(4),
+            Background = Brush(IsDark ? "#202020" : "#F7F7F7"),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        if (item.HasPreviewImage && item.PreviewImagePath is { } path && File.Exists(path))
+        {
+            border.BorderBrush = CardBorderBrush();
+            border.BorderThickness = new Thickness(1);
+            border.Child = new Image
+            {
+                Source = new BitmapImage(new Uri(path)),
+                Stretch = Stretch.Uniform,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+        }
+        else
+        {
+            border.Opacity = 0;
+            border.IsHitTestVisible = false;
+        }
+
+        return border;
     }
 
     private UIElement BuildBrandHeader()
@@ -2504,9 +2540,16 @@ public sealed class MainWindow : Window
     }
 }
 
-public sealed record HistoryItemViewModel(string Id, string Preview, string FormatSummary, DateTimeOffset CapturedAt)
+public sealed record HistoryItemViewModel(
+    string Id,
+    string Preview,
+    string FormatSummary,
+    DateTimeOffset CapturedAt,
+    string? PreviewImagePath = null)
 {
     public string CapturedAtText => CapturedAt.LocalDateTime.ToString("yyyy/MM/dd HH:mm");
+
+    public bool HasPreviewImage => !string.IsNullOrWhiteSpace(PreviewImagePath);
 
     public override string ToString() => $"{Preview}  {FormatSummary}  {CapturedAtText}";
 }
