@@ -152,6 +152,11 @@ public sealed class MainWindow : Window
     private bool _hiddenToTray;
     private bool _maskDefinitionsExpanded;
     private bool _onboardingDialogOpen;
+    private bool _generalPageBuilt;
+    private bool _historyPageBuilt;
+    private bool _historySettingsPageBuilt;
+    private bool _snippetPageBuilt;
+    private bool _aboutPageBuilt;
     private Border? _maskDefinitionsCard;
 
     public MainWindow(CliptonRuntime runtime)
@@ -176,8 +181,6 @@ public sealed class MainWindow : Window
         BuildUi();
         ApplyTheme();
         SizeWindow();
-        RefreshTexts();
-        RefreshItems();
         Closed += (_, _) => _runtime.OnMainWindowClosed(this);
     }
 
@@ -215,6 +218,19 @@ public sealed class MainWindow : Window
     }
 
     public void RefreshItems()
+    {
+        if (_historyPageBuilt)
+        {
+            RefreshHistoryItems();
+        }
+
+        if (_snippetPageBuilt)
+        {
+            RefreshSnippetTree();
+        }
+    }
+
+    private void RefreshHistoryItems()
     {
         _historyListView.Items.Clear();
         var historyItems = _runtime.History.Items.Where(HistoryMatchesSearch).ToArray();
@@ -265,7 +281,6 @@ public sealed class MainWindow : Window
             }
         }
 
-        RefreshSnippetTree();
     }
 
     public void RefreshTexts()
@@ -421,16 +436,17 @@ public sealed class MainWindow : Window
         _navigationView.Content = _contentScroller;
         _root.Children.Add(_navigationView);
 
-        BuildGeneralPage();
-        BuildHistoryPage();
-        BuildHistorySettingsPage();
-        BuildSnippetPage();
-        BuildAboutPage();
         SelectPage(0);
     }
 
     private void BuildGeneralPage()
     {
+        if (_generalPageBuilt)
+        {
+            return;
+        }
+
+        _generalPageBuilt = true;
         _generalPage.Children.Add(PageHeader(_generalHeaderText, _generalDescriptionText));
         _generalPage.Children.Add(SectionHeader("ActivationSection"));
         foreach (var hotkey in new[] { "Ctrl+Shift+V", "Ctrl+Alt+V", "Alt+Space" })
@@ -612,6 +628,12 @@ public sealed class MainWindow : Window
 
     private void BuildHistoryPage()
     {
+        if (_historyPageBuilt)
+        {
+            return;
+        }
+
+        _historyPageBuilt = true;
         _historyPage.Children.Add(PageHeader(_historyHeaderText, _historyDescriptionText));
         _historyPage.Children.Add(SectionHeader("HistorySection"));
         _historyPage.Children.Add(BuildHistorySearchPanel());
@@ -661,6 +683,12 @@ public sealed class MainWindow : Window
 
     private void BuildHistorySettingsPage()
     {
+        if (_historySettingsPageBuilt)
+        {
+            return;
+        }
+
+        _historySettingsPageBuilt = true;
         _historySettingsPage.Children.Add(PageHeader(_historySettingsHeaderText, _historySettingsDescriptionText));
         _historySettingsPage.Children.Add(SectionHeader("CapturePrivacySection"));
         foreach (var toggle in new[] { _pauseCaptureToggle, _persistHistoryToggle, _maskSensitiveContentToggle })
@@ -1304,6 +1332,12 @@ public sealed class MainWindow : Window
 
     private void BuildSnippetPage()
     {
+        if (_snippetPageBuilt)
+        {
+            return;
+        }
+
+        _snippetPageBuilt = true;
         _snippetPage.Children.Add(PageHeader(_snippetHeaderText, _snippetDescriptionText));
         var grid = new Grid { ColumnSpacing = 16 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(320) });
@@ -1396,6 +1430,12 @@ public sealed class MainWindow : Window
 
     private void BuildAboutPage()
     {
+        if (_aboutPageBuilt)
+        {
+            return;
+        }
+
+        _aboutPageBuilt = true;
         _aboutPage.Children.Add(PageHeader(_aboutHeaderText, _aboutDescriptionText));
 
         var info = new StackPanel { Spacing = 10 };
@@ -2363,6 +2403,7 @@ public sealed class MainWindow : Window
 
     private void SelectPage(int index)
     {
+        EnsurePageBuilt(index);
         _selectedPageIndex = index;
         _generalPage.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
         _historyPage.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
@@ -2375,6 +2416,38 @@ public sealed class MainWindow : Window
             _updatingNavSelection = true;
             _navigationView.SelectedItem = _navItems[index];
             _updatingNavSelection = false;
+        }
+
+        RefreshTexts();
+        if (index == 1)
+        {
+            RefreshHistoryItems();
+        }
+        else if (index == 3)
+        {
+            RefreshSnippetTree();
+        }
+    }
+
+    private void EnsurePageBuilt(int index)
+    {
+        switch (index)
+        {
+            case 0:
+                BuildGeneralPage();
+                break;
+            case 1:
+                BuildHistoryPage();
+                break;
+            case 2:
+                BuildHistorySettingsPage();
+                break;
+            case 3:
+                BuildSnippetPage();
+                break;
+            case 4:
+                BuildAboutPage();
+                break;
         }
     }
 
