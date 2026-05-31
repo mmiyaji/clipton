@@ -273,10 +273,21 @@ public sealed class MainWindow : Window
         var loadMoreHistoryButton = _loadMoreHistoryButton;
 
         historyListView.Items.Clear();
-        var historyItems = _runtime.History.Items.Where(HistoryMatchesSearch).ToArray();
-        var visibleHistoryItems = historyItems.Take(_historyVisibleLimit).ToArray();
-        foreach (var snapshot in visibleHistoryItems)
+        var visibleHistoryCount = 0;
+        var matchingHistoryCount = 0;
+        foreach (var snapshot in _runtime.History.Items)
         {
+            if (!HistoryMatchesSearch(snapshot))
+            {
+                continue;
+            }
+
+            matchingHistoryCount++;
+            if (visibleHistoryCount >= _historyVisibleLimit)
+            {
+                continue;
+            }
+
             var item = _runtime.CreateHistoryItemViewModel(snapshot);
             var listItem = new ListViewItem
             {
@@ -295,18 +306,19 @@ public sealed class MainWindow : Window
                 historyListView.SelectedItem = listItem;
             };
             historyListView.Items.Add(listItem);
+            visibleHistoryCount++;
         }
 
         historyEmptyText.Text = string.IsNullOrWhiteSpace(_historySearchQuery) ? _runtime.Translate("HistoryEmpty") : _runtime.Translate("NoSearchResults");
-        historyEmptyText.Visibility = visibleHistoryItems.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-        loadMoreHistoryButton.Visibility = historyItems.Length > visibleHistoryItems.Length ? Visibility.Visible : Visibility.Collapsed;
-        if (visibleHistoryItems.Length == 0)
+        historyEmptyText.Visibility = visibleHistoryCount == 0 ? Visibility.Visible : Visibility.Collapsed;
+        loadMoreHistoryButton.Visibility = matchingHistoryCount > visibleHistoryCount ? Visibility.Visible : Visibility.Collapsed;
+        if (visibleHistoryCount == 0)
         {
             _selectedHistoryId = null;
         }
-        else if (historyItems.Length > visibleHistoryItems.Length)
+        else if (matchingHistoryCount > visibleHistoryCount)
         {
-            loadMoreHistoryButton.Content = string.Format(_runtime.Translate("LoadMoreHistory"), historyItems.Length - visibleHistoryItems.Length);
+            loadMoreHistoryButton.Content = string.Format(_runtime.Translate("LoadMoreHistory"), matchingHistoryCount - visibleHistoryCount);
         }
 
         if (_selectedHistoryId is not null)

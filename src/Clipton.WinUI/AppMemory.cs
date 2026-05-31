@@ -4,9 +4,29 @@ namespace Clipton.WinUI;
 
 internal static class AppMemory
 {
+    private static int _trimScheduled;
+
     public static void TrimWorkingSetSoon()
     {
-        _ = Task.Delay(500).ContinueWith(_ => TrimWorkingSet(), TaskScheduler.Default);
+        if (Interlocked.Exchange(ref _trimScheduled, 1) == 1)
+        {
+            return;
+        }
+
+        _ = TrimWorkingSetSoonAsync();
+    }
+
+    private static async Task TrimWorkingSetSoonAsync()
+    {
+        try
+        {
+            await Task.Delay(500).ConfigureAwait(false);
+            TrimWorkingSet();
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _trimScheduled, 0);
+        }
     }
 
     private static void TrimWorkingSet()
