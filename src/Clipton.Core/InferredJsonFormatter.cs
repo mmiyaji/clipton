@@ -49,6 +49,17 @@ public static class InferredJsonFormatter
         {
             var commaCount = line.Count(character => character == ',');
             var tabCount = line.Count(character => character == '\t');
+            if (commaCount + tabCount == 0)
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    return null;
+                }
+
+                root[line] = JsonValue.Create(string.Empty);
+                continue;
+            }
+
             if (commaCount + tabCount != 1)
             {
                 return null;

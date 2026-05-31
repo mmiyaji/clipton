@@ -39,6 +39,32 @@ public sealed class InferredJsonFormatterTests
     }
 
     [Fact]
+    public void Format_ConvertsPlainLinesToEmptyStringValues()
+    {
+        var json = InferredJsonFormatter.Format("alpha\nbeta");
+
+        Assert.Equal(Normalize("""
+{
+  "alpha": "",
+  "beta": ""
+}
+"""), Normalize(json));
+    }
+
+    [Fact]
+    public void Format_AllowsMixedPlainAndKeyValueLines()
+    {
+        var json = InferredJsonFormatter.Format("name,Clipton\nmemo");
+
+        Assert.Equal(Normalize("""
+{
+  "name": "Clipton",
+  "memo": ""
+}
+"""), Normalize(json));
+    }
+
+    [Fact]
     public void Format_FormatsExistingJson()
     {
         var json = InferredJsonFormatter.Format("""{"name":"Clipton"}""");
