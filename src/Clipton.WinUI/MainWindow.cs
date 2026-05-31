@@ -78,6 +78,7 @@ public sealed class MainWindow : Window
     private readonly Button _resetHotkeyButton = new();
     private readonly ComboBox _themeBox = new();
     private readonly ComboBox _localeBox = new();
+    private readonly ComboBox _quickMenuImagePreviewSizeBox = new();
     private readonly ToggleSwitch _startupToggle = CompactToggle();
     private readonly ToggleSwitch _hideSettingsWindowOnStartupToggle = CompactToggle();
     private readonly ToggleSwitch _pauseCaptureToggle = CompactToggle();
@@ -283,6 +284,10 @@ public sealed class MainWindow : Window
         SetComboBoxText(_localeBox, "system", t("LanguageSystem"));
         SetComboBoxText(_localeBox, "en", t("LanguageEnglish"));
         SetComboBoxText(_localeBox, "ja", t("LanguageJapanese"));
+        SetComboBoxText(_quickMenuImagePreviewSizeBox, "none", t("ImagePreviewSizeNone"));
+        SetComboBoxText(_quickMenuImagePreviewSizeBox, "small", t("ImagePreviewSizeSmall"));
+        SetComboBoxText(_quickMenuImagePreviewSizeBox, "medium", t("ImagePreviewSizeMedium"));
+        SetComboBoxText(_quickMenuImagePreviewSizeBox, "large", t("ImagePreviewSizeLarge"));
         _startupToggle.IsOn = _runtime.Settings.StartWithWindows;
         _hideSettingsWindowOnStartupToggle.IsOn = _runtime.Settings.HideSettingsWindowOnStartup;
         _pauseCaptureToggle.IsOn = _runtime.Settings.PauseCapture;
@@ -297,6 +302,7 @@ public sealed class MainWindow : Window
         SetComboSelection(_hotkeyBox, _runtime.Settings.Hotkey);
         SetComboSelection(_themeBox, _runtime.Settings.Theme);
         SetComboSelection(_localeBox, _runtime.Settings.Locale);
+        SetComboSelection(_quickMenuImagePreviewSizeBox, _runtime.Settings.QuickMenuImagePreviewSize);
         UpdateSelectedSnippetText();
         UpdateHistorySearchStatus();
         UpdateMaskTestPreview();
@@ -437,6 +443,15 @@ public sealed class MainWindow : Window
         _generalPage.Children.Add(SectionHeader("QuickMenuSection"));
         _folderModeToggle.Toggled += (_, _) => SaveHistoryOptions();
         _generalPage.Children.Add(SettingCard("\uE8B7", "FolderMode", "FolderModeDescription", _folderModeToggle));
+
+        foreach (var size in new[] { "none", "small", "medium", "large" })
+        {
+            _quickMenuImagePreviewSizeBox.Items.Add(new ComboBoxItem { Tag = size });
+        }
+
+        _quickMenuImagePreviewSizeBox.Width = 180;
+        _quickMenuImagePreviewSizeBox.SelectionChanged += (_, _) => ChangeQuickMenuImagePreviewSize();
+        _generalPage.Children.Add(SettingCard("\uEB9F", "ImagePreviewSize", "ImagePreviewSizeDescription", _quickMenuImagePreviewSizeBox));
     }
 
     private void BuildHistoryPage()
@@ -1327,6 +1342,16 @@ public sealed class MainWindow : Window
         }
 
         _runtime.SetMaxHistoryItems(count);
+    }
+
+    private void ChangeQuickMenuImagePreviewSize()
+    {
+        if (_loading || _quickMenuImagePreviewSizeBox.SelectedItem is not ComboBoxItem selected || selected.Tag is not string size)
+        {
+            return;
+        }
+
+        _runtime.SetQuickMenuImagePreviewSize(size);
     }
 
     private void RegisterSelectedHistory()

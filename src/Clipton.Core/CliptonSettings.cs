@@ -22,6 +22,8 @@ public sealed class CliptonSettings
 
     public bool SimpleContextMenuMode { get; set; }
 
+    public string QuickMenuImagePreviewSize { get; set; } = "medium";
+
     public bool MaskSensitiveContent { get; set; } = true;
 
     public int MaskVisiblePrefixLength { get; set; } = 3;

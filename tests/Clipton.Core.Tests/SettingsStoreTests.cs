@@ -14,6 +14,7 @@ public sealed class SettingsStoreTests
 
         Assert.True(loaded.PersistEncryptedHistory);
         Assert.Equal(200, loaded.MaxHistoryItems);
+        Assert.Equal("medium", loaded.QuickMenuImagePreviewSize);
         Assert.True(loaded.HideSettingsWindowOnStartup);
         Assert.False(loaded.InitialLaunchCompleted);
     }
@@ -62,6 +63,7 @@ public sealed class SettingsStoreTests
             PauseCapture = true,
             PastePlainTextByDefault = true,
             PersistEncryptedHistory = true,
+            QuickMenuImagePreviewSize = "large",
             StartWithWindows = true,
             Theme = "dark"
         });
@@ -79,6 +81,7 @@ public sealed class SettingsStoreTests
         Assert.True(loaded.PauseCapture);
         Assert.True(loaded.PastePlainTextByDefault);
         Assert.True(loaded.PersistEncryptedHistory);
+        Assert.Equal("large", loaded.QuickMenuImagePreviewSize);
         Assert.True(loaded.StartWithWindows);
     }
 
@@ -121,5 +124,18 @@ public sealed class SettingsStoreTests
         var loaded = store.Load();
 
         Assert.Equal(1000, loaded.MaxHistoryItems);
+    }
+
+    [Fact]
+    public void Load_NormalizesUnknownImagePreviewSizeToMedium()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"QuickMenuImagePreviewSize":"huge"}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Equal("medium", loaded.QuickMenuImagePreviewSize);
     }
 }

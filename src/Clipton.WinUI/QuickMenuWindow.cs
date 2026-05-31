@@ -33,6 +33,7 @@ public sealed class QuickMenuWindow : Window
     private readonly string _searchButtonText;
     private readonly string _cancelButtonText;
     private readonly string _noSearchResultsText;
+    private readonly string _imagePreviewSize;
     private readonly NativeMethods.LowLevelKeyboardProc _keyboardProc;
     private readonly NativeMethods.LowLevelMouseProc _mouseProc;
     private readonly List<MenuFlyoutItemBase> _rootFocusableItems = [];
@@ -61,6 +62,7 @@ public sealed class QuickMenuWindow : Window
         string title,
         IReadOnlyList<QuickMenuItem> items,
         string theme,
+        string imagePreviewSize,
         string searchTitle,
         string searchPrompt,
         string searchButtonText,
@@ -71,6 +73,7 @@ public sealed class QuickMenuWindow : Window
         _rootItems = items;
         _currentItems = items;
         _theme = theme;
+        _imagePreviewSize = NormalizeImagePreviewSize(imagePreviewSize);
         _searchTitle = searchTitle;
         _searchPrompt = searchPrompt;
         _searchButtonText = searchButtonText;
@@ -450,6 +453,7 @@ public sealed class QuickMenuWindow : Window
             _searchTitle,
             items,
             _theme,
+            _imagePreviewSize,
             _searchTitle,
             _searchPrompt,
             _searchButtonText,
@@ -657,9 +661,11 @@ public sealed class QuickMenuWindow : Window
                     _childFocusableItems[optionSubItem].Add(optionItem);
                 }
 
-                if (!string.IsNullOrWhiteSpace(item.IconImagePath) && File.Exists(item.IconImagePath))
+                if (!string.Equals(_imagePreviewSize, "none", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(item.IconImagePath)
+                    && File.Exists(item.IconImagePath))
                 {
-                    optionSubItem.Loaded += (_, _) => InsertImagePreview(optionSubItem, item.IconImagePath);
+                    optionSubItem.Loaded += (_, _) => InsertImagePreview(optionSubItem, item.IconImagePath, _imagePreviewSize);
                 }
 
                 target.Add(optionSubItem);
@@ -715,9 +721,11 @@ public sealed class QuickMenuWindow : Window
                 };
             }
 
-            if (!string.IsNullOrWhiteSpace(item.IconImagePath) && File.Exists(item.IconImagePath))
+            if (!string.Equals(_imagePreviewSize, "none", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(item.IconImagePath)
+                && File.Exists(item.IconImagePath))
             {
-                flyoutItem.Loaded += (_, _) => InsertImagePreview(flyoutItem, item.IconImagePath);
+                flyoutItem.Loaded += (_, _) => InsertImagePreview(flyoutItem, item.IconImagePath, _imagePreviewSize);
             }
 
             focusableItems.Add(flyoutItem);
@@ -1111,7 +1119,7 @@ public sealed class QuickMenuWindow : Window
         };
     }
 
-    private static void InsertImagePreview(MenuFlyoutItemBase flyoutItem, string? imagePath)
+    private static void InsertImagePreview(MenuFlyoutItemBase flyoutItem, string? imagePath, string size)
     {
         if (string.IsNullOrWhiteSpace(imagePath) || !File.Exists(imagePath))
         {
@@ -1130,10 +1138,11 @@ public sealed class QuickMenuWindow : Window
         textBlock.Margin = new Thickness(0);
         textBlock.VerticalAlignment = VerticalAlignment.Center;
 
+        var dimensions = GetImagePreviewDimensions(size);
         var preview = new Border
         {
-            Width = 52,
-            Height = 36,
+            Width = dimensions.Width,
+            Height = dimensions.Height,
             CornerRadius = new CornerRadius(4),
             BorderThickness = new Thickness(1),
             BorderBrush = new SolidColorBrush(Color.FromArgb(80, 255, 255, 255)),
@@ -1157,6 +1166,25 @@ public sealed class QuickMenuWindow : Window
 
         Grid.SetColumn(panel, column);
         grid.Children.Add(panel);
+    }
+
+    private static (double Width, double Height) GetImagePreviewDimensions(string size)
+    {
+        return NormalizeImagePreviewSize(size) switch
+        {
+            "small" => (40, 28),
+            "large" => (72, 48),
+            _ => (52, 36)
+        };
+    }
+
+    private static string NormalizeImagePreviewSize(string? size)
+    {
+        return size?.ToLowerInvariant() switch
+        {
+            "none" or "small" or "large" => size.ToLowerInvariant(),
+            _ => "medium"
+        };
     }
 
     private static T? FindDescendant<T>(DependencyObject root, string? name = null)

@@ -293,6 +293,12 @@ public sealed class CliptonRuntime : IDisposable
         SaveSettings();
     }
 
+    public void SetQuickMenuImagePreviewSize(string size)
+    {
+        Settings.QuickMenuImagePreviewSize = NormalizeQuickMenuImagePreviewSize(size);
+        SaveSettings();
+    }
+
     public void RemoveHistoryItem(string id)
     {
         if (History.Remove(id))
@@ -881,6 +887,7 @@ public sealed class CliptonRuntime : IDisposable
             Translate("History"),
             menuItems,
             EffectiveTheme,
+            Settings.QuickMenuImagePreviewSize,
             Translate("Search"),
             Translate("SearchPrompt"),
             Translate("Search"),
@@ -931,6 +938,15 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         return string.Equals(theme, "dark", StringComparison.OrdinalIgnoreCase) ? "dark" : "light";
+    }
+
+    private static string NormalizeQuickMenuImagePreviewSize(string? size)
+    {
+        return size?.ToLowerInvariant() switch
+        {
+            "none" or "small" or "large" => size.ToLowerInvariant(),
+            _ => "medium"
+        };
     }
 
     private static string ResolveLocale(string locale)

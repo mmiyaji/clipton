@@ -34,6 +34,7 @@ public sealed class JsonSettingsStore
             .ToArray();
         settings.Locale = NormalizeLocale(settings.Locale);
         settings.Theme = NormalizeTheme(settings.Theme);
+        settings.QuickMenuImagePreviewSize = NormalizeQuickMenuImagePreviewSize(settings.QuickMenuImagePreviewSize);
         return settings;
     }
 
@@ -66,6 +67,15 @@ public sealed class JsonSettingsStore
         }
 
         return string.Equals(theme, "dark", StringComparison.OrdinalIgnoreCase) ? "dark" : "light";
+    }
+
+    private static string NormalizeQuickMenuImagePreviewSize(string? value)
+    {
+        return value?.ToLowerInvariant() switch
+        {
+            "none" or "small" or "large" => value.ToLowerInvariant(),
+            _ => "medium"
+        };
     }
 
 }
