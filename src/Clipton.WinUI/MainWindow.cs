@@ -1908,9 +1908,8 @@ public sealed class MainWindow : Window
 
     private async Task ShowHistoryImagePreviewAsync(HistoryItemViewModel item)
     {
-        var path = _runtime.GetHistoryImagePreviewPath(item.Id);
         if (_root.XamlRoot is null
-            || path is null
+            || item.PreviewImagePath is not { } path
             || !File.Exists(path))
         {
             return;
@@ -3332,7 +3331,8 @@ public sealed record HistoryItemViewModel(
     string FormatSummary,
     DateTimeOffset CapturedAt,
     bool IsImage = false,
-    string? ThumbnailImagePath = null)
+    string? ThumbnailImagePath = null,
+    string? PreviewImagePath = null)
 {
     public string CapturedAtText => CapturedAt.LocalDateTime.ToString("yyyy/MM/dd HH:mm");
 
