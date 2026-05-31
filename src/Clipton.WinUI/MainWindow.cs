@@ -59,7 +59,7 @@ public sealed class MainWindow : Window
     private readonly TextBlock _titleText = Header(20);
     private readonly TextBlock _hotkeyText = Description();
     private readonly UIElement _brandHeader;
-    private readonly StackPanel _navigationPaneHeader = new() { Padding = new Thickness(8, 40, 8, 6), Spacing = 12 };
+    private readonly StackPanel _navigationPaneFooter = new() { Padding = new Thickness(8, 10, 8, 18), Spacing = 12 };
     private readonly Border _hotkeyPill;
     private readonly TextBlock _generalHeaderText = Header();
     private readonly TextBlock _generalDescriptionText = Description();
@@ -319,17 +319,17 @@ public sealed class MainWindow : Window
         _navigationView.PaneOpened += (_, _) =>
         {
             _sidebarCollapsed = false;
-            _navigationPaneHeader.Visibility = Visibility.Visible;
+            _navigationPaneFooter.Visibility = Visibility.Visible;
         };
         _navigationView.PaneClosed += (_, _) =>
         {
             _sidebarCollapsed = true;
-            _navigationPaneHeader.Visibility = Visibility.Collapsed;
+            _navigationPaneFooter.Visibility = Visibility.Collapsed;
         };
-        _navigationPaneHeader.Children.Add(_brandHeader);
+        _navigationPaneFooter.Children.Add(_hotkeyPill);
         _hotkeyText.Margin = new Thickness(8, 0, 8, 4);
-        _navigationPaneHeader.Children.Add(_hotkeyPill);
-        _navigationView.PaneHeader = _navigationPaneHeader;
+        _navigationPaneFooter.Children.Add(_brandHeader);
+        _navigationView.PaneFooter = _navigationPaneFooter;
         foreach (var index in Enumerable.Range(0, 5))
         {
             var item = CreateNavItem(index);
@@ -1855,7 +1855,7 @@ public sealed class MainWindow : Window
             ? NavigationViewPaneDisplayMode.LeftCompact
             : NavigationViewPaneDisplayMode.Left;
         _navigationView.IsPaneOpen = !collapsed;
-        _navigationPaneHeader.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+        _navigationPaneFooter.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void UpdateSidebarForWindowWidth(double width)
