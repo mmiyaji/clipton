@@ -14,6 +14,8 @@ public sealed class CliptonSettings
 
     public bool PauseCapture { get; set; }
 
+    public bool DiagnosticLoggingEnabled { get; set; }
+
     public bool PersistEncryptedHistory { get; set; } = true;
 
     public bool HistoryPersistenceConfigured { get; set; }

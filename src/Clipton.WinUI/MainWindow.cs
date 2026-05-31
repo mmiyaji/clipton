@@ -88,6 +88,7 @@ public sealed class MainWindow : Window
     private readonly ToggleSwitch _startupToggle = CompactToggle();
     private readonly ToggleSwitch _hideSettingsWindowOnStartupToggle = CompactToggle();
     private readonly ToggleSwitch _pauseCaptureToggle = CompactToggle();
+    private readonly ToggleSwitch _diagnosticLoggingToggle = CompactToggle();
     private readonly ToggleSwitch _persistHistoryToggle = CompactToggle();
     private readonly ToggleSwitch _maskSensitiveContentToggle = CompactToggle();
     private readonly Button _maskDefinitionsButton = new();
@@ -129,6 +130,8 @@ public sealed class MainWindow : Window
     private readonly Button _termsButton = new();
     private readonly Button _privacyButton = new();
     private readonly Button _exitApplicationButton = new();
+    private readonly Button _openLogsButton = new();
+    private readonly Button _clearLogsButton = new();
     private string? _selectedHistoryId;
     private SnippetItemViewModel? _selectedSnippet;
     private string _selectedSnippetFolder = string.Empty;
@@ -308,6 +311,8 @@ public sealed class MainWindow : Window
         _termsButton.Content = t("TermsOfUse");
         _privacyButton.Content = t("PrivacyPolicy");
         SetCommandButton(_exitApplicationButton, "\uE8BB", t("ExitApplication"));
+        SetCommandButton(_openLogsButton, "\uE838", t("OpenLogs"));
+        SetCommandButton(_clearLogsButton, "\uE74D", t("ClearLogs"));
         _captureHotkeyButton.Content = t("CaptureHotkey");
         _resetHotkeyButton.Content = t("ResetHotkey");
         SetComboBoxText(_themeBox, "system", t("ThemeSystem"));
@@ -330,6 +335,7 @@ public sealed class MainWindow : Window
         _startupToggle.IsOn = _runtime.Settings.StartWithWindows;
         _hideSettingsWindowOnStartupToggle.IsOn = _runtime.Settings.HideSettingsWindowOnStartup;
         _pauseCaptureToggle.IsOn = _runtime.Settings.PauseCapture;
+        _diagnosticLoggingToggle.IsOn = _runtime.Settings.DiagnosticLoggingEnabled;
         _persistHistoryToggle.IsOn = _runtime.Settings.PersistEncryptedHistory;
         _maskSensitiveContentToggle.IsOn = _runtime.Settings.MaskSensitiveContent;
         EnsureHistoryLimitComboItem(_runtime.Settings.MaxHistoryItems);
@@ -663,6 +669,14 @@ public sealed class MainWindow : Window
         }
 
         _historySettingsPage.Children.Add(SettingCard("\uE769", "PauseCapture", "PauseCaptureDescription", _pauseCaptureToggle));
+        _diagnosticLoggingToggle.Toggled += (_, _) => SaveDiagnosticLogging();
+        var diagnosticControls = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
+        _openLogsButton.Click += (_, _) => _runtime.OpenDiagnosticLogDirectory();
+        _clearLogsButton.Click += (_, _) => _runtime.ClearDiagnosticLogs();
+        diagnosticControls.Children.Add(_openLogsButton);
+        diagnosticControls.Children.Add(_clearLogsButton);
+        diagnosticControls.Children.Add(ToggleActionHost(_diagnosticLoggingToggle));
+        _historySettingsPage.Children.Add(SettingCard("\uE946", "DiagnosticLogging", "DiagnosticLoggingDescription", diagnosticControls));
         _historySettingsPage.Children.Add(SettingCard("\uE72E", "PersistHistory", "PersistHistoryDescription", _persistHistoryToggle));
         _maxHistoryItemsBox.Width = 180;
         foreach (var count in new[] { 50, 100, 200, 500, 1000 })
@@ -1473,6 +1487,12 @@ public sealed class MainWindow : Window
         _runtime.SetMaskSensitiveContent(_maskSensitiveContentToggle.IsOn);
         _runtime.SetFolderMode(_folderModeToggle.IsOn);
         RefreshItems();
+    }
+
+    private void SaveDiagnosticLogging()
+    {
+        if (_loading) return;
+        _runtime.SetDiagnosticLogging(_diagnosticLoggingToggle.IsOn);
     }
 
     private async Task ConfirmAndClearHistoryAsync()

@@ -54,6 +54,7 @@ public sealed class CliptonRuntime : IDisposable
         _thumbnailPath = Path.Combine(appData, "thumbs");
         _tempPastePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Clipton", "TempPaste");
         Settings = _settingsStore.Load();
+        AppDiagnostics.Configure(Settings.DiagnosticLoggingEnabled);
         History = new ClipboardHistory(Settings.MaxHistoryItems);
         Snippets = LoadSnippets(_snippetPath);
 
@@ -89,6 +90,7 @@ public sealed class CliptonRuntime : IDisposable
         EnsureDefaultSnippets();
         CleanupTempPasteFiles();
         CreateTrayIcon();
+        AppDiagnostics.Info("Runtime", "Clipton runtime started.");
         if (Settings.InitialLaunchCompleted)
         {
             StartClipboardServices();
@@ -302,6 +304,23 @@ public sealed class CliptonRuntime : IDisposable
     {
         Settings.ClipboardCaptureDelayMilliseconds = NormalizeClipboardCaptureDelay(milliseconds);
         SaveSettings();
+    }
+
+    public void SetDiagnosticLogging(bool enabled)
+    {
+        Settings.DiagnosticLoggingEnabled = enabled;
+        SaveSettings();
+        AppDiagnostics.Configure(enabled);
+    }
+
+    public void OpenDiagnosticLogDirectory()
+    {
+        AppDiagnostics.OpenLogDirectory();
+    }
+
+    public void ClearDiagnosticLogs()
+    {
+        AppDiagnostics.ClearLogs();
     }
 
     public void SetFolderMode(bool enabled)
@@ -567,6 +586,7 @@ public sealed class CliptonRuntime : IDisposable
         RegisterHotkey();
         CaptureClipboard();
         _clipboardServicesStarted = true;
+        AppDiagnostics.Info("Runtime", "Clipboard services started.");
     }
 
     public void ShowHistoryWindow()
@@ -580,10 +600,12 @@ public sealed class CliptonRuntime : IDisposable
         var delay = Settings.ClipboardCaptureDelayMilliseconds;
         if (delay <= 0)
         {
+            AppDiagnostics.Info("Clipboard", "Clipboard update received; capture scheduled immediately.");
             _dispatcherQueue.TryEnqueue(CaptureClipboard);
             return;
         }
 
+        AppDiagnostics.Info("Clipboard", $"Clipboard update received; capture delayed by {delay} ms.");
         var captureDelay = new CancellationTokenSource();
         var previous = Interlocked.Exchange(ref _clipboardCaptureDelay, captureDelay);
         previous?.Cancel();
@@ -650,6 +672,7 @@ public sealed class CliptonRuntime : IDisposable
 
         if (History.Add(snapshot))
         {
+            AppDiagnostics.Info("Clipboard", $"Captured clipboard item with {snapshot.Formats.Count} format(s).");
             QueueHistorySave();
             _mainWindow?.RefreshItems();
         }

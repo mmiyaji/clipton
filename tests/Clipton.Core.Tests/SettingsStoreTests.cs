@@ -22,6 +22,7 @@ public sealed class SettingsStoreTests
         Assert.False(loaded.QuickMenuShowCapturedAt);
         Assert.True(loaded.QuickMenuShowShortcutHints);
         Assert.Equal(150, loaded.ClipboardCaptureDelayMilliseconds);
+        Assert.False(loaded.DiagnosticLoggingEnabled);
         Assert.True(loaded.HideSettingsWindowOnStartup);
         Assert.False(loaded.InitialLaunchCompleted);
     }
@@ -62,6 +63,7 @@ public sealed class SettingsStoreTests
         {
             Hotkey = "Ctrl+Alt+V",
             ClipboardCaptureDelayMilliseconds = 250,
+            DiagnosticLoggingEnabled = true,
             FolderMode = true,
             HistoryPersistenceConfigured = true,
             HideSettingsWindowOnStartup = false,
@@ -89,6 +91,7 @@ public sealed class SettingsStoreTests
 
         Assert.Equal("Ctrl+Alt+V", loaded.Hotkey);
         Assert.Equal(250, loaded.ClipboardCaptureDelayMilliseconds);
+        Assert.True(loaded.DiagnosticLoggingEnabled);
         Assert.True(loaded.FolderMode);
         Assert.Equal("ja", loaded.Locale);
         Assert.Equal("dark", loaded.Theme);
