@@ -37,6 +37,8 @@ Important: existing generated screenshots in `artifacts/store/` are useful as la
 
 Capture at 1920 x 1080 PNG. Use actual app UI only. Avoid marketing overlays, additional logos, or text banners.
 
+Demo clipboard history data uses safe fake REST/API-style examples based on JSONPlaceholder public test data patterns, plus generated local image and snippet variable examples.
+
 ### English Listing
 
 1. `01-quick-menu-en.png`
@@ -55,9 +57,8 @@ Capture at 1920 x 1080 PNG. Use actual app UI only. Avoid marketing overlays, ad
    - Show history settings.
    - Include encrypted history, saved history limit, capture delay, masking controls, and diagnostic logging.
 
-5. `05-general-settings-en.png`
-   - Show general settings.
-   - Include global hotkey, startup behavior, theme, language, quick menu shortcuts, and app exit button.
+5. `05-about-privacy-en.png`
+   - Show local-first privacy note, terms/privacy links, author link, and app exit action.
 
 ### Japanese Listing
 
@@ -67,7 +68,7 @@ Use the same five captures with Japanese UI:
 2. `02-history-ja.png`
 3. `03-snippets-ja.png`
 4. `04-history-settings-ja.png`
-5. `05-general-settings-ja.png`
+5. `05-about-privacy-ja.png`
 
 ## Screenshot Captions
 

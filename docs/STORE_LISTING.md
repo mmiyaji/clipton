@@ -94,14 +94,14 @@ Upload screenshots separately for English and Japanese listings. Captions must b
 
 - `01-quick-menu-en.png`: Open recent clipboard items from a keyboard-friendly quick menu.
 - `02-history-en.png`: Search, review, import, export, and clear clipboard history.
-- `03-snippets-en.png`: Keep reusable text snippets organized in slash-separated folders.
-- `04-settings-en.png`: Configure hotkeys, startup, theme, language, history, and privacy.
+- `03-snippets-en.png`: Keep reusable snippets in folders and insert dynamic variables such as date, time, and UUID.
+- `04-settings-en.png`: Configure encrypted history, capture behavior, masking, diagnostics, and local retention.
 - `05-privacy-en.png`: Local encrypted storage, capture pause, masking, and cleanup controls.
 
 ### Japanese
 
 - `01-quick-menu-ja.png`: キーボードで最近のクリップボード項目をすばやく呼び出せます。
 - `02-history-ja.png`: 履歴の検索、確認、インポート、エクスポート、削除を行えます。
-- `03-snippets-ja.png`: よく使う文章をスラッシュ区切りのフォルダで整理できます。
-- `04-settings-ja.png`: ホットキー、起動、テーマ、言語、履歴、プライバシーを設定できます。
+- `03-snippets-ja.png`: 登録単語をフォルダで整理し、日付、時刻、UUID などの動的変数を挿入できます。
+- `04-settings-ja.png`: 暗号化履歴、取得動作、マスク、診断ログ、保存件数を設定できます。
 - `05-privacy-ja.png`: ローカル暗号化保存、記録停止、マスク、削除を制御できます。

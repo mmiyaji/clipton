@@ -13,10 +13,10 @@ Requirements:
 
 Generated final set:
 
-- `01-general-settings.png`
+- `01-quick-menu.png`
 - `02-clipboard-history.png`
-- `03-history-settings.png`
-- `04-snippet-library.png`
+- `03-snippet-variables.png`
+- `04-history-settings.png`
 - `05-about-privacy.png`
 
 Legacy root-level screenshot names are also refreshed with these real captures so stale mockups are not used by mistake.
