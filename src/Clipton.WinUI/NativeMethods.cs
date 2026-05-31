@@ -68,9 +68,6 @@ internal static class NativeMethods
     internal static extern bool RemoveClipboardFormatListener(IntPtr hwnd);
 
     [DllImport("user32.dll")]
-    internal static extern uint GetClipboardSequenceNumber();
-
-    [DllImport("user32.dll")]
     internal static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
 
     [DllImport("user32.dll")]
