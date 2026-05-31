@@ -41,6 +41,7 @@ public sealed class CliptonRuntime : IDisposable
     private IntPtr _pasteTargetWindow;
     private long _lastQuickMenuRequestTick;
     private int _quickMenuRequestPending;
+    private bool _clipboardServicesStarted;
 
     public CliptonRuntime()
     {
@@ -86,25 +87,26 @@ public sealed class CliptonRuntime : IDisposable
     {
         EnsureDefaultSnippets();
         CleanupTempPasteFiles();
-        _messageWindow = new HotkeyMessageWindow(ShowQuickMenuOnUiThread, CaptureClipboardOnUiThread);
-        RegisterHotkey();
         CreateTrayIcon();
-        CaptureClipboard();
+        if (Settings.InitialLaunchCompleted)
+        {
+            StartClipboardServices();
+        }
     }
 
     public void ShowStartupWindowIfNeeded(bool forceShow)
     {
         if (forceShow)
         {
-            MarkInitialLaunchCompleted();
             ShowMainWindow();
+            _mainWindow?.ShowOnboardingIfNeeded();
             return;
         }
 
         if (!Settings.InitialLaunchCompleted)
         {
-            MarkInitialLaunchCompleted();
             ShowMainWindow();
+            _mainWindow?.ShowOnboardingIfNeeded();
             return;
         }
 
@@ -120,6 +122,14 @@ public sealed class CliptonRuntime : IDisposable
         _mainWindow.RefreshTexts();
         _mainWindow.RefreshItems();
         _mainWindow.ShowSettingsWindow();
+    }
+
+    public void CompleteOnboarding()
+    {
+        MarkInitialLaunchCompleted();
+        StartClipboardServices();
+        _mainWindow?.RefreshTexts();
+        _mainWindow?.RefreshItems();
     }
 
     public void OnMainWindowClosed(MainWindow window)
@@ -535,6 +545,19 @@ public sealed class CliptonRuntime : IDisposable
     {
         IsExiting = true;
         Application.Current.Exit();
+    }
+
+    private void StartClipboardServices()
+    {
+        if (_clipboardServicesStarted)
+        {
+            return;
+        }
+
+        _messageWindow = new HotkeyMessageWindow(ShowQuickMenuOnUiThread, CaptureClipboardOnUiThread);
+        RegisterHotkey();
+        CaptureClipboard();
+        _clipboardServicesStarted = true;
     }
 
     public void ShowHistoryWindow()

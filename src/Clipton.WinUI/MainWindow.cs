@@ -147,6 +147,7 @@ public sealed class MainWindow : Window
     private IntPtr _originalWndProc;
     private bool _hiddenToTray;
     private bool _maskDefinitionsExpanded;
+    private bool _onboardingDialogOpen;
     private Border? _maskDefinitionsCard;
 
     public MainWindow(CliptonRuntime runtime)
@@ -191,6 +192,22 @@ public sealed class MainWindow : Window
     {
         SelectPage(1);
         ShowSettingsWindow();
+    }
+
+    public void ShowOnboardingIfNeeded()
+    {
+        if (_runtime.Settings.InitialLaunchCompleted || _onboardingDialogOpen)
+        {
+            return;
+        }
+
+        _onboardingDialogOpen = true;
+        _ = DispatcherQueue.TryEnqueue(async () =>
+        {
+            await Task.Delay(250);
+            await ShowOnboardingDialogAsync();
+            _onboardingDialogOpen = false;
+        });
     }
 
     public void RefreshItems()
@@ -1637,6 +1654,68 @@ public sealed class MainWindow : Window
             RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
         };
         await dialog.ShowAsync();
+    }
+
+    private async Task ShowOnboardingDialogAsync()
+    {
+        if (_root.XamlRoot is null || _runtime.Settings.InitialLaunchCompleted)
+        {
+            return;
+        }
+
+        var content = new StackPanel { Spacing = 14, MaxWidth = 560 };
+        content.Children.Add(new TextBlock
+        {
+            Text = _runtime.Translate("OnboardingDescription"),
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        var points = new StackPanel { Spacing = 8 };
+        foreach (var key in new[] { "OnboardingPointLocal", "OnboardingPointPrivacy", "OnboardingPointControl" })
+        {
+            points.Children.Add(new TextBlock
+            {
+                Text = $"• {_runtime.Translate(key)}",
+                TextWrapping = TextWrapping.Wrap
+            });
+        }
+
+        content.Children.Add(points);
+        content.Children.Add(new TextBlock
+        {
+            Text = _runtime.Translate("OnboardingAgreementNotice"),
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = DescriptionBrush()
+        });
+
+        var links = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        var termsButton = new Button { Content = _runtime.Translate("TermsOfUse") };
+        var privacyButton = new Button { Content = _runtime.Translate("PrivacyPolicy") };
+        termsButton.Click += (_, _) => OpenExternalUrl(TermsUrl);
+        privacyButton.Click += (_, _) => OpenExternalUrl(PrivacyUrl);
+        links.Children.Add(termsButton);
+        links.Children.Add(privacyButton);
+        content.Children.Add(links);
+
+        var dialog = new ContentDialog
+        {
+            Title = _runtime.Translate("OnboardingTitle"),
+            Content = content,
+            PrimaryButtonText = _runtime.Translate("StartUsing"),
+            CloseButtonText = _runtime.Translate("Exit"),
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = _root.XamlRoot,
+            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+        };
+
+        var result = await dialog.ShowAsync();
+        if (result == ContentDialogResult.Primary)
+        {
+            _runtime.CompleteOnboarding();
+            return;
+        }
+
+        _runtime.ExitApplication();
     }
 
     private async Task<bool> ConfirmDialogAsync(string title, string message, string primaryText, string closeText)
