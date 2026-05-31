@@ -286,8 +286,17 @@ public sealed class QuickMenuWindow : Window
                 }
                 break;
             case NativeMethods.VkRight:
-                DispatcherQueue.TryEnqueue(PrepareRightKeyNavigation);
-                handled = false;
+                if (GetFocusedMenuItemBase() is MenuFlyoutSubItem)
+                {
+                    DispatcherQueue.TryEnqueue(EnterChildFocusContext);
+                    handled = false;
+                }
+                else if (GetFocusedMenuItemBase() is { } focusedMenuItem
+                    && _pasteOptionsFlyouts.ContainsKey(focusedMenuItem))
+                {
+                    DispatcherQueue.TryEnqueue(EnterChildFocusContext);
+                    handled = false;
+                }
                 break;
             case NativeMethods.VkReturn:
                 DispatcherQueue.TryEnqueue(() =>
@@ -641,6 +650,36 @@ public sealed class QuickMenuWindow : Window
                 continue;
             }
 
+            if (parent is not null && item.PasteOptions is { Count: > 0 })
+            {
+                var optionSubItem = new MenuFlyoutSubItem
+                {
+                    Text = BuildDisplayText(item),
+                    Icon = CreateIcon(item),
+                    Tag = item
+                };
+                focusableItems.Add(optionSubItem);
+                _parentItem[optionSubItem] = parent;
+                _childFocusableItems[optionSubItem] = [];
+                foreach (var option in item.PasteOptions)
+                {
+                    var optionItem = CreatePasteOptionMenuItem(option);
+                    optionSubItem.Items.Add(optionItem);
+                    _parentItem[optionItem] = optionSubItem;
+                    _childFocusableItems[optionSubItem].Add(optionItem);
+                }
+
+                if (!string.Equals(_imagePreviewSize, "none", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(item.IconImagePath)
+                    && File.Exists(item.IconImagePath))
+                {
+                    optionSubItem.Loaded += (_, _) => InsertImagePreview(optionSubItem, item.IconImagePath, _imagePreviewSize);
+                }
+
+                target.Add(optionSubItem);
+                continue;
+            }
+
             var flyoutItem = new MenuFlyoutItem
             {
                 Text = BuildDisplayText(item),
@@ -723,7 +762,7 @@ public sealed class QuickMenuWindow : Window
     {
         var flyout = new MenuFlyout
         {
-            Placement = FlyoutPlacementMode.LeftEdgeAlignedTop
+            Placement = FlyoutPlacementMode.RightEdgeAlignedTop
         };
 
         foreach (var option in item.PasteOptions ?? [])
@@ -947,36 +986,6 @@ public sealed class QuickMenuWindow : Window
         _activeFocusableItems = childItems;
         _activeParent = focusedItem;
         FocusMenuItem(0);
-    }
-
-    private void PrepareRightKeyNavigation()
-    {
-        if (_host.XamlRoot is null)
-        {
-            return;
-        }
-
-        if (_activeParent is null)
-        {
-            SyncFocusedIndex();
-        }
-
-        if (GetFocusedMenuItemBase() is not { } focusedItem
-            || !_childFocusableItems.TryGetValue(focusedItem, out var childItems)
-            || childItems.Count == 0)
-        {
-            return;
-        }
-
-        if (_pasteOptionsFlyouts.TryGetValue(focusedItem, out var pasteOptionsFlyout))
-        {
-            ShowPasteOptionsForItem(focusedItem, pasteOptionsFlyout, focusOptions: true);
-            return;
-        }
-
-        _activeFocusableItems = childItems;
-        _activeParent = focusedItem;
-        _focusedIndex = 0;
     }
 
     private void ReturnToParentFocusContext()
