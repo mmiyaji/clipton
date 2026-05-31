@@ -642,7 +642,7 @@ public sealed class QuickMenuWindow : Window
                 continue;
             }
 
-            if (parent is not null && item.PasteOptions is { Count: > 0 })
+            if (item.PasteOptions is { Count: > 0 })
             {
                 var optionSubItem = new MenuFlyoutSubItem
                 {
@@ -651,7 +651,11 @@ public sealed class QuickMenuWindow : Window
                     Tag = item
                 };
                 focusableItems.Add(optionSubItem);
-                _parentItem[optionSubItem] = parent;
+                if (parent is not null)
+                {
+                    _parentItem[optionSubItem] = parent;
+                }
+
                 _childFocusableItems[optionSubItem] = [];
                 foreach (var option in item.PasteOptions)
                 {
