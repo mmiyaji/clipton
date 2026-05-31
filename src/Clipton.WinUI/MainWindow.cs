@@ -29,6 +29,7 @@ public sealed class MainWindow : Window
     private const double SidebarAutoCollapseWidth = 1040;
     private const double SidebarAutoExpandWidth = 1120;
     private const double SettingControlHeight = 36;
+    private const double SearchControlHeight = 32;
     private const string TermsUrl = "https://mmiyaji.github.io/clipton/terms/";
     private const string PrivacyUrl = "https://mmiyaji.github.io/clipton/privacy/";
     private readonly CliptonRuntime _runtime;
@@ -460,15 +461,23 @@ public sealed class MainWindow : Window
 
     private UIElement BuildHistorySearchPanel()
     {
-        _historySearchHost.Height = SettingControlHeight;
+        _historySearchHost.Height = SearchControlHeight;
         _historySearchHost.HorizontalAlignment = HorizontalAlignment.Stretch;
-        _historySearchBox.Height = SettingControlHeight;
-        _historySearchBox.MinHeight = SettingControlHeight;
+        _historySearchHost.Background = CardBackground();
+        _historySearchHost.BorderBrush = CardBorderBrush();
+        _historySearchHost.BorderThickness = new Thickness(1);
+        _historySearchHost.CornerRadius = new CornerRadius(4);
+        _historySearchHost.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _historySearchHost.ColumnDefinitions.Add(new ColumnDefinition());
+        _historySearchBox.Height = SearchControlHeight;
+        _historySearchBox.MinHeight = SearchControlHeight;
         _historySearchBox.PlaceholderText = _runtime.Translate("SearchPlaceholder");
         _historySearchBox.Text = _historySearchQuery;
-        _historySearchBox.Padding = new Thickness(36, 0, 12, 0);
+        _historySearchBox.Padding = new Thickness(0, 0, 10, 0);
         _historySearchBox.VerticalContentAlignment = VerticalAlignment.Center;
         _historySearchBox.HorizontalAlignment = HorizontalAlignment.Stretch;
+        _historySearchBox.BorderThickness = new Thickness(0);
+        _historySearchBox.Background = Brush("#00FFFFFF");
         _historySearchBox.TextChanged += (_, _) =>
         {
             if (_updatingHistorySearchBox)
@@ -478,30 +487,33 @@ public sealed class MainWindow : Window
 
             ApplyHistorySearch(_historySearchBox.Text);
         };
-        _historySearchHost.Children.Add(_historySearchBox);
         _historySearchIcon.Glyph = "\uE721";
         _historySearchIcon.FontFamily = new FontFamily("Segoe Fluent Icons");
         _historySearchIcon.FontSize = 14;
         _historySearchIcon.Foreground = DescriptionBrush();
         _historySearchIcon.IsHitTestVisible = false;
-        _historySearchIcon.HorizontalAlignment = HorizontalAlignment.Left;
+        _historySearchIcon.HorizontalAlignment = HorizontalAlignment.Center;
         _historySearchIcon.VerticalAlignment = VerticalAlignment.Center;
-        _historySearchIcon.Margin = new Thickness(12, 0, 0, 0);
+        _historySearchIcon.Width = 34;
         _historySearchHost.Children.Add(_historySearchIcon);
+        Grid.SetColumn(_historySearchBox, 1);
+        _historySearchHost.Children.Add(_historySearchBox);
 
-        _advancedHistorySearchButton.Width = SettingControlHeight;
-        _advancedHistorySearchButton.MinWidth = SettingControlHeight;
-        _advancedHistorySearchButton.Height = SettingControlHeight;
+        _advancedHistorySearchButton.Width = SearchControlHeight;
+        _advancedHistorySearchButton.MinWidth = SearchControlHeight;
+        _advancedHistorySearchButton.Height = SearchControlHeight;
+        _advancedHistorySearchButton.MinHeight = SearchControlHeight;
         _advancedHistorySearchButton.Padding = new Thickness(0);
         _advancedHistorySearchButton.Opacity = 0.72;
         _advancedHistorySearchButton.Click += (_, _) => ToggleAdvancedHistorySearch();
-        _clearHistorySearchButton.MinHeight = SettingControlHeight;
+        _clearHistorySearchButton.MinHeight = SearchControlHeight;
+        _clearHistorySearchButton.Height = SearchControlHeight;
         _clearHistorySearchButton.Click += (_, _) => ClearHistorySearch();
 
         _historyAdvancedSearchText.Visibility = Visibility.Collapsed;
         _historyAdvancedSearchText.Margin = new Thickness(2, 0, 0, 0);
 
-        var row = new Grid { ColumnSpacing = 12 };
+        var row = new Grid { ColumnSpacing = 12, MinHeight = SearchControlHeight };
         row.ColumnDefinitions.Add(new ColumnDefinition());
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -1616,6 +1628,8 @@ public sealed class MainWindow : Window
             card.Background = CardBackground();
             card.BorderBrush = CardBorderBrush();
         }
+        _historySearchHost.Background = CardBackground();
+        _historySearchHost.BorderBrush = CardBorderBrush();
         RefreshThemeTextBrushes();
         SelectPage(_selectedPageIndex);
         UpdateSidebarToggleContent();
