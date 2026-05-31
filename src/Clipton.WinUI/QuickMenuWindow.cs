@@ -51,8 +51,6 @@ public sealed class QuickMenuWindow : Window
     private long _lastNavigationTick;
     private long _focusToken;
     private IReadOnlyList<QuickMenuItem> _currentItems;
-    private readonly Stack<(IReadOnlyList<QuickMenuItem> Items, QuickMenuItem Parent)> _menuStack = [];
-    private int? _pendingInitialFocusIndex;
     private bool _rebuildingFlyout;
     private bool _revealMaskedItems;
     private bool _showCapturedAt;
@@ -160,9 +158,7 @@ public sealed class QuickMenuWindow : Window
                 }
 
                 FocusHostWindow();
-                var focusIndex = _pendingInitialFocusIndex ?? 0;
-                _pendingInitialFocusIndex = null;
-                FocusMenuItem(focusIndex);
+                FocusMenuItem(0);
             }));
         });
     }
@@ -279,10 +275,18 @@ public sealed class QuickMenuWindow : Window
                 }
                 break;
             case NativeMethods.VkLeft:
-                DispatcherQueue.TryEnqueue(NavigateBackMenu);
+                if (_activeParent is not null)
+                {
+                    DispatcherQueue.TryEnqueue(ReturnToParentFocusContext);
+                    handled = false;
+                }
                 break;
             case NativeMethods.VkRight:
-                DispatcherQueue.TryEnqueue(NavigateIntoSelectedFolder);
+                if (GetFocusedMenuItemBase() is MenuFlyoutSubItem)
+                {
+                    DispatcherQueue.TryEnqueue(EnterChildFocusContext);
+                    handled = false;
+                }
                 break;
             case NativeMethods.VkReturn:
                 DispatcherQueue.TryEnqueue(() =>
@@ -922,66 +926,6 @@ public sealed class QuickMenuWindow : Window
         FocusMenuItem(IndexOf(_activeFocusableItems, parent));
     }
 
-    private void NavigateIntoSelectedFolder()
-    {
-        if (GetFocusedMenuItem() is not { } selected || !selected.IsFolder)
-        {
-            SyncFocusedIndex();
-            return;
-        }
-
-        var index = IndexOf(_currentItems, selected);
-        if (index < 0)
-        {
-            return;
-        }
-
-        var children = selected.GetChildren();
-        if (children.Count == 0)
-        {
-            return;
-        }
-
-        _navigator.Select(index);
-        _menuStack.Push((_currentItems, selected));
-        _currentItems = children;
-        RebuildOpenFlyout(focusIndex: 0);
-    }
-
-    private void NavigateBackMenu()
-    {
-        if (!_navigator.NavigateBack() && _menuStack.Count == 0)
-        {
-            SyncFocusedIndex();
-            return;
-        }
-
-        if (_menuStack.Count == 0)
-        {
-            _currentItems = _navigator.Items;
-            RebuildOpenFlyout(focusIndex: _navigator.SelectedIndex);
-            return;
-        }
-
-        var previous = _menuStack.Pop();
-        _currentItems = previous.Items;
-        RebuildOpenFlyout(focusIndex: FocusIndexOf(_currentItems, previous.Parent));
-    }
-
-    private void RebuildOpenFlyout(int focusIndex)
-    {
-        _rebuildingFlyout = true;
-        _flyout.Hide();
-        BuildFlyout();
-        _opened = false;
-        _pendingInitialFocusIndex = focusIndex;
-        _ = Task.Delay(120).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
-        {
-            ShowFlyout();
-            EnqueueAfterDelay(320, () => _rebuildingFlyout = false);
-        }));
-    }
-
     private void SyncNavigatorSelectionFromTrackedFocus()
     {
         if (_activeParent is not null
@@ -1021,25 +965,6 @@ public sealed class QuickMenuWindow : Window
         }
 
         return -1;
-    }
-
-    private static int FocusIndexOf(IReadOnlyList<QuickMenuItem> items, QuickMenuItem item)
-    {
-        var focusIndex = 0;
-        foreach (var current in items)
-        {
-            if (ReferenceEquals(current, item))
-            {
-                return focusIndex;
-            }
-
-            if (!current.IsSeparator)
-            {
-                focusIndex++;
-            }
-        }
-
-        return 0;
     }
 
     private void Invoke(QuickMenuItem item, bool asPlainText)
