@@ -1173,8 +1173,8 @@ public sealed class QuickMenuWindow : Window
         return NormalizeImagePreviewSize(size) switch
         {
             "small" => (40, 28),
-            "large" => (72, 48),
-            _ => (52, 36)
+            "large" => (88, 60),
+            _ => (64, 44)
         };
     }
 
