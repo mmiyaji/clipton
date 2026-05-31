@@ -143,10 +143,6 @@ internal static class NativeMethods
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     internal static extern IntPtr GetModuleHandle(string? lpModuleName);
 
-    [DllImport("psapi.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool EmptyWorkingSet(IntPtr hProcess);
-
     [StructLayout(LayoutKind.Sequential)]
     internal struct Point
     {

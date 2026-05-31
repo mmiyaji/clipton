@@ -148,7 +148,6 @@ public sealed class QuickMenuWindow : Window
             _replacementWindow = null;
             Dismissed?.Invoke(this, EventArgs.Empty);
             Close();
-            AppMemory.TrimWorkingSetSoon();
         });
     }
 

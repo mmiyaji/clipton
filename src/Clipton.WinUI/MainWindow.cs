@@ -3163,7 +3163,6 @@ public sealed class MainWindow : Window
         {
             _appWindow?.Hide();
             _hiddenToTray = true;
-            AppMemory.TrimWorkingSetSoon();
             return IntPtr.Zero;
         }
 
