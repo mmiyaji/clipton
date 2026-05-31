@@ -276,12 +276,10 @@ public sealed class QuickMenuWindow : Window
                 }
                 break;
             case NativeMethods.VkLeft:
-                EnqueueAfterDelay(80, ReturnToParentFocusContext);
-                handled = false;
+                DispatcherQueue.TryEnqueue(ReturnToParentFocusContext);
                 break;
             case NativeMethods.VkRight:
-                EnqueueAfterDelay(80, EnterChildFocusContext);
-                handled = false;
+                DispatcherQueue.TryEnqueue(EnterChildFocusContext);
                 break;
             case NativeMethods.VkReturn:
                 DispatcherQueue.TryEnqueue(() =>
