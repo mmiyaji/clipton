@@ -33,6 +33,7 @@ public sealed class MainWindow : Window
     private const double SearchControlHeight = 32;
     private const string TermsUrl = "https://mmiyaji.github.io/clipton/terms/";
     private const string PrivacyUrl = "https://mmiyaji.github.io/clipton/privacy/";
+    private const string AuthorUrl = "https://ruhenheim.org";
     private readonly CliptonRuntime _runtime;
     private readonly Grid _root = new();
     private readonly ColumnDefinition _sidebarColumn = new() { Width = new GridLength(SidebarExpandedWidth) };
@@ -1139,9 +1140,7 @@ public sealed class MainWindow : Window
         info.Children.Add(_runtime.PackageStatus == "Unpackaged"
             ? InfoRow("Package", string.Empty, "PackageUnpackaged")
             : InfoRow("Package", _runtime.PackageStatus));
-        info.Children.Add(InfoRow("Publisher", "Clipton"));
-        info.Children.Add(InfoRow("Author", "Clipton contributors"));
-        info.Children.Add(InfoRow("License", string.Empty, "LicenseValue"));
+        info.Children.Add(InfoLinkRow("Author", AuthorUrl, AuthorUrl));
         _aboutPage.Children.Add(Card(info));
 
         var documents = new StackPanel { Spacing = 10 };
@@ -2058,6 +2057,27 @@ public sealed class MainWindow : Window
             : LocalizedText(valueKey, wrapping: TextWrapping.Wrap);
         Grid.SetColumn(valueText, 1);
         grid.Children.Add(valueText);
+        return grid;
+    }
+
+    private UIElement InfoLinkRow(string labelKey, string text, string url)
+    {
+        var grid = new Grid { ColumnSpacing = 16 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.Children.Add(DescriptionText(labelKey, wrapping: TextWrapping.Wrap));
+        var link = new HyperlinkButton
+        {
+            Content = text,
+            Padding = new Thickness(0),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        AutomationProperties.SetName(link, text);
+        ToolTipService.SetToolTip(link, url);
+        link.Click += (_, _) => OpenExternalUrl(url);
+        Grid.SetColumn(link, 1);
+        grid.Children.Add(link);
         return grid;
     }
 
