@@ -60,7 +60,7 @@ public sealed class MainWindow : Window
     private readonly TextBlock _titleText = Header(20);
     private readonly TextBlock _hotkeyText = Description();
     private readonly UIElement _brandHeader;
-    private readonly StackPanel _navigationPaneFooter = new() { Padding = new Thickness(8, 10, 8, 18), Spacing = 12 };
+    private readonly StackPanel _navigationPaneFooter = new() { Padding = new Thickness(8, 10, 8, 0), Spacing = 12 };
     private readonly Border _hotkeyPill;
     private readonly TextBlock _generalHeaderText = Header();
     private readonly TextBlock _generalDescriptionText = Description();
@@ -2610,7 +2610,7 @@ public sealed class MainWindow : Window
 
     private UIElement BuildBrandHeader()
     {
-        var grid = new Grid { ColumnSpacing = 12, Margin = new Thickness(4, 0, 4, 8) };
+        var grid = new Grid { ColumnSpacing = 12, Margin = new Thickness(4, 0, 4, 0) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.Children.Add(new Border
