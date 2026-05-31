@@ -54,9 +54,11 @@ public sealed class CliptonRuntime : IDisposable
         _thumbnailPath = Path.Combine(appData, "thumbs");
         _tempPastePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Clipton", "TempPaste");
         Settings = _settingsStore.Load();
-        AppDiagnostics.Configure(Settings.DiagnosticLoggingEnabled);
+        AppDiagnostics.Configure(Settings.DiagnosticLoggingEnabled || AppProfiler.Enabled);
+        AppProfiler.Mark("Settings loaded.");
         History = new ClipboardHistory(Settings.MaxHistoryItems);
         Snippets = LoadSnippets(_snippetPath);
+        AppProfiler.Mark("Runtime stores initialized.");
 
         if (Settings.PersistEncryptedHistory)
         {
@@ -65,6 +67,8 @@ public sealed class CliptonRuntime : IDisposable
                 History.Add(snapshot);
             }
         }
+
+        AppProfiler.Mark($"History loaded. count={History.Items.Count}");
     }
 
     public CliptonSettings Settings { get; }
@@ -88,8 +92,11 @@ public sealed class CliptonRuntime : IDisposable
     public void Start()
     {
         EnsureDefaultSnippets();
+        AppProfiler.Mark("Default snippets ensured.");
         CleanupTempPasteFiles();
+        AppProfiler.Mark("Temporary paste files cleaned.");
         CreateTrayIcon();
+        AppProfiler.Mark("Tray icon created.");
         AppDiagnostics.Info("Runtime", "Clipton runtime started.");
         if (Settings.InitialLaunchCompleted)
         {
@@ -121,10 +128,18 @@ public sealed class CliptonRuntime : IDisposable
 
     public void ShowMainWindow()
     {
-        _mainWindow ??= new MainWindow(this);
+        if (_mainWindow is null)
+        {
+            _mainWindow = new MainWindow(this);
+            AppProfiler.Mark("Main window constructed.");
+        }
+
         _mainWindow.RefreshTexts();
+        AppProfiler.Mark("Main window text refreshed.");
         _mainWindow.RefreshItems();
+        AppProfiler.Mark("Main window items refreshed.");
         _mainWindow.ShowSettingsWindow();
+        AppProfiler.Mark("Settings window shown.");
     }
 
     public void CompleteOnboarding()
@@ -584,7 +599,9 @@ public sealed class CliptonRuntime : IDisposable
 
         _messageWindow = new HotkeyMessageWindow(ShowQuickMenuOnUiThread, CaptureClipboardOnUiThread);
         RegisterHotkey();
+        AppProfiler.Mark("Hotkey registered.");
         CaptureClipboard();
+        AppProfiler.Mark("Initial clipboard captured.");
         _clipboardServicesStarted = true;
         AppDiagnostics.Info("Runtime", "Clipboard services started.");
     }

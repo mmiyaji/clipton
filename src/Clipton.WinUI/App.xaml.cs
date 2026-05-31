@@ -41,14 +41,25 @@ public sealed class App : Application, IXamlMetadataProvider
     {
         try
         {
+            if (AppProfiler.Enabled)
+            {
+                AppDiagnostics.Configure(verboseEnabled: true);
+            }
+
+            AppProfiler.Mark("OnLaunched entered.");
             EnsureXamlMetadataProvider();
+            AppProfiler.Mark("XAML metadata provider ensured.");
             Resources.MergedDictionaries.Add(new XamlControlsResources());
+            AppProfiler.Mark("XAML resources added.");
             _runtime = new CliptonRuntime();
+            AppProfiler.Mark("Runtime constructed.");
             _runtime.Start();
+            AppProfiler.Mark("Runtime started.");
             var forceShow = LaunchArgs.Contains("--settings", StringComparer.OrdinalIgnoreCase)
                 || args.Arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                     .Contains("--settings", StringComparer.OrdinalIgnoreCase);
             _runtime.ShowStartupWindowIfNeeded(forceShow);
+            AppProfiler.Mark(forceShow ? "Startup window shown by launch argument." : "Startup window policy applied.");
         }
         catch (Exception exception)
         {
