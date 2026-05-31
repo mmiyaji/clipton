@@ -467,7 +467,7 @@ public sealed class MainWindow : Window
         _historySearchBox.MinHeight = SearchControlHeight;
         _historySearchBox.PlaceholderText = _runtime.Translate("SearchPlaceholder");
         _historySearchBox.Text = _historySearchQuery;
-        _historySearchBox.Padding = new Thickness(34, 2, 34, 0);
+        _historySearchBox.Padding = new Thickness(34, 4, 34, 0);
         _historySearchBox.VerticalContentAlignment = VerticalAlignment.Center;
         _historySearchBox.VerticalAlignment = VerticalAlignment.Stretch;
         _historySearchBox.HorizontalAlignment = HorizontalAlignment.Stretch;
