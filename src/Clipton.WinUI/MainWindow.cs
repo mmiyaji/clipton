@@ -1413,14 +1413,15 @@ public sealed class MainWindow : Window
             Dock = Forms.DockStyle.Fill,
             Padding = new Forms.Padding(18),
             ColumnCount = 2,
-            RowCount = 5
+            RowCount = 6
         };
         table.ColumnStyles.Add(new Forms.ColumnStyle(Forms.SizeType.Absolute, 96));
         table.ColumnStyles.Add(new Forms.ColumnStyle(Forms.SizeType.Percent, 100));
         table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 36));
         table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 36));
         table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Percent, 100));
-        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 12));
+        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 34));
+        table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 8));
         table.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 44));
 
         var folderBox = DialogTextBox(folder);
@@ -1436,6 +1437,9 @@ public sealed class MainWindow : Window
         table.Controls.Add(nameBox, 1, 1);
         table.Controls.Add(DialogLabel(_runtime.Translate("SnippetText")), 0, 2);
         table.Controls.Add(textBox, 1, 2);
+        var templateHelp = DialogLabel(_runtime.Translate("SnippetTemplateHelp"));
+        templateHelp.ForeColor = DialogMutedColor();
+        table.Controls.Add(templateHelp, 1, 3);
 
         var buttons = new Forms.FlowLayoutPanel
         {
@@ -1446,7 +1450,7 @@ public sealed class MainWindow : Window
         var cancelButton = new Forms.Button { Text = _runtime.Translate("Cancel"), DialogResult = Forms.DialogResult.Cancel, Width = 96 };
         buttons.Controls.Add(saveButton);
         buttons.Controls.Add(cancelButton);
-        table.Controls.Add(buttons, 0, 4);
+        table.Controls.Add(buttons, 0, 5);
         table.SetColumnSpan(buttons, 2);
 
         form.Controls.Add(table);

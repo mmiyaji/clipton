@@ -87,7 +87,7 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        ClipboardBridge.Put(ClipboardBridge.FromSnippet(snippet), asPlainText: true);
+        ClipboardBridge.PutText(SnippetTemplateRenderer.Render(snippet.Text));
         SendPaste();
     }
 
