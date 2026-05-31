@@ -1944,16 +1944,30 @@ public sealed class CliptonRuntime : IDisposable
                 return;
             }
 
-            var files = directory.GetFiles("paste-*.png")
-                .OrderByDescending(file => file.CreationTimeUtc)
-                .ToArray();
             var cutoff = DateTime.UtcNow - TempPasteMaxAge;
-            for (var i = 0; i < files.Length; i++)
+            var currentFiles = new List<FileInfo>();
+            foreach (var file in directory.EnumerateFiles("paste-*.png"))
             {
-                if (files[i].CreationTimeUtc < cutoff || i >= TempPasteMaxFiles)
+                if (file.CreationTimeUtc < cutoff)
                 {
-                    TryDeleteFile(files[i]);
+                    TryDeleteFile(file);
                 }
+                else
+                {
+                    currentFiles.Add(file);
+                }
+            }
+
+            if (currentFiles.Count <= TempPasteMaxFiles)
+            {
+                return;
+            }
+
+            foreach (var file in currentFiles
+                .OrderByDescending(file => file.CreationTimeUtc)
+                .Skip(TempPasteMaxFiles))
+            {
+                TryDeleteFile(file);
             }
         }
         catch
