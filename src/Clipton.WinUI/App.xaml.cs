@@ -10,7 +10,6 @@ public sealed class App : Application, IXamlMetadataProvider
 {
     private CliptonRuntime? _runtime;
     private XamlControlsXamlMetaDataProvider? _xamlMetadataProvider;
-    private bool _xamlResourcesLoaded;
 
     public static string[] LaunchArgs { get; set; } = [];
 
@@ -48,6 +47,10 @@ public sealed class App : Application, IXamlMetadataProvider
             }
 
             AppProfiler.Mark("OnLaunched entered.");
+            EnsureXamlMetadataProvider();
+            AppProfiler.Mark("XAML metadata provider ensured.");
+            Resources.MergedDictionaries.Add(new XamlControlsResources());
+            AppProfiler.Mark("XAML resources added.");
             _runtime = new CliptonRuntime();
             AppProfiler.Mark("Runtime constructed.");
             _runtime.Start();
@@ -62,14 +65,6 @@ public sealed class App : Application, IXamlMetadataProvider
         {
             AppDiagnostics.Log(exception, "Launch");
             throw;
-        }
-    }
-
-    public static void EnsureXamlResourcesLoaded()
-    {
-        if (Current is App app)
-        {
-            app.EnsureXamlResources();
         }
     }
 
@@ -88,18 +83,5 @@ public sealed class App : Application, IXamlMetadataProvider
         }
 
         return _xamlMetadataProvider;
-    }
-
-    private void EnsureXamlResources()
-    {
-        if (_xamlResourcesLoaded)
-        {
-            return;
-        }
-
-        EnsureXamlMetadataProvider();
-        Resources.MergedDictionaries.Add(new XamlControlsResources());
-        _xamlResourcesLoaded = true;
-        AppProfiler.Mark("XAML resources loaded.");
     }
 }
