@@ -1,8 +1,8 @@
 using Microsoft.UI.Xaml.Automation;
 using Clipton.Core;
 using Microsoft.UI;
+using Microsoft.UI.Input;
 using System.Diagnostics;
-using System.Globalization;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
@@ -13,6 +13,9 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
+using Windows.Storage.Pickers;
+using Windows.System;
+using Windows.UI.Core;
 using WinRT.Interop;
 using Forms = System.Windows.Forms;
 
@@ -20,8 +23,6 @@ namespace Clipton.WinUI;
 
 public sealed class MainWindow : Window
 {
-    private const string UiFontFamily = "Segoe UI Variable Text";
-    private const string JapaneseUiFontFamily = "Yu Gothic UI";
     private const int HistoryDisplayBatchSize = 50;
     private const double SettingsPageMaxWidth = 920;
     private const double SidebarExpandedWidth = 248;
@@ -361,13 +362,13 @@ public sealed class MainWindow : Window
             _hotkeyBox.Items.Add(new ComboBoxItem { Content = hotkey, Tag = hotkey });
         }
 
-        _hotkeyBox.SelectionChanged += (_, _) =>
+        _hotkeyBox.SelectionChanged += async (_, _) =>
         {
             if (_loading || (_hotkeyBox.SelectedItem as ComboBoxItem)?.Tag is not string hotkey) return;
-            TryApplyHotkey(hotkey);
+            await TryApplyHotkeyAsync(hotkey);
         };
-        _captureHotkeyButton.Click += (_, _) => CaptureCustomHotkey();
-        _resetHotkeyButton.Click += (_, _) => TryApplyHotkey(HotkeyGesture.Default.ToString());
+        _captureHotkeyButton.Click += async (_, _) => await CaptureCustomHotkeyAsync();
+        _resetHotkeyButton.Click += async (_, _) => await TryApplyHotkeyAsync(HotkeyGesture.Default.ToString());
         var hotkeyControls = new Grid
         {
             ColumnSpacing = 8,
@@ -432,10 +433,10 @@ public sealed class MainWindow : Window
         var primaryActions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Spacing = 8 };
         var dataActions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         _registerFromHistoryButton.Click += (_, _) => RegisterSelectedHistory();
-        _clearButton.Click += (_, _) => ConfirmAndClearHistory();
+        _clearButton.Click += async (_, _) => await ConfirmAndClearHistoryAsync();
         _loadMoreHistoryButton.Click += (_, _) => LoadMoreHistory();
-        _exportHistoryButton.Click += (_, _) => ExportHistory();
-        _importHistoryButton.Click += (_, _) => ImportHistory();
+        _exportHistoryButton.Click += async (_, _) => await ExportHistoryAsync();
+        _importHistoryButton.Click += async (_, _) => await ImportHistoryAsync();
         primaryActions.Children.Add(_registerFromHistoryButton);
         dataActions.Children.Add(_exportHistoryButton);
         dataActions.Children.Add(_importHistoryButton);
@@ -1118,8 +1119,8 @@ public sealed class MainWindow : Window
             UpdateSelectedSnippetText();
             RefreshItems();
         };
-        _exportSnippetsButton.Click += (_, _) => ExportSnippets();
-        _importSnippetsButton.Click += (_, _) => ImportSnippets();
+        _exportSnippetsButton.Click += async (_, _) => await ExportSnippetsAsync();
+        _importSnippetsButton.Click += async (_, _) => await ImportSnippetsAsync();
         buttons.Children.Add(_newSnippetButton);
         buttons.Children.Add(_saveSnippetButton);
         buttons.Children.Add(_pasteSnippetButton);
@@ -1183,7 +1184,7 @@ public sealed class MainWindow : Window
         _runtime.SetHideSettingsWindowOnStartup(_hideSettingsWindowOnStartupToggle.IsOn);
     }
 
-    private void TryApplyHotkey(string hotkey)
+    private async Task TryApplyHotkeyAsync(string hotkey)
     {
         if (_loading)
         {
@@ -1196,20 +1197,19 @@ public sealed class MainWindow : Window
             return;
         }
 
-        Forms.MessageBox.Show(
-            _runtime.Translate("HotkeyUnavailable"),
+        await ShowMessageDialogAsync(
             _runtime.Translate("Hotkey"),
-            Forms.MessageBoxButtons.OK,
-            Forms.MessageBoxIcon.Warning);
+            _runtime.Translate("HotkeyUnavailable"),
+            _runtime.Translate("Close"));
         RefreshTexts();
     }
 
-    private void CaptureCustomHotkey()
+    private async Task CaptureCustomHotkeyAsync()
     {
-        var hotkey = PromptForHotkey();
+        var hotkey = await PromptForHotkeyAsync();
         if (hotkey is not null)
         {
-            TryApplyHotkey(hotkey);
+            await TryApplyHotkeyAsync(hotkey);
         }
     }
 
@@ -1223,15 +1223,14 @@ public sealed class MainWindow : Window
         RefreshItems();
     }
 
-    private void ConfirmAndClearHistory()
+    private async Task ConfirmAndClearHistoryAsync()
     {
-        var result = Forms.MessageBox.Show(
-            _runtime.Translate("ConfirmClearHistoryMessage"),
+        var confirmed = await ConfirmDialogAsync(
             _runtime.Translate("ConfirmClearHistoryTitle"),
-            Forms.MessageBoxButtons.YesNo,
-            Forms.MessageBoxIcon.Warning,
-            Forms.MessageBoxDefaultButton.Button2);
-        if (result != Forms.DialogResult.Yes)
+            _runtime.Translate("ConfirmClearHistoryMessage"),
+            _runtime.Translate("ClearHistory"),
+            _runtime.Translate("Cancel"));
+        if (!confirmed)
         {
             return;
         }
@@ -1264,28 +1263,28 @@ public sealed class MainWindow : Window
         _ = OpenSnippetEditorAsync(null, "History", CreateSnippetName(item.Text), item.Text);
     }
 
-    private void ExportHistory()
+    private async Task ExportHistoryAsync()
     {
-        var path = SelectExportPath($"clipton-history-{DateTime.Now:yyyyMMdd-HHmmss}.json");
+        var path = await SelectExportPathAsync($"clipton-history-{DateTime.Now:yyyyMMdd-HHmmss}.json");
         if (path is null)
         {
             return;
         }
 
-        RunImportExportAction(
+        await RunImportExportActionAsync(
             "ExportHistory",
             () => string.Format(_runtime.Translate("ExportComplete"), _runtime.ExportHistory(path)));
     }
 
-    private void ImportHistory()
+    private async Task ImportHistoryAsync()
     {
-        var path = SelectImportPath();
+        var path = await SelectImportPathAsync();
         if (path is null)
         {
             return;
         }
 
-        RunImportExportAction(
+        await RunImportExportActionAsync(
             "ImportHistory",
             () =>
             {
@@ -1295,28 +1294,28 @@ public sealed class MainWindow : Window
             });
     }
 
-    private void ExportSnippets()
+    private async Task ExportSnippetsAsync()
     {
-        var path = SelectExportPath($"clipton-snippets-{DateTime.Now:yyyyMMdd-HHmmss}.json");
+        var path = await SelectExportPathAsync($"clipton-snippets-{DateTime.Now:yyyyMMdd-HHmmss}.json");
         if (path is null)
         {
             return;
         }
 
-        RunImportExportAction(
+        await RunImportExportActionAsync(
             "ExportSnippets",
             () => string.Format(_runtime.Translate("ExportComplete"), _runtime.ExportSnippets(path)));
     }
 
-    private void ImportSnippets()
+    private async Task ImportSnippetsAsync()
     {
-        var path = SelectImportPath();
+        var path = await SelectImportPathAsync();
         if (path is null)
         {
             return;
         }
 
-        RunImportExportAction(
+        await RunImportExportActionAsync(
             "ImportSnippets",
             () =>
             {
@@ -1328,56 +1327,95 @@ public sealed class MainWindow : Window
             });
     }
 
-    private string? SelectExportPath(string fileName)
+    private async Task<string?> SelectExportPathAsync(string fileName)
     {
-        using var dialog = new Forms.SaveFileDialog
+        var picker = new FileSavePicker
         {
-            Title = _runtime.Translate("Export"),
-            FileName = fileName,
-            DefaultExt = "json",
-            AddExtension = true,
-            Filter = JsonFileFilter()
+            SuggestedFileName = fileName,
+            DefaultFileExtension = ".json",
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary
         };
-
-        return dialog.ShowDialog() == Forms.DialogResult.OK ? dialog.FileName : null;
+        picker.FileTypeChoices.Add(_runtime.Translate("JsonFiles"), [".json"]);
+        InitializeWithWindow.Initialize(picker, _hwnd);
+        var file = await picker.PickSaveFileAsync();
+        return file?.Path;
     }
 
-    private string? SelectImportPath()
+    private async Task<string?> SelectImportPathAsync()
     {
-        using var dialog = new Forms.OpenFileDialog
+        var picker = new FileOpenPicker
         {
-            Title = _runtime.Translate("Import"),
-            DefaultExt = "json",
-            CheckFileExists = true,
-            Filter = JsonFileFilter()
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary
         };
-
-        return dialog.ShowDialog() == Forms.DialogResult.OK ? dialog.FileName : null;
+        picker.FileTypeFilter.Add(".json");
+        InitializeWithWindow.Initialize(picker, _hwnd);
+        var file = await picker.PickSingleFileAsync();
+        return file?.Path;
     }
 
-    private string JsonFileFilter()
-    {
-        return $"{_runtime.Translate("JsonFiles")} (*.json)|*.json|{_runtime.Translate("AllFiles")} (*.*)|*.*";
-    }
-
-    private void RunImportExportAction(string titleKey, Func<string> action)
+    private async Task RunImportExportActionAsync(string titleKey, Func<string> action)
     {
         try
         {
-            Forms.MessageBox.Show(
-                action(),
+            await ShowMessageDialogAsync(
                 _runtime.Translate(titleKey),
-                Forms.MessageBoxButtons.OK,
-                Forms.MessageBoxIcon.Information);
+                action(),
+                _runtime.Translate("Close"));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException)
         {
-            Forms.MessageBox.Show(
-                string.Format(_runtime.Translate("ImportExportFailed"), ex.Message),
+            await ShowMessageDialogAsync(
                 _runtime.Translate(titleKey),
-                Forms.MessageBoxButtons.OK,
-                Forms.MessageBoxIcon.Error);
+                string.Format(_runtime.Translate("ImportExportFailed"), ex.Message),
+                _runtime.Translate("Close"));
         }
+    }
+
+    private async Task ShowMessageDialogAsync(string title, string message, string closeText)
+    {
+        if (_root.XamlRoot is null)
+        {
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = new TextBlock
+            {
+                Text = message,
+                TextWrapping = TextWrapping.Wrap
+            },
+            CloseButtonText = closeText,
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = _root.XamlRoot,
+            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+        };
+        await dialog.ShowAsync();
+    }
+
+    private async Task<bool> ConfirmDialogAsync(string title, string message, string primaryText, string closeText)
+    {
+        if (_root.XamlRoot is null)
+        {
+            return false;
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = new TextBlock
+            {
+                Text = message,
+                TextWrapping = TextWrapping.Wrap
+            },
+            PrimaryButtonText = primaryText,
+            CloseButtonText = closeText,
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = _root.XamlRoot,
+            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
 
     private void SelectSnippet(SnippetItemViewModel selected)
@@ -1491,195 +1529,74 @@ public sealed class MainWindow : Window
         };
     }
 
-    private Forms.Label DialogLabel(string text) => new()
+    private async Task<string?> PromptForHotkeyAsync()
     {
-        Text = text,
-        Dock = Forms.DockStyle.Fill,
-        AutoSize = false,
-        TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
-        Font = DialogFont(9f),
-        ForeColor = IsDark ? System.Drawing.Color.FromArgb(220, 220, 220) : System.Drawing.Color.FromArgb(42, 42, 42)
-    };
-
-    private Forms.Label DialogTitleLabel(string text) => new()
-    {
-        Text = text,
-        Dock = Forms.DockStyle.Fill,
-        AutoSize = false,
-        TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
-        Font = DialogFont(10.5f, System.Drawing.FontStyle.Regular),
-        ForeColor = DialogForegroundColor()
-    };
-
-    private Forms.Label DialogDescriptionLabel(string text) => new()
-    {
-        Text = text,
-        Dock = Forms.DockStyle.Fill,
-        AutoSize = false,
-        TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
-        Font = DialogFont(9f),
-        ForeColor = DialogMutedColor()
-    };
-
-    private Forms.TextBox DialogTextBox(string text) => new()
-    {
-        Text = text,
-        Dock = Forms.DockStyle.Fill,
-        Font = DialogFont(10.5f),
-        BackColor = DialogInputColor(),
-        ForeColor = DialogForegroundColor(),
-        BorderStyle = Forms.BorderStyle.FixedSingle
-    };
-
-    private Forms.Panel DialogPanel() => new()
-    {
-        Dock = Forms.DockStyle.Fill,
-        Padding = new Forms.Padding(14),
-        BackColor = DialogCardColor()
-    };
-
-    private Forms.Button DialogButton(string text, bool primary)
-    {
-        var button = new Forms.Button
+        if (_root.XamlRoot is null)
         {
-            Text = text,
-            Width = 96,
-            Height = 32,
-            FlatStyle = Forms.FlatStyle.Flat,
-            Font = DialogFont(9f),
-            BackColor = primary ? DialogAccentColor() : DialogButtonColor(),
-            ForeColor = primary ? System.Drawing.Color.White : DialogForegroundColor()
-        };
-        button.FlatAppearance.BorderColor = primary ? DialogAccentColor() : DialogBorderColor();
-        button.FlatAppearance.BorderSize = 1;
-        return button;
-    }
-
-    private System.Drawing.Color DialogBackgroundColor() => IsDark
-        ? System.Drawing.Color.FromArgb(31, 31, 31)
-        : System.Drawing.Color.FromArgb(243, 243, 243);
-
-    private System.Drawing.Color DialogCardColor() => IsDark
-        ? System.Drawing.Color.FromArgb(43, 43, 43)
-        : System.Drawing.Color.White;
-
-    private System.Drawing.Color DialogInputColor() => IsDark
-        ? System.Drawing.Color.FromArgb(36, 36, 36)
-        : System.Drawing.Color.White;
-
-    private System.Drawing.Color DialogButtonColor() => IsDark
-        ? System.Drawing.Color.FromArgb(49, 49, 49)
-        : System.Drawing.Color.FromArgb(251, 251, 251);
-
-    private System.Drawing.Color DialogForegroundColor() => IsDark
-        ? System.Drawing.Color.FromArgb(243, 243, 243)
-        : System.Drawing.Color.FromArgb(31, 31, 31);
-
-    private System.Drawing.Color DialogMutedColor() => IsDark
-        ? System.Drawing.Color.FromArgb(200, 200, 200)
-        : System.Drawing.Color.FromArgb(96, 96, 96);
-
-    private System.Drawing.Color DialogBorderColor() => IsDark
-        ? System.Drawing.Color.FromArgb(72, 72, 72)
-        : System.Drawing.Color.FromArgb(205, 205, 205);
-
-    private static System.Drawing.Color DialogAccentColor() => System.Drawing.Color.FromArgb(0, 120, 212);
-
-    private System.Drawing.Font DialogFont(float size, System.Drawing.FontStyle style = System.Drawing.FontStyle.Regular)
-    {
-        var family = IsJapaneseLocale() ? JapaneseUiFontFamily : UiFontFamily;
-        return new System.Drawing.Font(family, size, style, System.Drawing.GraphicsUnit.Point);
-    }
-
-    private bool IsJapaneseLocale()
-    {
-        var locale = _runtime.Settings.Locale;
-        if (string.IsNullOrWhiteSpace(locale) || string.Equals(locale, "auto", StringComparison.OrdinalIgnoreCase))
-        {
-            locale = CultureInfo.CurrentUICulture.Name;
+            return null;
         }
 
-        return locale.StartsWith("ja", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private string? PromptForHotkey()
-    {
         _runtime.SuspendHotkey();
-        using var form = new Forms.Form
-        {
-            Text = _runtime.Translate("CaptureHotkey"),
-            Icon = AppAssets.LoadAppIcon(_runtime.EffectiveTheme),
-            Width = 460,
-            Height = 180,
-            MinimizeBox = false,
-            MaximizeBox = false,
-            FormBorderStyle = Forms.FormBorderStyle.FixedDialog,
-            StartPosition = Forms.FormStartPosition.CenterScreen,
-            KeyPreview = true,
-            BackColor = IsDark ? System.Drawing.Color.FromArgb(32, 32, 32) : System.Drawing.Color.White,
-            ForeColor = IsDark ? System.Drawing.Color.White : System.Drawing.Color.Black
-        };
-
-        var layout = new Forms.TableLayoutPanel
-        {
-            Dock = Forms.DockStyle.Fill,
-            Padding = new Forms.Padding(16),
-            ColumnCount = 1,
-            RowCount = 3
-        };
-        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 34));
-        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 36));
-        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 44));
-
         var captured = string.Empty;
-        var preview = DialogTextBox(string.Empty);
-        preview.ReadOnly = true;
-        preview.TextAlign = Forms.HorizontalAlignment.Center;
-        var okButton = new Forms.Button { Text = _runtime.Translate("Save"), DialogResult = Forms.DialogResult.OK, Width = 96, Enabled = false };
-        var cancelButton = new Forms.Button { Text = _runtime.Translate("Cancel"), DialogResult = Forms.DialogResult.Cancel, Width = 96 };
-        var buttons = new Forms.FlowLayoutPanel
+        var preview = new TextBox
         {
-            FlowDirection = Forms.FlowDirection.RightToLeft,
-            Dock = Forms.DockStyle.Fill
+            IsReadOnly = true,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            PlaceholderText = _runtime.Translate("CaptureHotkeyPrompt")
         };
-        buttons.Controls.Add(okButton);
-        buttons.Controls.Add(cancelButton);
-
-        void CaptureKey(Forms.KeyEventArgs e)
+        var content = new StackPanel
         {
-            e.SuppressKeyPress = true;
-            var hotkey = BuildHotkeyFromKeyEvent(e);
+            Spacing = 12,
+            MinWidth = 420,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = _runtime.Translate("CaptureHotkeyPrompt"),
+                    TextWrapping = TextWrapping.Wrap
+                },
+                preview
+            }
+        };
+        var dialog = new ContentDialog
+        {
+            Title = _runtime.Translate("CaptureHotkey"),
+            Content = content,
+            PrimaryButtonText = _runtime.Translate("Save"),
+            CloseButtonText = _runtime.Translate("Cancel"),
+            DefaultButton = ContentDialogButton.Primary,
+            IsPrimaryButtonEnabled = false,
+            XamlRoot = _root.XamlRoot,
+            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+        };
+
+        void CaptureKey(KeyRoutedEventArgs e)
+        {
+            e.Handled = true;
+            var hotkey = BuildHotkeyFromKeyEvent(e.Key);
             if (hotkey is null)
             {
                 preview.Text = _runtime.Translate("HotkeyInvalid");
-                okButton.Enabled = false;
+                dialog.IsPrimaryButtonEnabled = false;
                 captured = string.Empty;
                 return;
             }
 
             preview.Text = hotkey;
             captured = hotkey;
-            okButton.Enabled = true;
+            dialog.IsPrimaryButtonEnabled = true;
         }
 
-        form.KeyDown += (_, e) => CaptureKey(e);
+        content.KeyDown += (_, e) => CaptureKey(e);
         preview.KeyDown += (_, e) => CaptureKey(e);
-
-        layout.Controls.Add(DialogLabel(_runtime.Translate("CaptureHotkeyPrompt")), 0, 0);
-        layout.Controls.Add(preview, 0, 1);
-        layout.Controls.Add(buttons, 0, 2);
-        form.Controls.Add(layout);
-        form.AcceptButton = okButton;
-        form.CancelButton = cancelButton;
-        form.Shown += (_, _) =>
-        {
-            ApplyFormTitleBarTheme(form);
-            preview.Focus();
-        };
+        dialog.Opened += (_, _) => preview.Focus(FocusState.Programmatic);
 
         try
         {
-            return form.ShowDialog() == Forms.DialogResult.OK && !string.IsNullOrWhiteSpace(captured) ? captured : null;
+            return await dialog.ShowAsync() == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(captured)
+                ? captured
+                : null;
         }
         finally
         {
@@ -1687,20 +1604,20 @@ public sealed class MainWindow : Window
         }
     }
 
-    private static string? BuildHotkeyFromKeyEvent(Forms.KeyEventArgs e)
+    private static string? BuildHotkeyFromKeyEvent(VirtualKey keyCode)
     {
         var parts = new List<string>();
-        if (e.Control) parts.Add("Ctrl");
-        if (e.Shift) parts.Add("Shift");
-        if (e.Alt) parts.Add("Alt");
+        if (IsKeyDown(VirtualKey.Control)) parts.Add("Ctrl");
+        if (IsKeyDown(VirtualKey.Shift)) parts.Add("Shift");
+        if (IsKeyDown(VirtualKey.Menu)) parts.Add("Alt");
 
-        var key = e.KeyCode switch
+        var key = keyCode switch
         {
-            Forms.Keys.ControlKey or Forms.Keys.ShiftKey or Forms.Keys.Menu or Forms.Keys.LControlKey or Forms.Keys.RControlKey or Forms.Keys.LShiftKey or Forms.Keys.RShiftKey or Forms.Keys.LMenu or Forms.Keys.RMenu => null,
-            Forms.Keys.Space => "Space",
-            >= Forms.Keys.A and <= Forms.Keys.Z => e.KeyCode.ToString(),
-            >= Forms.Keys.D0 and <= Forms.Keys.D9 => ((char)('0' + e.KeyCode - Forms.Keys.D0)).ToString(),
-            >= Forms.Keys.F1 and <= Forms.Keys.F24 => e.KeyCode.ToString(),
+            VirtualKey.Control or VirtualKey.Shift or VirtualKey.Menu or VirtualKey.LeftControl or VirtualKey.RightControl or VirtualKey.LeftShift or VirtualKey.RightShift or VirtualKey.LeftMenu or VirtualKey.RightMenu => null,
+            VirtualKey.Space => "Space",
+            >= VirtualKey.A and <= VirtualKey.Z => keyCode.ToString(),
+            >= VirtualKey.Number0 and <= VirtualKey.Number9 => ((char)('0' + (int)keyCode - (int)VirtualKey.Number0)).ToString(),
+            >= VirtualKey.F1 and <= VirtualKey.F24 => keyCode.ToString(),
             _ => null
         };
 
@@ -1711,6 +1628,11 @@ public sealed class MainWindow : Window
 
         parts.Add(key);
         return string.Join("+", parts);
+    }
+
+    private static bool IsKeyDown(VirtualKey key)
+    {
+        return (InputKeyboardSource.GetKeyStateForCurrentThread(key) & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
     }
 
     private void SelectPage(int index)
@@ -2093,45 +2015,6 @@ public sealed class MainWindow : Window
         return grid;
     }
 
-    private void ShowDocumentDialog(string title, string text)
-    {
-        using var form = new Forms.Form
-        {
-            Text = title,
-            Icon = AppAssets.LoadAppIcon(_runtime.EffectiveTheme),
-            Width = 640,
-            Height = 520,
-            MinimizeBox = false,
-            MaximizeBox = false,
-            FormBorderStyle = Forms.FormBorderStyle.FixedDialog,
-            StartPosition = Forms.FormStartPosition.CenterScreen,
-            BackColor = IsDark ? System.Drawing.Color.FromArgb(32, 32, 32) : System.Drawing.Color.White,
-            ForeColor = IsDark ? System.Drawing.Color.White : System.Drawing.Color.Black
-        };
-
-        var textBox = DialogTextBox(text);
-        textBox.Multiline = true;
-        textBox.ReadOnly = true;
-        textBox.ScrollBars = Forms.ScrollBars.Vertical;
-        textBox.Dock = Forms.DockStyle.Fill;
-        textBox.BorderStyle = Forms.BorderStyle.None;
-        var closeButton = new Forms.Button { Text = _runtime.Translate("Close"), DialogResult = Forms.DialogResult.OK, Width = 96 };
-        var buttons = new Forms.FlowLayoutPanel
-        {
-            FlowDirection = Forms.FlowDirection.RightToLeft,
-            Dock = Forms.DockStyle.Bottom,
-            Height = 48,
-            Padding = new Forms.Padding(0, 8, 12, 8)
-        };
-        buttons.Controls.Add(closeButton);
-        form.Controls.Add(textBox);
-        form.Controls.Add(buttons);
-        form.AcceptButton = closeButton;
-        form.CancelButton = closeButton;
-        form.Shown += (_, _) => ApplyFormTitleBarTheme(form);
-        form.ShowDialog();
-    }
-
     private Button ItemButton(string title, string subtitle)
     {
         return new Button
@@ -2318,21 +2201,6 @@ public sealed class MainWindow : Window
         var textColor = ColorRef(dark ? "#F3F3F3" : "#1F1F1F");
         _ = DwmSetWindowAttribute(hwnd, 35, ref captionColor, sizeof(int));
         _ = DwmSetWindowAttribute(hwnd, 36, ref textColor, sizeof(int));
-    }
-
-    private void ApplyFormTitleBarTheme(Forms.Form form)
-    {
-        if (!IsDark || form.Handle == IntPtr.Zero)
-        {
-            return;
-        }
-
-        var darkMode = 1;
-        _ = DwmSetWindowAttribute(form.Handle, 20, ref darkMode, sizeof(int));
-        var captionColor = ColorRef("#202020");
-        var textColor = ColorRef("#F3F3F3");
-        _ = DwmSetWindowAttribute(form.Handle, 35, ref captionColor, sizeof(int));
-        _ = DwmSetWindowAttribute(form.Handle, 36, ref textColor, sizeof(int));
     }
 
     private Brush CardBackground() => Brush(IsDark ? "#2B2B2B" : "#FFFFFF");

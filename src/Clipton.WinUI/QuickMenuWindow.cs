@@ -18,7 +18,6 @@ namespace Clipton.WinUI;
 
 public sealed class QuickMenuWindow : Window
 {
-    private const string UiFontFamily = "Segoe UI Variable Text";
     private const int MaxMenuLineLength = 34;
     private const int HostWindowSize = 1;
     private const int ScreenEdgePadding = 8;
@@ -388,10 +387,13 @@ public sealed class QuickMenuWindow : Window
         }));
     }
 
-    private void SearchMenu()
+    private async void SearchMenu()
     {
         _rebuildingFlyout = true;
-        var query = PromptForSearch();
+        _flyout.Hide();
+        UninstallKeyboardHook();
+        UninstallMouseHook();
+        var query = await PromptForSearchAsync();
         if (query is null)
         {
             _opened = false;
@@ -445,138 +447,102 @@ public sealed class QuickMenuWindow : Window
         _replacementWindow.FocusMenu();
     }
 
-    private string? PromptForSearch()
+    private async Task<string?> PromptForSearchAsync()
     {
-        using var form = new Forms.Form
+        var result = new TaskCompletionSource<string?>();
+        var window = new Window
         {
-            Text = _searchTitle,
-            Width = 640,
-            Height = 170,
-            MinimizeBox = false,
-            MaximizeBox = false,
-            FormBorderStyle = Forms.FormBorderStyle.FixedDialog,
-            StartPosition = Forms.FormStartPosition.CenterScreen,
-            TopMost = true,
-            Font = DialogFont(9.5f),
-            BackColor = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase)
-                ? System.Drawing.Color.FromArgb(32, 32, 32)
-                : System.Drawing.Color.White,
-            ForeColor = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase)
-                ? System.Drawing.Color.White
-                : System.Drawing.Color.Black
+            Title = _searchTitle
         };
-
-        var input = new Forms.TextBox
+        window.SystemBackdrop = SystemBackdrop;
+        var root = new Grid
         {
-            Dock = Forms.DockStyle.Fill,
-            BorderStyle = Forms.BorderStyle.FixedSingle,
-            Font = DialogFont(10f),
-            BackColor = form.BackColor,
-            ForeColor = form.ForeColor
+            Padding = new Thickness(18),
+            RequestedTheme = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase)
+                ? ElementTheme.Dark
+                : ElementTheme.Light,
+            Background = new SolidColorBrush(string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase)
+                ? Color.FromArgb(255, 31, 31, 31)
+                : Color.FromArgb(255, 243, 243, 243))
         };
-        var layout = new Forms.TableLayoutPanel
-        {
-            Dock = Forms.DockStyle.Fill,
-            Padding = new Forms.Padding(16),
-            ColumnCount = 1,
-            RowCount = 3
-        };
-        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 46));
-        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 32));
-        layout.RowStyles.Add(new Forms.RowStyle(Forms.SizeType.Absolute, 42));
-        layout.Controls.Add(new Forms.Label
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        var prompt = new TextBlock
         {
             Text = _searchPrompt,
-            Dock = Forms.DockStyle.Fill,
-            Font = DialogFont(9.5f),
-            ForeColor = form.ForeColor,
-            TextAlign = System.Drawing.ContentAlignment.MiddleLeft
-        }, 0, 0);
-        layout.Controls.Add(input, 0, 1);
-
-        var buttons = new Forms.FlowLayoutPanel
-        {
-            Dock = Forms.DockStyle.Fill,
-            FlowDirection = Forms.FlowDirection.RightToLeft
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 12)
         };
-        var searchButton = DialogButton(_searchButtonText, Forms.DialogResult.OK, primary: true);
-        var cancelButton = DialogButton(_cancelButtonText, Forms.DialogResult.Cancel);
-        buttons.Controls.Add(searchButton);
-        buttons.Controls.Add(cancelButton);
-        layout.Controls.Add(buttons, 0, 2);
-        form.Controls.Add(layout);
-        form.AcceptButton = searchButton;
-        form.CancelButton = cancelButton;
-        form.Shown += (_, _) =>
+        root.Children.Add(prompt);
+        var input = new TextBox
         {
-            ApplyFormTitleBarTheme(form);
-            input.Focus();
+            PlaceholderText = _searchTitle,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 0, 0, 16)
         };
-
-        return form.ShowDialog() == Forms.DialogResult.OK ? input.Text : null;
-    }
-
-    private Forms.Button DialogButton(string text, Forms.DialogResult result, bool primary = false)
-    {
-        var dark = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase);
-        var button = new Forms.Button
+        Grid.SetRow(input, 1);
+        root.Children.Add(input);
+        var buttons = new StackPanel
         {
-            Text = text,
-            DialogResult = result,
-            Width = 96,
-            Height = 30,
-            FlatStyle = Forms.FlatStyle.Flat,
-            Font = DialogFont(9.5f),
-            UseVisualStyleBackColor = false,
-            BackColor = primary
-                ? (dark ? System.Drawing.Color.FromArgb(0, 95, 184) : System.Drawing.Color.FromArgb(0, 120, 212))
-                : (dark ? System.Drawing.Color.FromArgb(43, 43, 43) : System.Drawing.Color.FromArgb(245, 245, 245)),
-            ForeColor = primary || dark ? System.Drawing.Color.White : System.Drawing.Color.FromArgb(32, 32, 32),
-            TextAlign = System.Drawing.ContentAlignment.MiddleCenter,
-            Cursor = Forms.Cursors.Hand,
-            Margin = new Forms.Padding(6, 6, 0, 6)
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 8
         };
-        button.FlatAppearance.BorderSize = primary ? 0 : 1;
-        button.FlatAppearance.BorderColor = dark ? System.Drawing.Color.FromArgb(67, 67, 67) : System.Drawing.Color.FromArgb(218, 218, 218);
-        button.FlatAppearance.MouseOverBackColor = primary
-            ? (dark ? System.Drawing.Color.FromArgb(0, 108, 205) : System.Drawing.Color.FromArgb(0, 103, 192))
-            : (dark ? System.Drawing.Color.FromArgb(54, 54, 54) : System.Drawing.Color.FromArgb(235, 235, 235));
-        button.FlatAppearance.MouseDownBackColor = primary
-            ? (dark ? System.Drawing.Color.FromArgb(0, 82, 158) : System.Drawing.Color.FromArgb(0, 90, 158))
-            : (dark ? System.Drawing.Color.FromArgb(38, 38, 38) : System.Drawing.Color.FromArgb(225, 225, 225));
-        button.Resize += (_, _) => ApplyRoundedRegion(button, 4);
-        ApplyRoundedRegion(button, 4);
-        return button;
-    }
+        var cancelButton = new Button { Content = _cancelButtonText, MinWidth = 96 };
+        var searchButton = new Button { Content = _searchButtonText, MinWidth = 96 };
+        buttons.Children.Add(cancelButton);
+        buttons.Children.Add(searchButton);
+        Grid.SetRow(buttons, 2);
+        root.Children.Add(buttons);
+        window.Content = root;
 
-    private static System.Drawing.Font DialogFont(float size) => new(UiFontFamily, size, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
-
-    private static void ApplyRoundedRegion(Forms.Control control, int radius)
-    {
-        var bounds = new System.Drawing.Rectangle(0, 0, control.Width, control.Height);
-        using var path = new System.Drawing.Drawing2D.GraphicsPath();
-        var diameter = radius * 2;
-        path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
-        path.AddArc(bounds.Right - diameter - 1, bounds.Top, diameter, diameter, 270, 90);
-        path.AddArc(bounds.Right - diameter - 1, bounds.Bottom - diameter - 1, diameter, diameter, 0, 90);
-        path.AddArc(bounds.Left, bounds.Bottom - diameter - 1, diameter, diameter, 90, 90);
-        path.CloseFigure();
-        control.Region = new System.Drawing.Region(path);
-    }
-
-    private void ApplyFormTitleBarTheme(Forms.Form form)
-    {
-        if (!string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase) || form.Handle == IntPtr.Zero)
+        var completed = false;
+        void Complete(string? value)
         {
-            return;
+            if (completed)
+            {
+                return;
+            }
+
+            completed = true;
+            result.TrySetResult(value);
+            window.Close();
         }
 
-        var darkMode = 1;
-        _ = DwmSetWindowAttribute(form.Handle, 20, ref darkMode, sizeof(int));
-        var captionColor = ColorRef("#202020");
-        var textColor = ColorRef("#F3F3F3");
-        _ = DwmSetWindowAttribute(form.Handle, 35, ref captionColor, sizeof(int));
-        _ = DwmSetWindowAttribute(form.Handle, 36, ref textColor, sizeof(int));
+        searchButton.Click += (_, _) => Complete(input.Text);
+        cancelButton.Click += (_, _) => Complete(null);
+        input.KeyDown += (_, e) =>
+        {
+            if (e.Key == VirtualKey.Enter)
+            {
+                Complete(input.Text);
+                e.Handled = true;
+            }
+            else if (e.Key == VirtualKey.Escape)
+            {
+                Complete(null);
+                e.Handled = true;
+            }
+        };
+        window.Closed += (_, _) => result.TrySetResult(completed ? result.Task.Result : null);
+        window.Activate();
+        var hwnd = WindowNative.GetWindowHandle(window);
+        var id = Win32Interop.GetWindowIdFromWindow(hwnd);
+        if (AppWindow.GetFromWindowId(id) is { } appWindow)
+        {
+            appWindow.Resize(new SizeInt32(640, 188));
+            if (appWindow.Presenter is OverlappedPresenter presenter)
+            {
+                presenter.IsResizable = false;
+                presenter.IsMaximizable = false;
+                presenter.IsMinimizable = false;
+            }
+        }
+
+        NativeMethods.SetForegroundWindow(hwnd);
+        _ = DispatcherQueue.TryEnqueue(() => input.Focus(FocusState.Programmatic));
+        return await result.Task;
     }
 
     private static IEnumerable<QuickMenuItem> FlattenSearchableItems(IEnumerable<QuickMenuItem> items)
@@ -1119,17 +1085,6 @@ public sealed class QuickMenuWindow : Window
 
         return null;
     }
-
-    private static int ColorRef(string color)
-    {
-        var r = Convert.ToByte(color.Substring(1, 2), 16);
-        var g = Convert.ToByte(color.Substring(3, 2), 16);
-        var b = Convert.ToByte(color.Substring(5, 2), 16);
-        return r | (g << 8) | (b << 16);
-    }
-
-    [DllImport("dwmapi.dll")]
-    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int attributeValue, int attributeSize);
 
     private void MakeHostWindowTransparent()
     {
