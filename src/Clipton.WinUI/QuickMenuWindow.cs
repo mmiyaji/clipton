@@ -291,7 +291,11 @@ public sealed class QuickMenuWindow : Window
             case NativeMethods.VkReturn:
                 DispatcherQueue.TryEnqueue(() =>
                 {
-                    if (GetFocusedMenuItem() is { } item)
+                    if (GetFocusedPasteOption() is { } option)
+                    {
+                        InvokePasteOption(option);
+                    }
+                    else if (GetFocusedMenuItem() is { } item)
                     {
                         Invoke(item, asPlainText: false);
                     }
@@ -647,7 +651,10 @@ public sealed class QuickMenuWindow : Window
                 _childFocusableItems[optionSubItem] = [];
                 foreach (var option in item.PasteOptions)
                 {
-                    optionSubItem.Items.Add(CreatePasteOptionMenuItem(option));
+                    var optionItem = CreatePasteOptionMenuItem(option);
+                    optionSubItem.Items.Add(optionItem);
+                    _parentItem[optionItem] = optionSubItem;
+                    _childFocusableItems[optionSubItem].Add(optionItem);
                 }
 
                 target.Add(optionSubItem);
@@ -740,7 +747,8 @@ public sealed class QuickMenuWindow : Window
         var optionItem = new MenuFlyoutItem
         {
             Text = option.Text,
-            Icon = CreateOptionIcon(option)
+            Icon = CreateOptionIcon(option),
+            Tag = option
         };
         optionItem.Click += (_, _) => InvokePasteOption(option);
         return optionItem;
@@ -793,6 +801,11 @@ public sealed class QuickMenuWindow : Window
 
     private QuickMenuItem? GetFocusedMenuItem()
     {
+        if (GetTrackedFocusedMenuItemBase() is { Tag: QuickMenuPasteOption })
+        {
+            return null;
+        }
+
         if (GetTrackedFocusedMenuItemBase() is { Tag: QuickMenuItem trackedItem })
         {
             return trackedItem;
@@ -809,6 +822,22 @@ public sealed class QuickMenuWindow : Window
             MenuFlyoutSubItem { Tag: QuickMenuItem item } => item,
             _ => GetTrackedFocusedMenuItemBase() is { Tag: QuickMenuItem item } ? item : _navigator.SelectedItem
         };
+    }
+
+    private QuickMenuPasteOption? GetFocusedPasteOption()
+    {
+        if (GetTrackedFocusedMenuItemBase() is { Tag: QuickMenuPasteOption trackedOption })
+        {
+            return trackedOption;
+        }
+
+        if (_host.XamlRoot is not null
+            && FocusManager.GetFocusedElement(_host.XamlRoot) is MenuFlyoutItem { Tag: QuickMenuPasteOption focusedOption })
+        {
+            return focusedOption;
+        }
+
+        return null;
     }
 
     private MenuFlyoutItemBase? GetFocusedMenuItemBase()
