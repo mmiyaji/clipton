@@ -42,6 +42,7 @@ public sealed class CliptonRuntime : IDisposable
     private long _lastQuickMenuRequestTick;
     private int _quickMenuRequestPending;
     private bool _clipboardServicesStarted;
+    private uint _lastCapturedClipboardSequence;
     private CancellationTokenSource? _clipboardCaptureDelay;
 
     public CliptonRuntime()
@@ -681,12 +682,20 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
+        var sequence = NativeMethods.GetClipboardSequenceNumber();
+        if (sequence != 0 && sequence == _lastCapturedClipboardSequence)
+        {
+            AppDiagnostics.Info("Clipboard", $"Clipboard sequence {sequence} already captured; skipping.");
+            return;
+        }
+
         var snapshot = ClipboardBridge.Capture();
         if (snapshot is null)
         {
             return;
         }
 
+        _lastCapturedClipboardSequence = sequence;
         if (History.Add(snapshot))
         {
             AppDiagnostics.Info("Clipboard", $"Captured clipboard item with {snapshot.Formats.Count} format(s).");
