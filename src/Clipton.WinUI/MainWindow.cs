@@ -485,7 +485,7 @@ public sealed class MainWindow : Window
         actions.Children.Add(dataActions);
         _historyPage.Children.Add(actions);
         _historyPage.Children.Add(_historySearchStatusText);
-        _historyPage.Children.Add(Card(_historyListHost));
+        _historyPage.Children.Add(Card(_historyListHost, new Thickness(8, 8, 8, 10)));
     }
 
     private void BuildHistorySettingsPage()
@@ -2159,10 +2159,15 @@ public sealed class MainWindow : Window
 
     private Border Card(UIElement child)
     {
+        return Card(child, new Thickness(18));
+    }
+
+    private Border Card(UIElement child, Thickness padding)
+    {
         var card = new Border
         {
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            Padding = new Thickness(18),
+            Padding = padding,
             CornerRadius = new CornerRadius(6),
             BorderThickness = new Thickness(1),
             BorderBrush = CardBorderBrush(),
@@ -2347,7 +2352,7 @@ public sealed class MainWindow : Window
         var grid = new Grid
         {
             ColumnSpacing = 16,
-            Padding = new Thickness(22, 9, 12, 9)
+            Padding = new Thickness(12, 7, 10, 7)
         };
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -2438,14 +2443,14 @@ public sealed class MainWindow : Window
     {
         var grid = new Grid
         {
-            ColumnSpacing = 14,
-            Padding = new Thickness(22, 9, 12, 9)
+            ColumnSpacing = 12,
+            Padding = new Thickness(12, 7, 10, 7)
         };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        grid.Children.Add(HistoryPreviewSlot(item, 96, 56));
+        grid.Children.Add(HistoryPreviewSlot(item, 84, 48));
 
         var label = new TextBlock
         {
