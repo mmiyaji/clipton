@@ -94,10 +94,9 @@ public sealed class MainWindow : Window
     private readonly Button _exportHistoryButton = new();
     private readonly Button _importHistoryButton = new();
     private readonly Button _clearButton = new();
-    private readonly Border _historySearchHost = new();
-    private Forms.Form? _historySearchOverlay;
-    private Forms.Panel? _historySearchPanel;
-    private Forms.TextBox? _historySearchBox;
+    private readonly Grid _historySearchHost = new();
+    private readonly TextBox _historySearchBox = new();
+    private readonly FontIcon _historySearchIcon = new();
     private Forms.Form? _maskPatternsOverlay;
     private Forms.Panel? _maskPatternsPanel;
     private Forms.TextBox? _maskPatternsBox;
@@ -160,9 +159,6 @@ public sealed class MainWindow : Window
         RefreshTexts();
         RefreshItems();
         Closed += (_, _) => _runtime.OnMainWindowClosed(this);
-        Closed += (_, _) => _historySearchOverlay?.Dispose();
-        Closed += (_, _) => _historySearchPanel?.Dispose();
-        Closed += (_, _) => _historySearchBox?.Dispose();
         Closed += (_, _) => _maskPatternsOverlay?.Dispose();
         Closed += (_, _) => _maskPatternsBox?.Dispose();
         Closed += (_, _) => _maskTestOverlay?.Dispose();
@@ -246,10 +242,7 @@ public sealed class MainWindow : Window
         SetCommandButton(_importHistoryButton, "\uE896", t("Import"));
         SetCommandButton(_clearButton, "\uE74D", t("ClearHistory"));
         SetCommandButton(_maskDefinitionsButton, "\uE713", t("MaskDefinitions"));
-        if (_historySearchBox is not null)
-        {
-            _historySearchBox.PlaceholderText = t("SearchPlaceholder");
-        }
+        _historySearchBox.PlaceholderText = t("SearchPlaceholder");
         SetIconButton(_advancedHistorySearchButton, "\uE71C", t("AdvancedSearch"));
         _historyAdvancedSearchText.Text = t("SearchPrompt");
         SetCommandButton(_clearHistorySearchButton, "\uE711", t("ClearSearch"));
@@ -479,10 +472,34 @@ public sealed class MainWindow : Window
 
     private UIElement BuildHistorySearchPanel()
     {
-        _historySearchHost.MinHeight = SettingControlHeight;
+        _historySearchHost.Height = SettingControlHeight;
         _historySearchHost.HorizontalAlignment = HorizontalAlignment.Stretch;
-        _historySearchHost.Loaded += (_, _) => EnsureNativeHistorySearchBox();
-        _historySearchHost.SizeChanged += (_, _) => PositionNativeChildInputs();
+        _historySearchBox.Height = SettingControlHeight;
+        _historySearchBox.MinHeight = SettingControlHeight;
+        _historySearchBox.PlaceholderText = _runtime.Translate("SearchPlaceholder");
+        _historySearchBox.Text = _historySearchQuery;
+        _historySearchBox.Padding = new Thickness(36, 0, 12, 0);
+        _historySearchBox.VerticalContentAlignment = VerticalAlignment.Center;
+        _historySearchBox.HorizontalAlignment = HorizontalAlignment.Stretch;
+        _historySearchBox.TextChanged += (_, _) =>
+        {
+            if (_updatingHistorySearchBox)
+            {
+                return;
+            }
+
+            ApplyHistorySearch(_historySearchBox.Text);
+        };
+        _historySearchHost.Children.Add(_historySearchBox);
+        _historySearchIcon.Glyph = "\uE721";
+        _historySearchIcon.FontFamily = new FontFamily("Segoe Fluent Icons");
+        _historySearchIcon.FontSize = 14;
+        _historySearchIcon.Foreground = DescriptionBrush();
+        _historySearchIcon.IsHitTestVisible = false;
+        _historySearchIcon.HorizontalAlignment = HorizontalAlignment.Left;
+        _historySearchIcon.VerticalAlignment = VerticalAlignment.Center;
+        _historySearchIcon.Margin = new Thickness(12, 0, 0, 0);
+        _historySearchHost.Children.Add(_historySearchIcon);
 
         _advancedHistorySearchButton.Width = SettingControlHeight;
         _advancedHistorySearchButton.MinWidth = SettingControlHeight;
@@ -722,73 +739,6 @@ public sealed class MainWindow : Window
         return (result, count);
     }
 
-    private void EnsureNativeHistorySearchBox()
-    {
-        if (_historySearchPanel is not null || _hwnd == IntPtr.Zero)
-        {
-            PositionNativeChildInputs();
-            return;
-        }
-
-        var backColor = HistorySearchBackColor();
-        _historySearchOverlay = new Forms.Form
-        {
-            FormBorderStyle = Forms.FormBorderStyle.None,
-            ShowInTaskbar = false,
-            StartPosition = Forms.FormStartPosition.Manual,
-            BackColor = backColor,
-            Padding = new Forms.Padding(0),
-            TopMost = false,
-            Visible = false
-        };
-        _historySearchPanel = new Forms.Panel
-        {
-            BackColor = backColor,
-            Dock = Forms.DockStyle.Fill,
-            Padding = new Forms.Padding(10, 0, 10, 0)
-        };
-        _historySearchPanel.Paint += (_, args) => PaintNativeInputBorder(args.Graphics, _historySearchPanel, _historySearchBox);
-        _historySearchPanel.Resize += (_, _) => LayoutNativeHistorySearchControls();
-        var icon = new Forms.Label
-        {
-            Text = "\uE721",
-            Font = new System.Drawing.Font("Segoe MDL2 Assets", 10f, System.Drawing.FontStyle.Regular),
-            ForeColor = HistorySearchMutedColor(),
-            BackColor = backColor,
-            Width = 32,
-            TextAlign = System.Drawing.ContentAlignment.MiddleCenter
-        };
-        _historySearchBox = new Forms.TextBox
-        {
-            AutoSize = false,
-            BorderStyle = Forms.BorderStyle.None,
-            Font = DialogFont(10f),
-            PlaceholderText = _runtime.Translate("SearchPlaceholder"),
-            Text = _historySearchQuery,
-            BackColor = backColor,
-            ForeColor = HistorySearchForeColor(),
-            Margin = new Forms.Padding(0)
-        };
-        _historySearchBox.Enter += (_, _) => _historySearchPanel.Invalidate();
-        _historySearchBox.Leave += (_, _) => _historySearchPanel.Invalidate();
-        _historySearchBox.TextChanged += (_, _) =>
-        {
-            if (_updatingHistorySearchBox)
-            {
-                return;
-            }
-
-            ApplyHistorySearch(_historySearchBox.Text);
-        };
-        _historySearchPanel.Controls.Add(_historySearchBox);
-        _historySearchPanel.Controls.Add(icon);
-        LayoutNativeHistorySearchControls();
-        _historySearchOverlay.Controls.Add(_historySearchPanel);
-        _historySearchOverlay.Show(new WindowHandle(_hwnd));
-        _historySearchOverlay.Hide();
-        PositionNativeChildInputs();
-    }
-
     private void EnsureNativeMaskPatternsBox()
     {
         if (_maskPatternsBox is not null || _hwnd == IntPtr.Zero)
@@ -889,35 +839,8 @@ public sealed class MainWindow : Window
         PositionNativeChildInputs();
     }
 
-    private void LayoutNativeHistorySearchControls()
-    {
-        if (_historySearchPanel is null || _historySearchBox is null || _historySearchPanel.Controls.Count < 2)
-        {
-            return;
-        }
-
-        var icon = _historySearchPanel.Controls.OfType<Forms.Label>().FirstOrDefault();
-        if (icon is null)
-        {
-            return;
-        }
-
-        var panelHeight = _historySearchPanel.ClientSize.Height;
-        var panelWidth = _historySearchPanel.ClientSize.Width;
-        var leftPadding = 10;
-        var rightPadding = 10;
-        var iconSize = Math.Min(18, Math.Max(14, panelHeight - 14));
-        var iconTop = Math.Max(0, (panelHeight - iconSize) / 2);
-        var textLeft = leftPadding + iconSize + 8;
-        icon.SetBounds(leftPadding, iconTop, iconSize, iconSize);
-        var textHeight = Math.Min(22, Math.Max(18, panelHeight - 12));
-        var textTop = Math.Max(0, (panelHeight - textHeight) / 2);
-        _historySearchBox.SetBounds(textLeft, textTop, Math.Max(1, panelWidth - textLeft - rightPadding), textHeight);
-    }
-
     private void PositionNativeChildInputs()
     {
-        PositionNativeHistorySearchBox();
         PositionNativeMaskPatternsBox();
         PositionNativeMaskTestBox();
     }
@@ -929,26 +852,6 @@ public sealed class MainWindow : Window
         DispatcherQueue.TryEnqueue(PositionNativeChildInputs);
         await Task.Delay(300);
         DispatcherQueue.TryEnqueue(PositionNativeChildInputs);
-    }
-
-    private void PositionNativeHistorySearchBox()
-    {
-        if (_historySearchOverlay is null || _historySearchOverlay.IsDisposed || _hwnd == IntPtr.Zero)
-        {
-            return;
-        }
-
-        if (_selectedPageIndex != 1 || !TryGetVisibleNativeChildBounds(_historySearchHost, out var x, out var y, out var width, out var height))
-        {
-            _historySearchOverlay.Hide();
-            return;
-        }
-
-        _historySearchOverlay.SetBounds(x, y, width, height);
-        if (!_historySearchOverlay.Visible)
-        {
-            _historySearchOverlay.Show(new WindowHandle(_hwnd));
-        }
     }
 
     private void PositionNativeMaskPatternsBox()
@@ -1051,10 +954,6 @@ public sealed class MainWindow : Window
         ? System.Drawing.Color.FromArgb(243, 243, 243)
         : System.Drawing.Color.FromArgb(31, 31, 31);
 
-    private System.Drawing.Color HistorySearchMutedColor() => IsDark
-        ? System.Drawing.Color.FromArgb(178, 178, 178)
-        : System.Drawing.Color.FromArgb(96, 96, 96);
-
     private System.Drawing.Color HistorySearchBorderColor() => IsDark
         ? System.Drawing.Color.FromArgb(82, 82, 82)
         : System.Drawing.Color.FromArgb(138, 138, 138);
@@ -1129,7 +1028,7 @@ public sealed class MainWindow : Window
             : string.Empty;
         _historySearchStatusText.Visibility = hasQuery ? Visibility.Visible : Visibility.Collapsed;
         _clearHistorySearchButton.Visibility = hasQuery ? Visibility.Visible : Visibility.Collapsed;
-        if (_historySearchBox is not null && !string.Equals(_historySearchBox.Text, _historySearchQuery, StringComparison.Ordinal))
+        if (!string.Equals(_historySearchBox.Text, _historySearchQuery, StringComparison.Ordinal))
         {
             _updatingHistorySearchBox = true;
             _historySearchBox.Text = _historySearchQuery;
@@ -1971,26 +1870,6 @@ public sealed class MainWindow : Window
         _maskTestHost.BorderBrush = CardBorderBrush();
         var backColor = HistorySearchBackColor();
         var foreColor = HistorySearchForeColor();
-        var mutedColor = HistorySearchMutedColor();
-        if (_historySearchPanel is not null)
-        {
-            _historySearchOverlay!.BackColor = backColor;
-            _historySearchPanel.BackColor = backColor;
-            foreach (Forms.Control control in _historySearchPanel.Controls)
-            {
-                control.BackColor = backColor;
-                if (control is Forms.TextBox textBox)
-                {
-                    textBox.ForeColor = foreColor;
-                }
-                else if (control is Forms.Label label)
-                {
-                    label.ForeColor = mutedColor;
-                }
-            }
-            _historySearchPanel.Invalidate();
-        }
-
         if (_maskPatternsBox is not null)
         {
             _maskPatternsOverlay!.BackColor = backColor;
@@ -2022,6 +1901,8 @@ public sealed class MainWindow : Window
         {
             label.Foreground = brush;
         }
+
+        _historySearchIcon.Foreground = brush;
     }
 
     private bool IsDark => string.Equals(_runtime.EffectiveTheme, "dark", StringComparison.OrdinalIgnoreCase);
@@ -2367,7 +2248,6 @@ public sealed class MainWindow : Window
     {
         if (msg == NativeMethods.WmClose && !_runtime.IsExiting)
         {
-            _historySearchOverlay?.Hide();
             _maskPatternsOverlay?.Hide();
             _appWindow?.Hide();
             _hiddenToTray = true;

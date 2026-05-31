@@ -1,11 +1,15 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Markup;
+using Microsoft.UI.Xaml.XamlTypeInfo;
 using System.Runtime.InteropServices;
 
 namespace Clipton.WinUI;
 
-public sealed class App : Application
+public sealed class App : Application, IXamlMetadataProvider
 {
     private CliptonRuntime? _runtime;
+    private XamlControlsXamlMetaDataProvider? _xamlMetadataProvider;
 
     public static string[] LaunchArgs { get; set; } = [];
 
@@ -37,6 +41,8 @@ public sealed class App : Application
     {
         try
         {
+            EnsureXamlMetadataProvider();
+            Resources.MergedDictionaries.Add(new XamlControlsResources());
             _runtime = new CliptonRuntime();
             _runtime.Start();
             var forceShow = LaunchArgs.Contains("--settings", StringComparer.OrdinalIgnoreCase)
@@ -49,5 +55,22 @@ public sealed class App : Application
             AppDiagnostics.Log(exception, "Launch");
             throw;
         }
+    }
+
+    public IXamlType GetXamlType(Type type) => EnsureXamlMetadataProvider().GetXamlType(type);
+
+    public IXamlType GetXamlType(string fullName) => EnsureXamlMetadataProvider().GetXamlType(fullName);
+
+    public XmlnsDefinition[] GetXmlnsDefinitions() => EnsureXamlMetadataProvider().GetXmlnsDefinitions();
+
+    private XamlControlsXamlMetaDataProvider EnsureXamlMetadataProvider()
+    {
+        if (_xamlMetadataProvider is null)
+        {
+            XamlControlsXamlMetaDataProvider.Initialize();
+            _xamlMetadataProvider = new XamlControlsXamlMetaDataProvider();
+        }
+
+        return _xamlMetadataProvider;
     }
 }
