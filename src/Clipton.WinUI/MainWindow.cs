@@ -10,6 +10,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
@@ -49,7 +50,8 @@ public sealed class MainWindow : Window
     private readonly StackPanel _snippetPage = SettingsPage();
     private readonly StackPanel _aboutPage = SettingsPage();
     private readonly StackPanel _historyItemsPanel = new() { Spacing = 6 };
-    private readonly StackPanel _snippetItemsPanel = new() { Spacing = 6 };
+    private readonly TreeView _snippetTree = new();
+    private readonly Dictionary<TreeViewNode, SnippetItemViewModel> _snippetNodes = [];
     private readonly List<Border> _cards = [];
     private readonly ListView _navListView = new();
     private readonly List<ListViewItem> _navItems = [];
@@ -121,6 +123,7 @@ public sealed class MainWindow : Window
     private readonly Button _privacyButton = new();
     private string? _selectedHistoryId;
     private SnippetItemViewModel? _selectedSnippet;
+    private bool _updatingSnippetTreeSelection;
     private string _historySearchQuery = string.Empty;
     private int _historyVisibleLimit = HistoryDisplayBatchSize;
     private bool _loading;
@@ -204,17 +207,7 @@ public sealed class MainWindow : Window
             _historyItemsPanel.Children.Add(_loadMoreHistoryButton);
         }
 
-        _snippetItemsPanel.Children.Clear();
-        foreach (var item in _runtime.Snippets.Snippets
-            .OrderBy(snippet => snippet.Folder, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(snippet => snippet.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(SnippetItemViewModel.FromSnippet))
-        {
-            var button = ItemButton(item.DisplayName, item.Folder);
-            button.Click += (_, _) => SelectSnippet(item);
-            button.DoubleTapped += (_, _) => _runtime.PasteSnippet(item.Folder, item.Name);
-            _snippetItemsPanel.Children.Add(button);
-        }
+        RefreshSnippetTree();
     }
 
     public void RefreshTexts()
@@ -1086,7 +1079,39 @@ public sealed class MainWindow : Window
         var grid = new Grid { ColumnSpacing = 16 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(320) });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
-        grid.Children.Add(Card(_snippetItemsPanel));
+        _snippetTree.SelectionMode = TreeViewSelectionMode.Single;
+        _snippetTree.MinHeight = 180;
+        _snippetTree.HorizontalAlignment = HorizontalAlignment.Stretch;
+        _snippetTree.ItemTemplate = (DataTemplate)XamlReader.Load("""
+            <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+                <ContentPresenter Content="{Binding Content}" />
+            </DataTemplate>
+            """);
+        _snippetTree.ItemInvoked += (_, e) =>
+        {
+            if (_updatingSnippetTreeSelection)
+            {
+                return;
+            }
+
+            if (TryGetSnippetFromTreeContent(e.InvokedItem, out var item))
+            {
+                SelectSnippet(item);
+            }
+        };
+        _snippetTree.SelectionChanged += (_, _) =>
+        {
+            if (_updatingSnippetTreeSelection)
+            {
+                return;
+            }
+
+            if (_snippetTree.SelectedNode is { } node && _snippetNodes.TryGetValue(node, out var item))
+            {
+                SetSelectedSnippet(item);
+            }
+        };
+        grid.Children.Add(Card(_snippetTree));
 
         var details = new StackPanel { Spacing = 12 };
         var detailsHeader = new Grid { ColumnSpacing = 12 };
@@ -1424,6 +1449,12 @@ public sealed class MainWindow : Window
 
     private void SelectSnippet(SnippetItemViewModel selected)
     {
+        SetSelectedSnippet(selected);
+        SelectSnippetTreeNode(selected);
+    }
+
+    private void SetSelectedSnippet(SnippetItemViewModel selected)
+    {
         _selectedSnippet = selected;
         UpdateSelectedSnippetText();
     }
@@ -1433,6 +1464,133 @@ public sealed class MainWindow : Window
         _selectedSnippetText.Text = _selectedSnippet is null
             ? _runtime.Translate("SnippetEditorEmpty")
             : $"{_selectedSnippet.DisplayName}\n{_selectedSnippet.Folder}";
+    }
+
+    private void RefreshSnippetTree()
+    {
+        _updatingSnippetTreeSelection = true;
+        _snippetNodes.Clear();
+        _snippetTree.RootNodes.Clear();
+
+        var groups = _runtime.Snippets.Snippets
+            .OrderBy(snippet => snippet.Folder, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(snippet => snippet.Name, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(snippet => string.IsNullOrWhiteSpace(snippet.Folder) ? _runtime.Translate("SnippetFolder") : snippet.Folder)
+            .ToArray();
+
+        foreach (var group in groups)
+        {
+            var folderNode = new TreeViewNode
+            {
+                Content = SnippetTreeRow("\uE8B7", group.Key, $"{group.Count()}"),
+                IsExpanded = true
+            };
+
+            foreach (var snippet in group)
+            {
+                var item = SnippetItemViewModel.FromSnippet(snippet);
+                var snippetNode = new TreeViewNode
+                {
+                    Content = SnippetTreeRow("\uE8C8", item.Name, item.Folder, item)
+                };
+                _snippetNodes[snippetNode] = item;
+                folderNode.Children.Add(snippetNode);
+            }
+
+            _snippetTree.RootNodes.Add(folderNode);
+        }
+
+        if (groups.Length == 0)
+        {
+            _snippetTree.RootNodes.Add(new TreeViewNode
+            {
+                Content = new TextBlock
+                {
+                    Text = _runtime.Translate("SnippetEditorEmpty"),
+                    Foreground = DescriptionBrush(),
+                    Margin = new Thickness(8, 6, 8, 6)
+                }
+            });
+        }
+
+        _updatingSnippetTreeSelection = false;
+        if (_selectedSnippet is not null)
+        {
+            SelectSnippetTreeNode(_selectedSnippet);
+        }
+    }
+
+    private UIElement SnippetTreeRow(string glyph, string title, string subtitle, SnippetItemViewModel? item = null)
+    {
+        var row = new Grid
+        {
+            ColumnSpacing = 10,
+            Padding = new Thickness(2, 4, 2, 4),
+            Tag = item
+        };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
+        row.ColumnDefinitions.Add(new ColumnDefinition());
+        row.Children.Add(new FontIcon
+        {
+            Glyph = glyph,
+            FontFamily = new FontFamily("Segoe Fluent Icons"),
+            FontSize = 15,
+            Foreground = item is null ? DescriptionBrush() : null,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+
+        var texts = new StackPanel { Spacing = 1 };
+        texts.Children.Add(new TextBlock
+        {
+            Text = title,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        texts.Children.Add(new TextBlock
+        {
+            Text = subtitle,
+            FontSize = 12,
+            Foreground = DescriptionBrush(),
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        Grid.SetColumn(texts, 1);
+        row.Children.Add(texts);
+
+        if (item is not null)
+        {
+            row.Tapped += (_, _) => SelectSnippet(item);
+            row.DoubleTapped += (_, _) => _runtime.PasteSnippet(item.Folder, item.Name);
+        }
+
+        return row;
+    }
+
+    private void SelectSnippetTreeNode(SnippetItemViewModel selected)
+    {
+        var node = _snippetNodes.FirstOrDefault(pair =>
+            string.Equals(pair.Value.Folder, selected.Folder, StringComparison.Ordinal)
+            && string.Equals(pair.Value.Name, selected.Name, StringComparison.Ordinal)).Key;
+        if (node is null)
+        {
+            return;
+        }
+
+        _updatingSnippetTreeSelection = true;
+        _snippetTree.SelectedNode = node;
+        _updatingSnippetTreeSelection = false;
+    }
+
+    private static bool TryGetSnippetFromTreeContent(object? content, out SnippetItemViewModel item)
+    {
+        if (content is FrameworkElement { Tag: SnippetItemViewModel tagged })
+        {
+            item = tagged;
+            return true;
+        }
+
+        item = default!;
+        return false;
     }
 
     private async Task OpenSnippetEditorAsync(SnippetItemViewModel? existing, string folder, string name, string text)
