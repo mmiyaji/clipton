@@ -1720,7 +1720,7 @@ public sealed class CliptonRuntime : IDisposable
             new QuickMenuPasteOption(Translate("PasteUppercase"), "AA", () => PasteText((textFactory() ?? string.Empty).ToUpperInvariant()), "Segoe UI"),
             new QuickMenuPasteOption(Translate("PasteLowercase"), "aa", () => PasteText((textFactory() ?? string.Empty).ToLowerInvariant()), "Segoe UI"),
             new QuickMenuPasteOption(Translate("PasteTrimmed"), "\uE8C6", () => PasteText((textFactory() ?? string.Empty).Trim())),
-            new QuickMenuPasteOption(Translate("PasteJsonString"), "{ }", () => PasteText(JsonSerializer.Serialize(textFactory() ?? string.Empty)), "Segoe UI")
+            new QuickMenuPasteOption(Translate("PasteJsonString"), "{ }", () => PasteText(InferredJsonFormatter.Format(textFactory() ?? string.Empty)), "Segoe UI")
         };
 
         var urls = ExtractUrls(text);
