@@ -1061,14 +1061,31 @@ public sealed class CliptonRuntime : IDisposable
 
     private void EnsureDefaultSnippets()
     {
-        if (Snippets.Snippets.Count > 0)
+        var changed = false;
+        if (Snippets.Snippets.Count == 0)
         {
-            return;
+            Snippets.Upsert(new Snippet("Email", "hello@example.com"));
+            Snippets.Upsert(new Snippet("Greeting", "Hello,"));
+            changed = true;
         }
 
-        Snippets.Upsert(new Snippet("Email", "hello@example.com"));
-        Snippets.Upsert(new Snippet("Greeting", "Hello,"));
-        SaveSnippets(_snippetPath, Snippets);
+        changed |= AddDefaultSnippet("datetime", "today", "{{date}}");
+        changed |= AddDefaultSnippet("datetime", "now", "{{time}}");
+        if (changed)
+        {
+            SaveSnippets(_snippetPath, Snippets);
+        }
+    }
+
+    private bool AddDefaultSnippet(string folder, string name, string text)
+    {
+        if (Snippets.Find(folder, name) is not null)
+        {
+            return false;
+        }
+
+        Snippets.Upsert(new Snippet(name, text, folder));
+        return true;
     }
 
     private static SnippetCatalog LoadSnippets(string path)
