@@ -568,6 +568,7 @@ public sealed class QuickMenuWindow : Window
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 0, 0, 12)
         };
+        input.Loaded += (_, _) => FocusSearchInput(input);
         Grid.SetRow(input, 1);
         root.Children.Add(input);
         var previewList = new ListView
@@ -682,8 +683,15 @@ public sealed class QuickMenuWindow : Window
 
         NativeMethods.SetForegroundWindow(hwnd);
         UpdatePreview();
-        _ = DispatcherQueue.TryEnqueue(() => input.Focus(FocusState.Programmatic));
+        FocusSearchInput(input);
+        _ = Task.Delay(120).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => FocusSearchInput(input)));
         return await result.Task;
+    }
+
+    private static void FocusSearchInput(TextBox input)
+    {
+        input.Focus(FocusState.Programmatic);
+        input.Select(input.Text.Length, 0);
     }
 
     private static IEnumerable<QuickMenuItem> FlattenSearchableItems(IEnumerable<QuickMenuItem> items)
