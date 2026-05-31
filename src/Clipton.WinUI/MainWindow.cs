@@ -191,12 +191,18 @@ public sealed class MainWindow : Window
             {
                 Content = HistoryListRow(item),
                 Tag = item,
+                ContextFlyout = CreateHistoryContextFlyout(item),
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 Padding = new Thickness(0),
                 MinHeight = 56,
                 UseSystemFocusVisuals = true
             };
             listItem.DoubleTapped += (_, _) => _runtime.PasteHistoryItem(item.Id, asPlainText: false);
+            listItem.RightTapped += (_, _) =>
+            {
+                _selectedHistoryId = item.Id;
+                _historyListView.SelectedItem = listItem;
+            };
             _historyListView.Items.Add(listItem);
         }
 
@@ -2374,6 +2380,60 @@ public sealed class MainWindow : Window
         return grid;
     }
 
+    private MenuFlyout CreateHistoryContextFlyout(HistoryItemViewModel item)
+    {
+        var flyout = new MenuFlyout();
+        foreach (var option in _runtime.CreateHistoryContextOptions(item.Id))
+        {
+            flyout.Items.Add(CreateHistoryContextMenuItem(option));
+        }
+
+        if (flyout.Items.Count > 0)
+        {
+            flyout.Items.Add(new MenuFlyoutSeparator());
+        }
+
+        flyout.Items.Add(CreateHistoryContextMenuItem(new QuickMenuPasteOption(
+            _runtime.Translate("Delete"),
+            "\uE74D",
+            () =>
+            {
+                _runtime.RemoveHistoryItem(item.Id);
+                if (string.Equals(_selectedHistoryId, item.Id, StringComparison.Ordinal))
+                {
+                    _selectedHistoryId = null;
+                }
+            })));
+
+        return flyout;
+    }
+
+    private static MenuFlyoutItem CreateHistoryContextMenuItem(QuickMenuPasteOption option)
+    {
+        var menuItem = new MenuFlyoutItem
+        {
+            Text = option.Text,
+            Icon = CreateHistoryContextIcon(option)
+        };
+        menuItem.Click += (_, _) => option.Invoke();
+        return menuItem;
+    }
+
+    private static IconElement? CreateHistoryContextIcon(QuickMenuPasteOption option)
+    {
+        if (string.IsNullOrWhiteSpace(option.IconGlyph))
+        {
+            return null;
+        }
+
+        return new FontIcon
+        {
+            Glyph = option.IconGlyph,
+            FontFamily = new FontFamily(option.IconFontFamily ?? "Segoe Fluent Icons"),
+            FontSize = 12
+        };
+    }
+
     private UIElement HistoryImageListRow(HistoryItemViewModel item)
     {
         var grid = new Grid
@@ -2412,6 +2472,12 @@ public sealed class MainWindow : Window
 
     private UIElement HistoryPreviewSlot(HistoryItemViewModel item, double width, double height)
     {
+        var host = new HandCursorGrid
+        {
+            Width = width,
+            Height = height,
+            VerticalAlignment = VerticalAlignment.Center
+        };
         var border = new Border
         {
             Width = width,
@@ -2420,6 +2486,7 @@ public sealed class MainWindow : Window
             Background = Brush(IsDark ? "#202020" : "#F7F7F7"),
             VerticalAlignment = VerticalAlignment.Center
         };
+        host.Children.Add(border);
 
         if (item.HasPreviewImage && item.ThumbnailImagePath is { } path && File.Exists(path))
         {
@@ -2432,20 +2499,20 @@ public sealed class MainWindow : Window
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            border.Tapped += async (_, e) =>
+            host.Tapped += async (_, e) =>
             {
                 e.Handled = true;
                 await ShowHistoryImagePreviewAsync(item);
             };
-            ToolTipService.SetToolTip(border, _runtime.Translate("ImagePreview"));
+            ToolTipService.SetToolTip(host, _runtime.Translate("ImagePreview"));
         }
         else
         {
-            border.Opacity = 0;
-            border.IsHitTestVisible = false;
+            host.Opacity = 0;
+            host.IsHitTestVisible = false;
         }
 
-        return border;
+        return host;
     }
 
     private UIElement BuildBrandHeader()
@@ -2766,4 +2833,12 @@ public sealed record SnippetItemViewModel(string Folder, string Name, string Dis
     }
 
     public override string ToString() => DisplayName;
+}
+
+public sealed class HandCursorGrid : Grid
+{
+    public HandCursorGrid()
+    {
+        ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.Hand);
+    }
 }

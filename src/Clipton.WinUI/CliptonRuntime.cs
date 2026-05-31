@@ -197,6 +197,29 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
+    public IReadOnlyList<QuickMenuPasteOption> CreateHistoryContextOptions(string id)
+    {
+        var item = History.Find(id);
+        if (item is null)
+        {
+            return [];
+        }
+
+        if (item.Formats.Contains(ClipboardFormatKind.Image))
+        {
+            return CreateImagePasteOptions(item);
+        }
+
+        var plainText = ClipboardBridge.GetPlainText(item);
+        var options = new List<QuickMenuPasteOption>
+        {
+            new(Translate("PasteOriginal"), "\uE77F", () => PasteHistoryItem(item.Id, asPlainText: false))
+        };
+
+        options.AddRange(CreateTextPasteOptions(plainText, item.Id));
+        return options;
+    }
+
     public async Task SetStartWithWindowsAsync(bool enabled)
     {
         var previous = Settings.StartWithWindows;
