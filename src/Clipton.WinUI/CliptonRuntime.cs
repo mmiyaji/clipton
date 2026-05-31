@@ -321,8 +321,32 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
+        AddSnippetFolder(folder);
         Snippets.Upsert(new Snippet(name.Trim(), text, folder));
         SaveSnippets(_snippetPath, Snippets);
+        _mainWindow?.RefreshItems();
+    }
+
+    public void AddSnippetFolder(string folder)
+    {
+        var normalized = NormalizeFolder(folder);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return;
+        }
+
+        var folders = Settings.SnippetFolders
+            .Append(normalized)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(item => item, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (folders.SequenceEqual(Settings.SnippetFolders, StringComparer.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        Settings.SnippetFolders = folders;
+        SaveSettings();
         _mainWindow?.RefreshItems();
     }
 
