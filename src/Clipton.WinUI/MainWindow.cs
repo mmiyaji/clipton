@@ -1765,6 +1765,7 @@ public sealed class MainWindow : Window
         ScrollViewer.SetVerticalScrollBarVisibility(textBox, ScrollBarVisibility.Auto);
 
         var templateHelp = DescriptionText("SnippetTemplateHelp", fontSize: 12, wrapping: TextWrapping.Wrap);
+        var variableSamples = SnippetVariableSamplePanel(textBox);
         var referenceButton = new HyperlinkButton
         {
             Content = _runtime.Translate("SnippetTemplateReference"),
@@ -1780,9 +1781,11 @@ public sealed class MainWindow : Window
             Children =
             {
                 SnippetEditorField("SnippetFolder", folderBox),
+                DescriptionText("SnippetFolderHint", fontSize: 12, wrapping: TextWrapping.Wrap),
                 SnippetEditorField("SnippetName", nameBox),
                 SnippetEditorField("SnippetText", textBox),
                 templateHelp,
+                variableSamples,
                 referenceButton
             }
         };
@@ -1840,6 +1843,66 @@ public sealed class MainWindow : Window
         panel.Children.Add(LocalizedText(labelKey, fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
         panel.Children.Add(input);
         return panel;
+    }
+
+    private UIElement SnippetVariableSamplePanel(TextBox target)
+    {
+        string[] samples =
+        [
+            "{{date}}",
+            "{{time}}",
+            "{{datetime}}",
+            "{{date:yyyy/MM/dd}}",
+            "{{weekday}}",
+            "{{uuid}}",
+            "{{br}}"
+        ];
+
+        var panel = new StackPanel { Spacing = 7 };
+        panel.Children.Add(DescriptionText("SnippetVariableSamples", fontSize: 12, wrapping: TextWrapping.Wrap));
+
+        foreach (var rowSamples in samples.Chunk(4))
+        {
+            var row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 6
+            };
+            foreach (var sample in rowSamples)
+            {
+                row.Children.Add(SnippetVariableButton(sample, target));
+            }
+
+            panel.Children.Add(row);
+        }
+
+        return panel;
+    }
+
+    private Button SnippetVariableButton(string token, TextBox target)
+    {
+        var button = new Button
+        {
+            Content = token,
+            MinHeight = 30,
+            Padding = new Thickness(10, 0, 10, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        AutomationProperties.SetName(button, token);
+        ToolTipService.SetToolTip(button, token);
+        button.Click += (_, _) => InsertSnippetVariable(target, token);
+        return button;
+    }
+
+    private static void InsertSnippetVariable(TextBox target, string token)
+    {
+        var text = target.Text ?? string.Empty;
+        var start = Math.Clamp(target.SelectionStart, 0, text.Length);
+        var length = Math.Clamp(target.SelectionLength, 0, text.Length - start);
+        target.Text = text.Remove(start, length).Insert(start, token);
+        target.Focus(FocusState.Programmatic);
+        target.SelectionStart = start + token.Length;
+        target.SelectionLength = 0;
     }
 
     private TextBox SnippetEditorTextBox(string text, string placeholder)
