@@ -2177,7 +2177,7 @@ public sealed class MainWindow : Window
         var grid = new Grid
         {
             ColumnSpacing = 16,
-            Padding = new Thickness(12, 9, 12, 9)
+            Padding = new Thickness(22, 9, 12, 9)
         };
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
