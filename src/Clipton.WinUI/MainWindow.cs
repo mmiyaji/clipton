@@ -2220,16 +2220,18 @@ public sealed class MainWindow : Window
 
     private UIElement HistoryListRow(HistoryItemViewModel item)
     {
+        if (item.IsImage)
+        {
+            return HistoryImageListRow(item);
+        }
+
         var grid = new Grid
         {
-            ColumnSpacing = 12,
+            ColumnSpacing = 16,
             Padding = new Thickness(22, 9, 12, 9)
         };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        grid.Children.Add(HistoryPreviewSlot(item));
 
         var texts = new StackPanel { Spacing = 3 };
         texts.Children.Add(new TextBlock
@@ -2244,8 +2246,43 @@ public sealed class MainWindow : Window
             Foreground = DescriptionBrush(),
             TextTrimming = TextTrimming.CharacterEllipsis
         });
-        Grid.SetColumn(texts, 1);
         grid.Children.Add(texts);
+
+        var capturedAt = new TextBlock
+        {
+            Text = item.CapturedAtText,
+            FontSize = 12,
+            Foreground = DescriptionBrush(),
+            VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Right
+        };
+        Grid.SetColumn(capturedAt, 1);
+        grid.Children.Add(capturedAt);
+        return grid;
+    }
+
+    private UIElement HistoryImageListRow(HistoryItemViewModel item)
+    {
+        var grid = new Grid
+        {
+            ColumnSpacing = 14,
+            Padding = new Thickness(22, 9, 12, 9)
+        };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        grid.Children.Add(HistoryPreviewSlot(item, 96, 56));
+
+        var label = new TextBlock
+        {
+            Text = _runtime.Translate("ImagePreview"),
+            Foreground = DescriptionBrush(),
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        Grid.SetColumn(label, 1);
+        grid.Children.Add(label);
 
         var capturedAt = new TextBlock
         {
@@ -2260,12 +2297,12 @@ public sealed class MainWindow : Window
         return grid;
     }
 
-    private UIElement HistoryPreviewSlot(HistoryItemViewModel item)
+    private UIElement HistoryPreviewSlot(HistoryItemViewModel item, double width, double height)
     {
         var border = new Border
         {
-            Width = 44,
-            Height = 44,
+            Width = width,
+            Height = height,
             CornerRadius = new CornerRadius(4),
             Background = Brush(IsDark ? "#202020" : "#F7F7F7"),
             VerticalAlignment = VerticalAlignment.Center
@@ -2597,6 +2634,7 @@ public sealed record HistoryItemViewModel(
     string Preview,
     string FormatSummary,
     DateTimeOffset CapturedAt,
+    bool IsImage = false,
     string? ThumbnailImagePath = null,
     string? PreviewImagePath = null)
 {

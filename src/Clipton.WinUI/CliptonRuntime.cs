@@ -1376,18 +1376,19 @@ public sealed class CliptonRuntime : IDisposable
         var plainText = ClipboardBridge.GetPlainText(snapshot);
         var thumbnailPath = SaveHistoryThumbnail(snapshot);
         var previewImagePath = SaveHistoryImagePreview(snapshot);
+        var isImage = snapshot.Formats.Contains(ClipboardFormatKind.Image);
         var snippet = Snippets.FindByText(plainText);
         if (snippet is not null)
         {
-            return new HistoryItemViewModel(snapshot.Id, snippet.DisplayName, $"{Translate("RegisteredSnippetMasked")} - {formats}", snapshot.CapturedAt, thumbnailPath, previewImagePath);
+            return new HistoryItemViewModel(snapshot.Id, snippet.DisplayName, $"{Translate("RegisteredSnippetMasked")} - {formats}", snapshot.CapturedAt, isImage, thumbnailPath, previewImagePath);
         }
 
         if (Settings.MaskSensitiveContent && CreateMaskedPreview(plainText) is { } maskedPreview)
         {
-            return new HistoryItemViewModel(snapshot.Id, NormalizePreviewText(maskedPreview), $"{Translate("MaskedSensitive")} - {formats}", snapshot.CapturedAt, thumbnailPath, previewImagePath);
+            return new HistoryItemViewModel(snapshot.Id, NormalizePreviewText(maskedPreview), $"{Translate("MaskedSensitive")} - {formats}", snapshot.CapturedAt, isImage, thumbnailPath, previewImagePath);
         }
 
-        return new HistoryItemViewModel(snapshot.Id, CreatePreviewText(snapshot, plainText), formats, snapshot.CapturedAt, thumbnailPath, previewImagePath);
+        return new HistoryItemViewModel(snapshot.Id, CreatePreviewText(snapshot, plainText), formats, snapshot.CapturedAt, isImage, thumbnailPath, previewImagePath);
     }
 
     private bool IsMaskedHistoryItem(ClipboardSnapshot snapshot)
