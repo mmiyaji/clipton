@@ -57,7 +57,7 @@ public sealed class MainWindow : Window
     private readonly TextBlock _titleText = Header(20);
     private readonly TextBlock _hotkeyText = Description();
     private readonly UIElement _brandHeader;
-    private readonly StackPanel _navigationPaneHeader = new() { Padding = new Thickness(8, 18, 8, 6), Spacing = 12 };
+    private readonly StackPanel _navigationPaneHeader = new() { Padding = new Thickness(8, 40, 8, 6), Spacing = 12 };
     private readonly Border _hotkeyPill;
     private readonly TextBlock _generalHeaderText = Header();
     private readonly TextBlock _generalDescriptionText = Description();
