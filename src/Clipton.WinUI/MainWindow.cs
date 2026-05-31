@@ -1487,9 +1487,7 @@ public sealed class MainWindow : Window
         {
             Text = text,
             PlaceholderText = placeholder,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            MinHeight = 36,
-            Padding = new Thickness(12, 6, 12, 6)
+            HorizontalAlignment = HorizontalAlignment.Stretch
         };
     }
 
