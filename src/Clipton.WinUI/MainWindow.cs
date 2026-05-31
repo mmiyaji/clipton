@@ -46,10 +46,10 @@ public sealed class MainWindow : Window
     private readonly StackPanel _historySettingsPage = SettingsPage();
     private readonly StackPanel _snippetPage = SettingsPage();
     private readonly StackPanel _aboutPage = SettingsPage();
-    private readonly StackPanel _historyListHost = new() { Spacing = 10 };
-    private readonly ListView _historyListView = new();
-    private readonly TextBlock _historyEmptyText = Description();
-    private readonly TreeView _snippetTree = new();
+    private StackPanel? _historyListHost;
+    private ListView? _historyListView;
+    private TextBlock? _historyEmptyText;
+    private TreeView? _snippetTree;
     private readonly Dictionary<TreeViewNode, SnippetItemViewModel> _snippetNodes = [];
     private readonly Dictionary<TreeViewNode, string> _snippetFolderNodes = [];
     private readonly List<Border> _cards = [];
@@ -120,7 +120,7 @@ public sealed class MainWindow : Window
     private readonly ToggleButton _historyUrlFilter = new();
     private readonly Button _loadMoreHistoryButton = new();
     private readonly TextBlock _historySearchStatusText = Description();
-    private readonly TextBlock _selectedSnippetText = Description();
+    private TextBlock? _selectedSnippetText;
     private readonly Button _newSnippetButton = new();
     private readonly Button _exportSnippetsButton = new();
     private readonly Button _importSnippetsButton = new();
@@ -173,8 +173,6 @@ public sealed class MainWindow : Window
             _snippetDescriptionText,
             _aboutDescriptionText,
             _historySearchStatusText,
-            _historyEmptyText,
-            _selectedSnippetText,
             _maskDefinitionsErrorText,
             _maskTestResultText);
         Title = "Clipton";
@@ -230,9 +228,23 @@ public sealed class MainWindow : Window
         }
     }
 
+    private StackPanel HistoryListHost => _historyListHost ??= new StackPanel { Spacing = 10 };
+
+    private ListView HistoryListView => _historyListView ??= new ListView();
+
+    private TextBlock HistoryEmptyText => _historyEmptyText ??= TrackDescriptionText(Description());
+
+    private TreeView SnippetTree => _snippetTree ??= new TreeView();
+
+    private TextBlock SelectedSnippetText => _selectedSnippetText ??= TrackDescriptionText(Description());
+
     private void RefreshHistoryItems()
     {
-        _historyListView.Items.Clear();
+        var historyListView = HistoryListView;
+        var historyEmptyText = HistoryEmptyText;
+        var loadMoreHistoryButton = _loadMoreHistoryButton;
+
+        historyListView.Items.Clear();
         var historyItems = _runtime.History.Items.Where(HistoryMatchesSearch).ToArray();
         var visibleHistoryItems = historyItems.Take(_historyVisibleLimit).ToArray();
         foreach (var snapshot in visibleHistoryItems)
@@ -252,30 +264,30 @@ public sealed class MainWindow : Window
             listItem.RightTapped += (_, _) =>
             {
                 _selectedHistoryId = item.Id;
-                _historyListView.SelectedItem = listItem;
+                historyListView.SelectedItem = listItem;
             };
-            _historyListView.Items.Add(listItem);
+            historyListView.Items.Add(listItem);
         }
 
-        _historyEmptyText.Text = string.IsNullOrWhiteSpace(_historySearchQuery) ? _runtime.Translate("HistoryEmpty") : _runtime.Translate("NoSearchResults");
-        _historyEmptyText.Visibility = visibleHistoryItems.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-        _loadMoreHistoryButton.Visibility = historyItems.Length > visibleHistoryItems.Length ? Visibility.Visible : Visibility.Collapsed;
+        historyEmptyText.Text = string.IsNullOrWhiteSpace(_historySearchQuery) ? _runtime.Translate("HistoryEmpty") : _runtime.Translate("NoSearchResults");
+        historyEmptyText.Visibility = visibleHistoryItems.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        loadMoreHistoryButton.Visibility = historyItems.Length > visibleHistoryItems.Length ? Visibility.Visible : Visibility.Collapsed;
         if (visibleHistoryItems.Length == 0)
         {
             _selectedHistoryId = null;
         }
         else if (historyItems.Length > visibleHistoryItems.Length)
         {
-            _loadMoreHistoryButton.Content = string.Format(_runtime.Translate("LoadMoreHistory"), historyItems.Length - visibleHistoryItems.Length);
+            loadMoreHistoryButton.Content = string.Format(_runtime.Translate("LoadMoreHistory"), historyItems.Length - visibleHistoryItems.Length);
         }
 
         if (_selectedHistoryId is not null)
         {
-            foreach (ListViewItem item in _historyListView.Items)
+            foreach (ListViewItem item in historyListView.Items)
             {
                 if (item.Tag is HistoryItemViewModel historyItem && string.Equals(historyItem.Id, _selectedHistoryId, StringComparison.Ordinal))
                 {
-                    _historyListView.SelectedItem = item;
+                    historyListView.SelectedItem = item;
                     break;
                 }
             }
@@ -316,7 +328,10 @@ public sealed class MainWindow : Window
         SetHistoryFilterToggle(_historyTypeFileFilter, t("FormatFileDrop"));
         SetHistoryFilterToggle(_historyPinnedFilter, t("PinnedHistory"));
         SetHistoryFilterToggle(_historyUrlFilter, t("SearchFilterUrl"));
-        _loadMoreHistoryButton.Content = string.Format(t("LoadMoreHistory"), 0);
+        if (_historyPageBuilt)
+        {
+            _loadMoreHistoryButton.Content = string.Format(t("LoadMoreHistory"), 0);
+        }
         SetCommandButton(_newSnippetButton, "\uE710", t("NewSnippet"));
         SetCommandButton(_exportSnippetsButton, "\uEDE1", t("Export"));
         SetCommandButton(_importSnippetsButton, "\uE896", t("Import"));
@@ -370,7 +385,10 @@ public sealed class MainWindow : Window
         SetComboSelection(_quickMenuPlainTextShortcutBox, _runtime.Settings.QuickMenuShortcuts.PastePlainText);
         SetComboSelection(_quickMenuMaskShortcutBox, _runtime.Settings.QuickMenuShortcuts.ToggleMaskReveal);
         SetComboSelection(_quickMenuCapturedAtShortcutBox, _runtime.Settings.QuickMenuShortcuts.ToggleCapturedAt);
-        UpdateSelectedSnippetText();
+        if (_snippetPageBuilt)
+        {
+            UpdateSelectedSnippetText();
+        }
         UpdateHistorySearchStatus();
         UpdateMaskTestPreview();
         _loading = false;
@@ -637,27 +655,30 @@ public sealed class MainWindow : Window
         _historyPage.Children.Add(PageHeader(_historyHeaderText, _historyDescriptionText));
         _historyPage.Children.Add(SectionHeader("HistorySection"));
         _historyPage.Children.Add(BuildHistorySearchPanel());
-        _historyListView.SelectionMode = ListViewSelectionMode.Single;
-        _historyListView.HorizontalAlignment = HorizontalAlignment.Stretch;
-        _historyListView.SelectionChanged += (_, _) =>
+        var historyListView = HistoryListView;
+        var historyEmptyText = HistoryEmptyText;
+        var historyListHost = HistoryListHost;
+        historyListView.SelectionMode = ListViewSelectionMode.Single;
+        historyListView.HorizontalAlignment = HorizontalAlignment.Stretch;
+        historyListView.SelectionChanged += (_, _) =>
         {
-            if (_historyListView.SelectedItem is ListViewItem { Tag: HistoryItemViewModel item })
+            if (historyListView.SelectedItem is ListViewItem { Tag: HistoryItemViewModel item })
             {
                 _selectedHistoryId = item.Id;
             }
         };
-        _historyListView.DoubleTapped += (_, _) =>
+        historyListView.DoubleTapped += (_, _) =>
         {
-            if (_historyListView.SelectedItem is ListViewItem { Tag: HistoryItemViewModel item })
+            if (historyListView.SelectedItem is ListViewItem { Tag: HistoryItemViewModel item })
             {
                 _runtime.PasteHistoryItem(item.Id, asPlainText: false);
             }
         };
-        _historyEmptyText.Margin = new Thickness(4, 6, 4, 6);
+        historyEmptyText.Margin = new Thickness(4, 6, 4, 6);
         _loadMoreHistoryButton.HorizontalAlignment = HorizontalAlignment.Left;
-        _historyListHost.Children.Add(_historyListView);
-        _historyListHost.Children.Add(_historyEmptyText);
-        _historyListHost.Children.Add(_loadMoreHistoryButton);
+        historyListHost.Children.Add(historyListView);
+        historyListHost.Children.Add(historyEmptyText);
+        historyListHost.Children.Add(_loadMoreHistoryButton);
 
         var actions = new Grid { ColumnSpacing = 12 };
         actions.ColumnDefinitions.Add(new ColumnDefinition());
@@ -678,7 +699,7 @@ public sealed class MainWindow : Window
         actions.Children.Add(dataActions);
         _historyPage.Children.Add(actions);
         _historyPage.Children.Add(_historySearchStatusText);
-        _historyPage.Children.Add(Card(_historyListHost, new Thickness(8, 8, 8, 10)));
+        _historyPage.Children.Add(Card(historyListHost, new Thickness(8, 8, 8, 10)));
     }
 
     private void BuildHistorySettingsPage()
@@ -1342,15 +1363,16 @@ public sealed class MainWindow : Window
         var grid = new Grid { ColumnSpacing = 16 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(320) });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
-        _snippetTree.SelectionMode = TreeViewSelectionMode.Single;
-        _snippetTree.MinHeight = 180;
-        _snippetTree.HorizontalAlignment = HorizontalAlignment.Stretch;
-        _snippetTree.ItemTemplate = (DataTemplate)XamlReader.Load("""
+        var snippetTree = SnippetTree;
+        snippetTree.SelectionMode = TreeViewSelectionMode.Single;
+        snippetTree.MinHeight = 180;
+        snippetTree.HorizontalAlignment = HorizontalAlignment.Stretch;
+        snippetTree.ItemTemplate = (DataTemplate)XamlReader.Load("""
             <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
                 <ContentPresenter Content="{Binding Content}" />
             </DataTemplate>
             """);
-        _snippetTree.ItemInvoked += (_, e) =>
+        snippetTree.ItemInvoked += (_, e) =>
         {
             if (_updatingSnippetTreeSelection)
             {
@@ -1362,23 +1384,23 @@ public sealed class MainWindow : Window
                 SelectSnippet(item);
             }
         };
-        _snippetTree.SelectionChanged += (_, _) =>
+        snippetTree.SelectionChanged += (_, _) =>
         {
             if (_updatingSnippetTreeSelection)
             {
                 return;
             }
 
-            if (_snippetTree.SelectedNode is { } node && _snippetNodes.TryGetValue(node, out var item))
+            if (snippetTree.SelectedNode is { } node && _snippetNodes.TryGetValue(node, out var item))
             {
                 SetSelectedSnippet(item);
             }
-            else if (_snippetTree.SelectedNode is { } folderNode && _snippetFolderNodes.TryGetValue(folderNode, out var folder))
+            else if (snippetTree.SelectedNode is { } folderNode && _snippetFolderNodes.TryGetValue(folderNode, out var folder))
             {
                 SetSelectedSnippetFolder(folder);
             }
         };
-        grid.Children.Add(Card(_snippetTree));
+        grid.Children.Add(Card(snippetTree));
 
         var details = new StackPanel { Spacing = 12 };
         var detailsHeader = new Grid { ColumnSpacing = 12 };
@@ -1391,7 +1413,7 @@ public sealed class MainWindow : Window
         Grid.SetColumn(snippetDataActions, 1);
         detailsHeader.Children.Add(snippetDataActions);
         details.Children.Add(detailsHeader);
-        details.Children.Add(_selectedSnippetText);
+        details.Children.Add(SelectedSnippetText);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         _newSnippetButton.Click += async (_, _) => await OpenSnippetEditorAsync(null, _selectedSnippetFolder, string.Empty, string.Empty);
         _saveSnippetButton.Click += async (_, _) =>
@@ -1903,7 +1925,7 @@ public sealed class MainWindow : Window
 
     private void UpdateSelectedSnippetText()
     {
-        _selectedSnippetText.Text = _selectedSnippet is null
+        SelectedSnippetText.Text = _selectedSnippet is null
             ? string.IsNullOrWhiteSpace(_selectedSnippetFolder)
                 ? _runtime.Translate("SnippetEditorEmpty")
                 : string.Format(_runtime.Translate("SnippetFolderSelected"), _selectedSnippetFolder)
@@ -1913,9 +1935,10 @@ public sealed class MainWindow : Window
     private void RefreshSnippetTree()
     {
         _updatingSnippetTreeSelection = true;
+        var snippetTree = SnippetTree;
         _snippetNodes.Clear();
         _snippetFolderNodes.Clear();
-        _snippetTree.RootNodes.Clear();
+        snippetTree.RootNodes.Clear();
 
         var folderNodesByPath = new Dictionary<string, TreeViewNode>(StringComparer.OrdinalIgnoreCase);
         foreach (var folder in CollectSnippetFolders())
@@ -1939,13 +1962,13 @@ public sealed class MainWindow : Window
             }
             else
             {
-                _snippetTree.RootNodes.Add(snippetNode);
+                snippetTree.RootNodes.Add(snippetNode);
             }
         }
 
-        if (_snippetTree.RootNodes.Count == 0)
+        if (snippetTree.RootNodes.Count == 0)
         {
-            _snippetTree.RootNodes.Add(new TreeViewNode
+            snippetTree.RootNodes.Add(new TreeViewNode
             {
                 Content = new TextBlock
                 {
@@ -1998,7 +2021,7 @@ public sealed class MainWindow : Window
         var parent = GetParentFolder(normalized);
         if (string.IsNullOrEmpty(parent))
         {
-            _snippetTree.RootNodes.Add(node);
+            SnippetTree.RootNodes.Add(node);
         }
         else
         {
@@ -2065,7 +2088,7 @@ public sealed class MainWindow : Window
         }
 
         _updatingSnippetTreeSelection = true;
-        _snippetTree.SelectedNode = node;
+        SnippetTree.SelectedNode = node;
         _updatingSnippetTreeSelection = false;
     }
 
@@ -2079,7 +2102,7 @@ public sealed class MainWindow : Window
         }
 
         _updatingSnippetTreeSelection = true;
-        _snippetTree.SelectedNode = node;
+        SnippetTree.SelectedNode = node;
         _updatingSnippetTreeSelection = false;
     }
 

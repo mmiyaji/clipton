@@ -128,6 +128,7 @@ public sealed class CliptonRuntime : IDisposable
 
     public void ShowMainWindow()
     {
+        App.EnsureXamlResourcesLoaded();
         if (_mainWindow is null)
         {
             _mainWindow = new MainWindow(this);
@@ -941,6 +942,7 @@ public sealed class CliptonRuntime : IDisposable
 
     private void ShowQuickMenu()
     {
+        App.EnsureXamlResourcesLoaded();
         if (_pasteTargetWindow == IntPtr.Zero)
         {
             _pasteTargetWindow = NativeMethods.GetForegroundWindow();
