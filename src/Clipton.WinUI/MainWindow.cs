@@ -87,19 +87,19 @@ public sealed class MainWindow : Window
     private readonly ToggleSwitch _quickMenuShowShortcutHintsToggle = CompactToggle();
     private readonly ToggleSwitch _startupToggle = CompactToggle();
     private readonly ToggleSwitch _hideSettingsWindowOnStartupToggle = CompactToggle();
-    private readonly ToggleSwitch _pauseCaptureToggle = CompactToggle();
-    private readonly ToggleSwitch _diagnosticLoggingToggle = CompactToggle();
-    private readonly ToggleSwitch _persistHistoryToggle = CompactToggle();
-    private readonly ToggleSwitch _maskSensitiveContentToggle = CompactToggle();
-    private readonly Button _maskDefinitionsButton = new();
-    private readonly StackPanel _maskDefinitionsPanel = new() { Spacing = 12 };
-    private readonly ComboBox _maskPrefixBox = new();
-    private readonly TextBox _maskPatternsBox = new();
-    private readonly TextBox _maskTestBox = new();
-    private readonly TextBlock _maskDefinitionsErrorText = Description();
-    private readonly TextBlock _maskTestResultText = Description();
-    private readonly ComboBox _maxHistoryItemsBox = new();
-    private readonly ComboBox _clipboardCaptureDelayBox = new();
+    private ToggleSwitch? _pauseCaptureToggle;
+    private ToggleSwitch? _diagnosticLoggingToggle;
+    private ToggleSwitch? _persistHistoryToggle;
+    private ToggleSwitch? _maskSensitiveContentToggle;
+    private Button? _maskDefinitionsButton;
+    private StackPanel? _maskDefinitionsPanel;
+    private ComboBox? _maskPrefixBox;
+    private TextBox? _maskPatternsBox;
+    private TextBox? _maskTestBox;
+    private TextBlock? _maskDefinitionsErrorText;
+    private TextBlock? _maskTestResultText;
+    private ComboBox? _maxHistoryItemsBox;
+    private ComboBox? _clipboardCaptureDelayBox;
     private readonly ToggleSwitch _folderModeToggle = CompactToggle();
     private readonly Button _registerFromHistoryButton = new();
     private readonly Button _exportHistoryButton = new();
@@ -130,8 +130,8 @@ public sealed class MainWindow : Window
     private readonly Button _termsButton = new();
     private readonly Button _privacyButton = new();
     private readonly Button _exitApplicationButton = new();
-    private readonly Button _openLogsButton = new();
-    private readonly Button _clearLogsButton = new();
+    private Button? _openLogsButton;
+    private Button? _clearLogsButton;
     private string? _selectedHistoryId;
     private SnippetItemViewModel? _selectedSnippet;
     private string _selectedSnippetFolder = string.Empty;
@@ -172,9 +172,7 @@ public sealed class MainWindow : Window
             _historySettingsDescriptionText,
             _snippetDescriptionText,
             _aboutDescriptionText,
-            _historySearchStatusText,
-            _maskDefinitionsErrorText,
-            _maskTestResultText);
+            _historySearchStatusText);
         Title = "Clipton";
         BuildUi();
         ApplyTheme();
@@ -237,6 +235,36 @@ public sealed class MainWindow : Window
     private TreeView SnippetTree => _snippetTree ??= new TreeView();
 
     private TextBlock SelectedSnippetText => _selectedSnippetText ??= TrackDescriptionText(Description());
+
+    private ToggleSwitch PauseCaptureToggle => _pauseCaptureToggle ??= CompactToggle();
+
+    private ToggleSwitch DiagnosticLoggingToggle => _diagnosticLoggingToggle ??= CompactToggle();
+
+    private ToggleSwitch PersistHistoryToggle => _persistHistoryToggle ??= CompactToggle();
+
+    private ToggleSwitch MaskSensitiveContentToggle => _maskSensitiveContentToggle ??= CompactToggle();
+
+    private Button MaskDefinitionsButton => _maskDefinitionsButton ??= new Button();
+
+    private StackPanel MaskDefinitionsPanel => _maskDefinitionsPanel ??= new StackPanel { Spacing = 12 };
+
+    private ComboBox MaskPrefixBox => _maskPrefixBox ??= new ComboBox();
+
+    private TextBox MaskPatternsBox => _maskPatternsBox ??= new TextBox();
+
+    private TextBox MaskTestBox => _maskTestBox ??= new TextBox();
+
+    private TextBlock MaskDefinitionsErrorText => _maskDefinitionsErrorText ??= TrackDescriptionText(Description());
+
+    private TextBlock MaskTestResultText => _maskTestResultText ??= TrackDescriptionText(Description());
+
+    private ComboBox MaxHistoryItemsBox => _maxHistoryItemsBox ??= new ComboBox();
+
+    private ComboBox ClipboardCaptureDelayBox => _clipboardCaptureDelayBox ??= new ComboBox();
+
+    private Button OpenLogsButton => _openLogsButton ??= new Button();
+
+    private Button ClearLogsButton => _clearLogsButton ??= new Button();
 
     private void RefreshHistoryItems()
     {
@@ -317,7 +345,12 @@ public sealed class MainWindow : Window
         SetCommandButton(_exportHistoryButton, "\uEDE1", t("Export"));
         SetCommandButton(_importHistoryButton, "\uE896", t("Import"));
         SetCommandButton(_clearButton, "\uE74D", t("ClearHistory"));
-        SetCommandButton(_maskDefinitionsButton, "\uE713", t("MaskDefinitions"));
+        if (_historySettingsPageBuilt)
+        {
+            SetCommandButton(MaskDefinitionsButton, "\uE713", t("MaskDefinitions"));
+            SetCommandButton(OpenLogsButton, "\uE838", t("OpenLogs"));
+            SetCommandButton(ClearLogsButton, "\uE74D", t("ClearLogs"));
+        }
         _historySearchBox.PlaceholderText = t("SearchPlaceholder");
         SetIconButton(_advancedHistorySearchButton, "\uE71C", t("AdvancedSearch"));
         SetCommandButton(_clearHistorySearchButton, "\uE711", t("ClearSearch"));
@@ -341,8 +374,6 @@ public sealed class MainWindow : Window
         _termsButton.Content = t("TermsOfUse");
         _privacyButton.Content = t("PrivacyPolicy");
         SetCommandButton(_exitApplicationButton, "\uE8BB", t("ExitApplication"));
-        SetCommandButton(_openLogsButton, "\uE838", t("OpenLogs"));
-        SetCommandButton(_clearLogsButton, "\uE74D", t("ClearLogs"));
         _captureHotkeyButton.Content = t("CaptureHotkey");
         _resetHotkeyButton.Content = t("ResetHotkey");
         SetComboBoxText(_themeBox, "system", t("ThemeSystem"));
@@ -355,22 +386,25 @@ public sealed class MainWindow : Window
         SetComboBoxText(_quickMenuImagePreviewSizeBox, "small", t("ImagePreviewSizeSmall"));
         SetComboBoxText(_quickMenuImagePreviewSizeBox, "medium", t("ImagePreviewSizeMedium"));
         SetComboBoxText(_quickMenuImagePreviewSizeBox, "large", t("ImagePreviewSizeLarge"));
-        SetComboBoxText(_clipboardCaptureDelayBox, "0", t("ClipboardCaptureDelayImmediate"));
-        SetComboBoxText(_clipboardCaptureDelayBox, "50", string.Format(t("Milliseconds"), 50));
-        SetComboBoxText(_clipboardCaptureDelayBox, "100", string.Format(t("Milliseconds"), 100));
-        SetComboBoxText(_clipboardCaptureDelayBox, "150", string.Format(t("Milliseconds"), 150));
-        SetComboBoxText(_clipboardCaptureDelayBox, "250", string.Format(t("Milliseconds"), 250));
-        SetComboBoxText(_clipboardCaptureDelayBox, "500", string.Format(t("Milliseconds"), 500));
-        SetComboBoxText(_clipboardCaptureDelayBox, "1000", string.Format(t("Milliseconds"), 1000));
         _startupToggle.IsOn = _runtime.Settings.StartWithWindows;
         _hideSettingsWindowOnStartupToggle.IsOn = _runtime.Settings.HideSettingsWindowOnStartup;
-        _pauseCaptureToggle.IsOn = _runtime.Settings.PauseCapture;
-        _diagnosticLoggingToggle.IsOn = _runtime.Settings.DiagnosticLoggingEnabled;
-        _persistHistoryToggle.IsOn = _runtime.Settings.PersistEncryptedHistory;
-        _maskSensitiveContentToggle.IsOn = _runtime.Settings.MaskSensitiveContent;
-        EnsureHistoryLimitComboItem(_runtime.Settings.MaxHistoryItems);
-        SetComboSelection(_maxHistoryItemsBox, _runtime.Settings.MaxHistoryItems.ToString());
-        SetComboSelection(_clipboardCaptureDelayBox, _runtime.Settings.ClipboardCaptureDelayMilliseconds.ToString());
+        if (_historySettingsPageBuilt)
+        {
+            SetComboBoxText(ClipboardCaptureDelayBox, "0", t("ClipboardCaptureDelayImmediate"));
+            SetComboBoxText(ClipboardCaptureDelayBox, "50", string.Format(t("Milliseconds"), 50));
+            SetComboBoxText(ClipboardCaptureDelayBox, "100", string.Format(t("Milliseconds"), 100));
+            SetComboBoxText(ClipboardCaptureDelayBox, "150", string.Format(t("Milliseconds"), 150));
+            SetComboBoxText(ClipboardCaptureDelayBox, "250", string.Format(t("Milliseconds"), 250));
+            SetComboBoxText(ClipboardCaptureDelayBox, "500", string.Format(t("Milliseconds"), 500));
+            SetComboBoxText(ClipboardCaptureDelayBox, "1000", string.Format(t("Milliseconds"), 1000));
+            PauseCaptureToggle.IsOn = _runtime.Settings.PauseCapture;
+            DiagnosticLoggingToggle.IsOn = _runtime.Settings.DiagnosticLoggingEnabled;
+            PersistHistoryToggle.IsOn = _runtime.Settings.PersistEncryptedHistory;
+            MaskSensitiveContentToggle.IsOn = _runtime.Settings.MaskSensitiveContent;
+            EnsureHistoryLimitComboItem(_runtime.Settings.MaxHistoryItems);
+            SetComboSelection(MaxHistoryItemsBox, _runtime.Settings.MaxHistoryItems.ToString());
+            SetComboSelection(ClipboardCaptureDelayBox, _runtime.Settings.ClipboardCaptureDelayMilliseconds.ToString());
+        }
         _folderModeToggle.IsOn = _runtime.Settings.FolderMode;
         _quickMenuShowCapturedAtToggle.IsOn = _runtime.Settings.QuickMenuShowCapturedAt;
         _quickMenuShowShortcutHintsToggle.IsOn = _runtime.Settings.QuickMenuShowShortcutHints;
@@ -390,7 +424,10 @@ public sealed class MainWindow : Window
             UpdateSelectedSnippetText();
         }
         UpdateHistorySearchStatus();
-        UpdateMaskTestPreview();
+        if (_historySettingsPageBuilt)
+        {
+            UpdateMaskTestPreview();
+        }
         _loading = false;
     }
 
@@ -712,41 +749,41 @@ public sealed class MainWindow : Window
         _historySettingsPageBuilt = true;
         _historySettingsPage.Children.Add(PageHeader(_historySettingsHeaderText, _historySettingsDescriptionText));
         _historySettingsPage.Children.Add(SectionHeader("CapturePrivacySection"));
-        foreach (var toggle in new[] { _pauseCaptureToggle, _persistHistoryToggle, _maskSensitiveContentToggle })
+        foreach (var toggle in new[] { PauseCaptureToggle, PersistHistoryToggle, MaskSensitiveContentToggle })
         {
             toggle.Toggled += (_, _) => SaveHistoryOptions();
         }
 
-        _historySettingsPage.Children.Add(SettingCard("\uE769", "PauseCapture", "PauseCaptureDescription", _pauseCaptureToggle));
-        _diagnosticLoggingToggle.Toggled += (_, _) => SaveDiagnosticLogging();
+        _historySettingsPage.Children.Add(SettingCard("\uE769", "PauseCapture", "PauseCaptureDescription", PauseCaptureToggle));
+        DiagnosticLoggingToggle.Toggled += (_, _) => SaveDiagnosticLogging();
         var diagnosticControls = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
-        _openLogsButton.Click += (_, _) => _runtime.OpenDiagnosticLogDirectory();
-        _clearLogsButton.Click += (_, _) => _runtime.ClearDiagnosticLogs();
-        diagnosticControls.Children.Add(_openLogsButton);
-        diagnosticControls.Children.Add(_clearLogsButton);
-        diagnosticControls.Children.Add(ToggleActionHost(_diagnosticLoggingToggle));
+        OpenLogsButton.Click += (_, _) => _runtime.OpenDiagnosticLogDirectory();
+        ClearLogsButton.Click += (_, _) => _runtime.ClearDiagnosticLogs();
+        diagnosticControls.Children.Add(OpenLogsButton);
+        diagnosticControls.Children.Add(ClearLogsButton);
+        diagnosticControls.Children.Add(ToggleActionHost(DiagnosticLoggingToggle));
         _historySettingsPage.Children.Add(SettingCard("\uE946", "DiagnosticLogging", "DiagnosticLoggingDescription", diagnosticControls));
-        _historySettingsPage.Children.Add(SettingCard("\uE72E", "PersistHistory", "PersistHistoryDescription", _persistHistoryToggle));
-        _maxHistoryItemsBox.Width = 180;
+        _historySettingsPage.Children.Add(SettingCard("\uE72E", "PersistHistory", "PersistHistoryDescription", PersistHistoryToggle));
+        MaxHistoryItemsBox.Width = 180;
         foreach (var count in new[] { 50, 100, 200, 500, 1000 })
         {
-            _maxHistoryItemsBox.Items.Add(new ComboBoxItem { Tag = count.ToString(), Content = count.ToString() });
+            MaxHistoryItemsBox.Items.Add(new ComboBoxItem { Tag = count.ToString(), Content = count.ToString() });
         }
 
-        _maxHistoryItemsBox.SelectionChanged += (_, _) => ChangeMaxHistoryItems();
-        _historySettingsPage.Children.Add(SettingCard("\uE81C", "MaxHistoryItems", "MaxHistoryItemsDescription", _maxHistoryItemsBox));
-        _clipboardCaptureDelayBox.Width = 180;
+        MaxHistoryItemsBox.SelectionChanged += (_, _) => ChangeMaxHistoryItems();
+        _historySettingsPage.Children.Add(SettingCard("\uE81C", "MaxHistoryItems", "MaxHistoryItemsDescription", MaxHistoryItemsBox));
+        ClipboardCaptureDelayBox.Width = 180;
         foreach (var delay in new[] { 0, 50, 100, 150, 250, 500, 1000 })
         {
-            _clipboardCaptureDelayBox.Items.Add(new ComboBoxItem { Tag = delay.ToString() });
+            ClipboardCaptureDelayBox.Items.Add(new ComboBoxItem { Tag = delay.ToString() });
         }
 
-        _clipboardCaptureDelayBox.SelectionChanged += (_, _) => ChangeClipboardCaptureDelay();
-        _historySettingsPage.Children.Add(SettingCard("\uE916", "ClipboardCaptureDelay", "ClipboardCaptureDelayDescription", _clipboardCaptureDelayBox));
+        ClipboardCaptureDelayBox.SelectionChanged += (_, _) => ChangeClipboardCaptureDelay();
+        _historySettingsPage.Children.Add(SettingCard("\uE916", "ClipboardCaptureDelay", "ClipboardCaptureDelayDescription", ClipboardCaptureDelayBox));
         var maskControls = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
-        maskControls.Children.Add(_maskDefinitionsButton);
-        maskControls.Children.Add(ToggleActionHost(_maskSensitiveContentToggle));
-        _maskDefinitionsButton.Click += (_, _) => ToggleMaskDefinitionsPanel();
+        maskControls.Children.Add(MaskDefinitionsButton);
+        maskControls.Children.Add(ToggleActionHost(MaskSensitiveContentToggle));
+        MaskDefinitionsButton.Click += (_, _) => ToggleMaskDefinitionsPanel();
         _historySettingsPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", maskControls));
         _historySettingsPage.Children.Add(BuildMaskDefinitionsPanel());
     }
@@ -854,16 +891,16 @@ public sealed class MainWindow : Window
 
     private UIElement BuildMaskDefinitionsPanel()
     {
-        _maskPrefixBox.Width = 150;
-        _maskPrefixBox.Height = SettingControlHeight;
-        _maskPrefixBox.VerticalAlignment = VerticalAlignment.Center;
-        _maskPrefixBox.Items.Clear();
+        MaskPrefixBox.Width = 150;
+        MaskPrefixBox.Height = SettingControlHeight;
+        MaskPrefixBox.VerticalAlignment = VerticalAlignment.Center;
+        MaskPrefixBox.Items.Clear();
         for (var i = 0; i <= 12; i++)
         {
-            _maskPrefixBox.Items.Add(new ComboBoxItem { Content = i.ToString(), Tag = i.ToString() });
+            MaskPrefixBox.Items.Add(new ComboBoxItem { Content = i.ToString(), Tag = i.ToString() });
         }
-        SetComboSelection(_maskPrefixBox, Math.Clamp(_runtime.Settings.MaskVisiblePrefixLength, 0, 12).ToString());
-        _maskPrefixBox.SelectionChanged += (_, _) => UpdateMaskTestPreview();
+        SetComboSelection(MaskPrefixBox, Math.Clamp(_runtime.Settings.MaskVisiblePrefixLength, 0, 12).ToString());
+        MaskPrefixBox.SelectionChanged += (_, _) => UpdateMaskTestPreview();
 
         var prefixRow = new Grid { ColumnSpacing = 16 };
         prefixRow.ColumnDefinitions.Add(new ColumnDefinition());
@@ -872,29 +909,29 @@ public sealed class MainWindow : Window
         prefixTexts.Children.Add(LocalizedText("MaskVisiblePrefixLength", fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
         prefixTexts.Children.Add(DescriptionText("MaskSensitiveContentDescription", fontSize: 12, wrapping: TextWrapping.Wrap));
         prefixRow.Children.Add(prefixTexts);
-        Grid.SetColumn(_maskPrefixBox, 1);
-        prefixRow.Children.Add(_maskPrefixBox);
+        Grid.SetColumn(MaskPrefixBox, 1);
+        prefixRow.Children.Add(MaskPrefixBox);
 
-        _maskPatternsBox.MinHeight = 120;
-        _maskPatternsBox.HorizontalAlignment = HorizontalAlignment.Stretch;
-        _maskPatternsBox.AcceptsReturn = true;
-        _maskPatternsBox.TextWrapping = TextWrapping.NoWrap;
-        _maskPatternsBox.Text = string.Join(Environment.NewLine, _runtime.Settings.CustomMaskPatterns);
-        _maskPatternsBox.PlaceholderText = _runtime.Translate("MaskPatternDefinitions");
-        _maskPatternsBox.Padding = new Thickness(12, 8, 12, 8);
-        _maskPatternsBox.TextChanged += (_, _) => UpdateMaskTestPreview();
+        MaskPatternsBox.MinHeight = 120;
+        MaskPatternsBox.HorizontalAlignment = HorizontalAlignment.Stretch;
+        MaskPatternsBox.AcceptsReturn = true;
+        MaskPatternsBox.TextWrapping = TextWrapping.NoWrap;
+        MaskPatternsBox.Text = string.Join(Environment.NewLine, _runtime.Settings.CustomMaskPatterns);
+        MaskPatternsBox.PlaceholderText = _runtime.Translate("MaskPatternDefinitions");
+        MaskPatternsBox.Padding = new Thickness(12, 8, 12, 8);
+        MaskPatternsBox.TextChanged += (_, _) => UpdateMaskTestPreview();
 
-        _maskTestBox.MinHeight = 64;
-        _maskTestBox.HorizontalAlignment = HorizontalAlignment.Stretch;
-        _maskTestBox.AcceptsReturn = true;
-        _maskTestBox.TextWrapping = TextWrapping.Wrap;
-        _maskTestBox.PlaceholderText = _runtime.Translate("MaskTestText");
-        _maskTestBox.Padding = new Thickness(12, 8, 12, 8);
-        _maskTestBox.TextChanged += (_, _) => UpdateMaskTestPreview();
-        _maskTestResultText.Text = _runtime.Translate("MaskTestEmpty");
-        _maskTestResultText.Margin = new Thickness(2, 0, 0, 0);
+        MaskTestBox.MinHeight = 64;
+        MaskTestBox.HorizontalAlignment = HorizontalAlignment.Stretch;
+        MaskTestBox.AcceptsReturn = true;
+        MaskTestBox.TextWrapping = TextWrapping.Wrap;
+        MaskTestBox.PlaceholderText = _runtime.Translate("MaskTestText");
+        MaskTestBox.Padding = new Thickness(12, 8, 12, 8);
+        MaskTestBox.TextChanged += (_, _) => UpdateMaskTestPreview();
+        MaskTestResultText.Text = _runtime.Translate("MaskTestEmpty");
+        MaskTestResultText.Margin = new Thickness(2, 0, 0, 0);
 
-        _maskDefinitionsErrorText.Visibility = Visibility.Collapsed;
+        MaskDefinitionsErrorText.Visibility = Visibility.Collapsed;
         var saveButton = new Button
         {
             Content = _runtime.Translate("Save"),
@@ -906,17 +943,17 @@ public sealed class MainWindow : Window
         AutomationProperties.SetName(saveButton, _runtime.Translate("Save"));
         saveButton.Click += (_, _) => SaveMaskDefinitions();
 
-        _maskDefinitionsPanel.Children.Add(prefixRow);
-        _maskDefinitionsPanel.Children.Add(LocalizedText("MaskPatternDefinitions", fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
-        _maskDefinitionsPanel.Children.Add(DescriptionText("MaskDefinitionsDescription", fontSize: 12, wrapping: TextWrapping.Wrap));
-        _maskDefinitionsPanel.Children.Add(_maskPatternsBox);
-        _maskDefinitionsPanel.Children.Add(LocalizedText("MaskTestText", fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
-        _maskDefinitionsPanel.Children.Add(DescriptionText("MaskTestDescription", fontSize: 12, wrapping: TextWrapping.Wrap));
-        _maskDefinitionsPanel.Children.Add(_maskTestBox);
-        _maskDefinitionsPanel.Children.Add(_maskTestResultText);
-        _maskDefinitionsPanel.Children.Add(_maskDefinitionsErrorText);
-        _maskDefinitionsPanel.Children.Add(saveButton);
-        _maskDefinitionsCard = Card(_maskDefinitionsPanel);
+        MaskDefinitionsPanel.Children.Add(prefixRow);
+        MaskDefinitionsPanel.Children.Add(LocalizedText("MaskPatternDefinitions", fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
+        MaskDefinitionsPanel.Children.Add(DescriptionText("MaskDefinitionsDescription", fontSize: 12, wrapping: TextWrapping.Wrap));
+        MaskDefinitionsPanel.Children.Add(MaskPatternsBox);
+        MaskDefinitionsPanel.Children.Add(LocalizedText("MaskTestText", fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
+        MaskDefinitionsPanel.Children.Add(DescriptionText("MaskTestDescription", fontSize: 12, wrapping: TextWrapping.Wrap));
+        MaskDefinitionsPanel.Children.Add(MaskTestBox);
+        MaskDefinitionsPanel.Children.Add(MaskTestResultText);
+        MaskDefinitionsPanel.Children.Add(MaskDefinitionsErrorText);
+        MaskDefinitionsPanel.Children.Add(saveButton);
+        _maskDefinitionsCard = Card(MaskDefinitionsPanel);
         _maskDefinitionsCard.Visibility = Visibility.Collapsed;
         return _maskDefinitionsCard;
     }
@@ -944,7 +981,7 @@ public sealed class MainWindow : Window
                 return;
             }
 
-            FrameworkElement target = _maskPatternsBox.ActualHeight > 0 ? _maskPatternsBox : _maskDefinitionsCard;
+            FrameworkElement target = MaskPatternsBox.ActualHeight > 0 ? MaskPatternsBox : _maskDefinitionsCard;
             var point = target.TransformToVisual(_contentScroller).TransformPoint(new Windows.Foundation.Point(0, 0));
             var targetOffset = Math.Max(0, _contentScroller.VerticalOffset + point.Y - 28);
             _contentScroller.ChangeView(null, targetOffset, null, true);
@@ -953,7 +990,7 @@ public sealed class MainWindow : Window
         await Task.Delay(180);
         DispatcherQueue.TryEnqueue(() =>
         {
-            _maskPatternsBox.Focus(FocusState.Programmatic);
+            MaskPatternsBox.Focus(FocusState.Programmatic);
         });
     }
 
@@ -963,42 +1000,42 @@ public sealed class MainWindow : Window
         var invalidPatterns = SensitiveContentDetector.GetInvalidCustomPatterns(patterns);
         if (invalidPatterns.Length > 0)
         {
-            _maskDefinitionsErrorText.Text = string.Format(_runtime.Translate("MaskDefinitionInvalid"), invalidPatterns[0]);
-            _maskDefinitionsErrorText.Visibility = Visibility.Visible;
+            MaskDefinitionsErrorText.Text = string.Format(_runtime.Translate("MaskDefinitionInvalid"), invalidPatterns[0]);
+            MaskDefinitionsErrorText.Visibility = Visibility.Visible;
             return;
         }
 
-        _maskDefinitionsErrorText.Visibility = Visibility.Collapsed;
+        MaskDefinitionsErrorText.Visibility = Visibility.Collapsed;
         _runtime.SetMaskDefinitionOptions(GetSelectedMaskPrefixLength(), patterns);
         RefreshItems();
     }
 
     private string[] GetCurrentMaskPatterns()
     {
-        return _maskPatternsBox.Text
+        return MaskPatternsBox.Text
             .ReplaceLineEndings("\n")
             .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
     }
 
     private int GetSelectedMaskPrefixLength()
     {
-        return _maskPrefixBox.SelectedItem is ComboBoxItem { Tag: string tag } && int.TryParse(tag, out var parsed)
+        return MaskPrefixBox.SelectedItem is ComboBoxItem { Tag: string tag } && int.TryParse(tag, out var parsed)
             ? Math.Clamp(parsed, 0, 12)
             : 0;
     }
 
     private void UpdateMaskTestPreview()
     {
-        if (_maskTestResultText is null)
+        if (MaskTestResultText is null)
         {
             return;
         }
 
-        var testText = _maskTestBox.Text;
+        var testText = MaskTestBox.Text;
         if (string.IsNullOrWhiteSpace(testText))
         {
-            _maskTestResultText.Text = _runtime.Translate("MaskTestEmpty");
-            _maskTestResultText.Foreground = DescriptionBrush();
+            MaskTestResultText.Text = _runtime.Translate("MaskTestEmpty");
+            MaskTestResultText.Foreground = DescriptionBrush();
             return;
         }
 
@@ -1006,8 +1043,8 @@ public sealed class MainWindow : Window
         var invalidPatterns = SensitiveContentDetector.GetInvalidCustomPatterns(patterns);
         if (invalidPatterns.Length > 0)
         {
-            _maskTestResultText.Text = string.Format(_runtime.Translate("MaskDefinitionInvalid"), invalidPatterns[0]);
-            _maskTestResultText.Foreground = Brush(IsDark ? "#FFB4AB" : "#B42318");
+            MaskTestResultText.Text = string.Format(_runtime.Translate("MaskDefinitionInvalid"), invalidPatterns[0]);
+            MaskTestResultText.Foreground = Brush(IsDark ? "#FFB4AB" : "#B42318");
             return;
         }
 
@@ -1017,13 +1054,13 @@ public sealed class MainWindow : Window
             var result = count > 0
                 ? string.Format(_runtime.Translate("MaskTestResult"), count, preview)
                 : _runtime.Translate("MaskTestNoMatch");
-            _maskTestResultText.Text = result;
-            _maskTestResultText.Foreground = DescriptionBrush();
+            MaskTestResultText.Text = result;
+            MaskTestResultText.Foreground = DescriptionBrush();
         }
         catch (RegexMatchTimeoutException)
         {
-            _maskTestResultText.Text = _runtime.Translate("MaskTestTimeout");
-            _maskTestResultText.Foreground = Brush(IsDark ? "#FFD86B" : "#9A6700");
+            MaskTestResultText.Text = _runtime.Translate("MaskTestTimeout");
+            MaskTestResultText.Foreground = Brush(IsDark ? "#FFD86B" : "#9A6700");
         }
     }
 
@@ -1544,9 +1581,9 @@ public sealed class MainWindow : Window
     private void SaveHistoryOptions()
     {
         if (_loading) return;
-        _runtime.SetPauseCapture(_pauseCaptureToggle.IsOn);
-        _runtime.SetPersistEncryptedHistory(_persistHistoryToggle.IsOn);
-        _runtime.SetMaskSensitiveContent(_maskSensitiveContentToggle.IsOn);
+        _runtime.SetPauseCapture(PauseCaptureToggle.IsOn);
+        _runtime.SetPersistEncryptedHistory(PersistHistoryToggle.IsOn);
+        _runtime.SetMaskSensitiveContent(MaskSensitiveContentToggle.IsOn);
         _runtime.SetFolderMode(_folderModeToggle.IsOn);
         RefreshItems();
     }
@@ -1554,7 +1591,7 @@ public sealed class MainWindow : Window
     private void SaveDiagnosticLogging()
     {
         if (_loading) return;
-        _runtime.SetDiagnosticLogging(_diagnosticLoggingToggle.IsOn);
+        _runtime.SetDiagnosticLogging(DiagnosticLoggingToggle.IsOn);
     }
 
     private async Task ConfirmAndClearHistoryAsync()
@@ -1574,7 +1611,7 @@ public sealed class MainWindow : Window
 
     private void ChangeMaxHistoryItems()
     {
-        if (_loading || _maxHistoryItemsBox.SelectedItem is not ComboBoxItem selected || selected.Tag is not string tag)
+        if (_loading || MaxHistoryItemsBox.SelectedItem is not ComboBoxItem selected || selected.Tag is not string tag)
         {
             return;
         }
@@ -1590,7 +1627,7 @@ public sealed class MainWindow : Window
 
     private void ChangeClipboardCaptureDelay()
     {
-        if (_loading || _clipboardCaptureDelayBox.SelectedItem is not ComboBoxItem selected || selected.Tag is not string tag)
+        if (_loading || ClipboardCaptureDelayBox.SelectedItem is not ComboBoxItem selected || selected.Tag is not string tag)
         {
             return;
         }
@@ -3256,7 +3293,7 @@ public sealed class MainWindow : Window
     private void EnsureHistoryLimitComboItem(int count)
     {
         var tag = count.ToString();
-        foreach (ComboBoxItem item in _maxHistoryItemsBox.Items)
+        foreach (ComboBoxItem item in MaxHistoryItemsBox.Items)
         {
             if (Equals(item.Tag, tag))
             {
@@ -3265,7 +3302,7 @@ public sealed class MainWindow : Window
             }
         }
 
-        _maxHistoryItemsBox.Items.Add(new ComboBoxItem { Content = tag, Tag = tag });
+        MaxHistoryItemsBox.Items.Add(new ComboBoxItem { Content = tag, Tag = tag });
     }
 
     private static string CreateSnippetName(string text)
