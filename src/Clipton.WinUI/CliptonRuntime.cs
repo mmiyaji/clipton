@@ -970,48 +970,24 @@ public sealed class CliptonRuntime : IDisposable
 
         var menuItems = new List<QuickMenuItem>();
         var pinnedIds = Settings.PinnedHistoryIds.ToHashSet(StringComparer.Ordinal);
-        var pinnedItems = new List<ClipboardSnapshot>();
-        foreach (var id in Settings.PinnedHistoryIds)
+        var historyItems = History.Items.Where(item => !pinnedIds.Contains(item.Id)).ToArray();
+        var pinnedItems = Settings.PinnedHistoryIds
+            .Select(History.Find)
+            .OfType<ClipboardSnapshot>()
+            .ToArray();
+        var directHistoryItems = Settings.FolderMode ? historyItems.Take(3) : historyItems.Take(20);
+        foreach (var item in directHistoryItems)
         {
-            if (History.Find(id) is { } pinnedItem)
-            {
-                pinnedItems.Add(pinnedItem);
-            }
+            menuItems.Add(CreateHistoryMenuItem(item));
         }
 
-        var historyIndex = 0;
-        List<ClipboardSnapshot>? olderItems = null;
-        foreach (var item in History.Items)
+        if (Settings.FolderMode && historyItems.Length > 3)
         {
-            if (pinnedIds.Contains(item.Id))
-            {
-                continue;
-            }
-
-            var directLimit = Settings.FolderMode ? 3 : 20;
-            if (historyIndex < directLimit)
-            {
-                menuItems.Add(CreateHistoryMenuItem(item));
-            }
-            else if (Settings.FolderMode)
-            {
-                olderItems ??= new List<ClipboardSnapshot>();
-                olderItems.Add(item);
-            }
-            else
-            {
-                break;
-            }
-
-            historyIndex++;
-        }
-
-        if (Settings.FolderMode && olderItems is { Count: > 0 })
-        {
-            for (var start = 0; start < olderItems.Count; start += 50)
+            var olderItems = historyItems.Skip(3).ToArray();
+            for (var start = 0; start < olderItems.Length; start += 50)
             {
                 var rangeStart = start + 1;
-                var rangeCount = Math.Min(50, olderItems.Count - start);
+                var rangeCount = Math.Min(50, olderItems.Length - start);
                 var rangeEnd = start + rangeCount;
                 var rangeOffset = start;
                 menuItems.Add(new QuickMenuItem(
@@ -1024,11 +1000,11 @@ public sealed class CliptonRuntime : IDisposable
             }
         }
 
-        if (pinnedItems.Count > 0)
+        if (pinnedItems.Length > 0)
         {
             menuItems.Add(new QuickMenuItem(
                 Translate("PinnedHistory"),
-                $"{pinnedItems.Count} items",
+                $"{pinnedItems.Length} items",
                 ">",
                 "Enter",
                 () => { },
