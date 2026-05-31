@@ -83,6 +83,8 @@ public sealed class MainWindow : Window
     private readonly ComboBox _quickMenuPlainTextShortcutBox = new();
     private readonly ComboBox _quickMenuMaskShortcutBox = new();
     private readonly ComboBox _quickMenuCapturedAtShortcutBox = new();
+    private readonly ToggleSwitch _quickMenuShowCapturedAtToggle = CompactToggle();
+    private readonly ToggleSwitch _quickMenuShowShortcutHintsToggle = CompactToggle();
     private readonly ToggleSwitch _startupToggle = CompactToggle();
     private readonly ToggleSwitch _hideSettingsWindowOnStartupToggle = CompactToggle();
     private readonly ToggleSwitch _pauseCaptureToggle = CompactToggle();
@@ -125,6 +127,7 @@ public sealed class MainWindow : Window
     private readonly Button _deleteSnippetButton = new();
     private readonly Button _termsButton = new();
     private readonly Button _privacyButton = new();
+    private readonly Button _exitApplicationButton = new();
     private string? _selectedHistoryId;
     private SnippetItemViewModel? _selectedSnippet;
     private string _selectedSnippetFolder = string.Empty;
@@ -182,6 +185,12 @@ public sealed class MainWindow : Window
         }
 
         Activate();
+    }
+
+    public void ShowHistoryPage()
+    {
+        SelectPage(1);
+        ShowSettingsWindow();
     }
 
     public void RefreshItems()
@@ -280,6 +289,7 @@ public sealed class MainWindow : Window
         SetCommandButton(_deleteSnippetButton, "\uE74D", t("Delete"));
         _termsButton.Content = t("TermsOfUse");
         _privacyButton.Content = t("PrivacyPolicy");
+        SetCommandButton(_exitApplicationButton, "\uE8BB", t("ExitApplication"));
         _captureHotkeyButton.Content = t("CaptureHotkey");
         _resetHotkeyButton.Content = t("ResetHotkey");
         SetComboBoxText(_themeBox, "system", t("ThemeSystem"));
@@ -300,6 +310,8 @@ public sealed class MainWindow : Window
         EnsureHistoryLimitComboItem(_runtime.Settings.MaxHistoryItems);
         SetComboSelection(_maxHistoryItemsBox, _runtime.Settings.MaxHistoryItems.ToString());
         _folderModeToggle.IsOn = _runtime.Settings.FolderMode;
+        _quickMenuShowCapturedAtToggle.IsOn = _runtime.Settings.QuickMenuShowCapturedAt;
+        _quickMenuShowShortcutHintsToggle.IsOn = _runtime.Settings.QuickMenuShowShortcutHints;
         RefreshToggleStateLabels();
         RefreshLocalizedTextBlocks();
         EnsureHotkeyComboItem(_runtime.Settings.Hotkey);
@@ -460,6 +472,10 @@ public sealed class MainWindow : Window
         _quickMenuImagePreviewSizeBox.Width = 180;
         _quickMenuImagePreviewSizeBox.SelectionChanged += (_, _) => ChangeQuickMenuImagePreviewSize();
         _generalPage.Children.Add(SettingCard("\uEB9F", "ImagePreviewSize", "ImagePreviewSizeDescription", _quickMenuImagePreviewSizeBox));
+        _quickMenuShowCapturedAtToggle.Toggled += (_, _) => SaveQuickMenuDisplayOptions();
+        _generalPage.Children.Add(SettingCard("\uE823", "QuickMenuShowCapturedAt", "QuickMenuShowCapturedAtDescription", _quickMenuShowCapturedAtToggle));
+        _quickMenuShowShortcutHintsToggle.Toggled += (_, _) => SaveQuickMenuDisplayOptions();
+        _generalPage.Children.Add(SettingCard("\uE765", "QuickMenuShowShortcutHints", "QuickMenuShowShortcutHintsDescription", _quickMenuShowShortcutHintsToggle));
 
         _generalPage.Children.Add(SectionHeader("QuickMenuShortcutsSection"));
         _generalPage.Children.Add(BuildQuickMenuShortcutsPanel());
@@ -1355,6 +1371,10 @@ public sealed class MainWindow : Window
         buttons.Children.Add(_privacyButton);
         documents.Children.Add(buttons);
         _aboutPage.Children.Add(Card(documents));
+
+        _exitApplicationButton.HorizontalAlignment = HorizontalAlignment.Left;
+        _exitApplicationButton.Click += (_, _) => _runtime.ExitApplication();
+        _aboutPage.Children.Add(SettingCard("\uE8BB", "ExitApplication", "ExitApplicationDescription", _exitApplicationButton));
     }
 
     private static void OpenExternalUrl(string url)
@@ -1460,6 +1480,13 @@ public sealed class MainWindow : Window
         }
 
         _runtime.SetQuickMenuImagePreviewSize(size);
+    }
+
+    private void SaveQuickMenuDisplayOptions()
+    {
+        if (_loading) return;
+        _runtime.SetQuickMenuShowCapturedAt(_quickMenuShowCapturedAtToggle.IsOn);
+        _runtime.SetQuickMenuShowShortcutHints(_quickMenuShowShortcutHintsToggle.IsOn);
     }
 
     private void ChangeQuickMenuShortcut(string action, ComboBox comboBox)

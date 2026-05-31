@@ -299,6 +299,18 @@ public sealed class CliptonRuntime : IDisposable
         SaveSettings();
     }
 
+    public void SetQuickMenuShowCapturedAt(bool enabled)
+    {
+        Settings.QuickMenuShowCapturedAt = enabled;
+        SaveSettings();
+    }
+
+    public void SetQuickMenuShowShortcutHints(bool enabled)
+    {
+        Settings.QuickMenuShowShortcutHints = enabled;
+        SaveSettings();
+    }
+
     public void SetQuickMenuShortcut(string action, string shortcut)
     {
         Settings.QuickMenuShortcuts ??= new QuickMenuShortcutSettings();
@@ -523,6 +535,12 @@ public sealed class CliptonRuntime : IDisposable
     {
         IsExiting = true;
         Application.Current.Exit();
+    }
+
+    public void ShowHistoryWindow()
+    {
+        ShowMainWindow();
+        _mainWindow?.ShowHistoryPage();
     }
 
     private void CaptureClipboardOnUiThread()
@@ -924,10 +942,14 @@ public sealed class CliptonRuntime : IDisposable
             menuItems,
             EffectiveTheme,
             Settings.QuickMenuImagePreviewSize,
+            Settings.QuickMenuShowCapturedAt,
+            Settings.QuickMenuShowShortcutHints,
             Settings.QuickMenuShortcuts,
+            ShowHistoryWindow,
             Translate("Search"),
             Translate("SearchPrompt"),
             Translate("Search"),
+            Translate("AdvancedSearch"),
             Translate("Cancel"),
             Translate("NoSearchResults"));
         _quickMenuWindow = quickMenuWindow;

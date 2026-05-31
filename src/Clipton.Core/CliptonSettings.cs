@@ -24,6 +24,10 @@ public sealed class CliptonSettings
 
     public string QuickMenuImagePreviewSize { get; set; } = "medium";
 
+    public bool QuickMenuShowCapturedAt { get; set; }
+
+    public bool QuickMenuShowShortcutHints { get; set; } = true;
+
     public QuickMenuShortcutSettings QuickMenuShortcuts { get; set; } = new();
 
     public bool MaskSensitiveContent { get; set; } = true;
@@ -43,7 +47,7 @@ public sealed class CliptonSettings
 
 public sealed class QuickMenuShortcutSettings
 {
-    public const string DefaultSearch = "Ctrl+S";
+    public const string DefaultSearch = "Ctrl+F";
     public const string DefaultPastePlainText = "T";
     public const string DefaultToggleMaskReveal = "M";
     public const string DefaultToggleCapturedAt = "Ctrl+D";

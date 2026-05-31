@@ -15,10 +15,12 @@ public sealed class SettingsStoreTests
         Assert.True(loaded.PersistEncryptedHistory);
         Assert.Equal(200, loaded.MaxHistoryItems);
         Assert.Equal("medium", loaded.QuickMenuImagePreviewSize);
-        Assert.Equal("Ctrl+S", loaded.QuickMenuShortcuts.Search);
+        Assert.Equal("Ctrl+F", loaded.QuickMenuShortcuts.Search);
         Assert.Equal("T", loaded.QuickMenuShortcuts.PastePlainText);
         Assert.Equal("M", loaded.QuickMenuShortcuts.ToggleMaskReveal);
         Assert.Equal("Ctrl+D", loaded.QuickMenuShortcuts.ToggleCapturedAt);
+        Assert.False(loaded.QuickMenuShowCapturedAt);
+        Assert.True(loaded.QuickMenuShowShortcutHints);
         Assert.True(loaded.HideSettingsWindowOnStartup);
         Assert.False(loaded.InitialLaunchCompleted);
     }
@@ -68,6 +70,8 @@ public sealed class SettingsStoreTests
             PastePlainTextByDefault = true,
             PersistEncryptedHistory = true,
             QuickMenuImagePreviewSize = "large",
+            QuickMenuShowCapturedAt = true,
+            QuickMenuShowShortcutHints = false,
             QuickMenuShortcuts = new QuickMenuShortcutSettings
             {
                 Search = "Ctrl+F",
@@ -93,6 +97,8 @@ public sealed class SettingsStoreTests
         Assert.True(loaded.PastePlainTextByDefault);
         Assert.True(loaded.PersistEncryptedHistory);
         Assert.Equal("large", loaded.QuickMenuImagePreviewSize);
+        Assert.True(loaded.QuickMenuShowCapturedAt);
+        Assert.False(loaded.QuickMenuShowShortcutHints);
         Assert.Equal("Ctrl+F", loaded.QuickMenuShortcuts.Search);
         Assert.Equal("Ctrl+P", loaded.QuickMenuShortcuts.PastePlainText);
         Assert.Equal("Ctrl+M", loaded.QuickMenuShortcuts.ToggleMaskReveal);
@@ -164,7 +170,7 @@ public sealed class SettingsStoreTests
 
         var loaded = store.Load();
 
-        Assert.Equal("Ctrl+S", loaded.QuickMenuShortcuts.Search);
+        Assert.Equal("Ctrl+F", loaded.QuickMenuShortcuts.Search);
         Assert.Equal("Ctrl+P", loaded.QuickMenuShortcuts.PastePlainText);
         Assert.Equal("Ctrl+M", loaded.QuickMenuShortcuts.ToggleMaskReveal);
         Assert.Equal("D", loaded.QuickMenuShortcuts.ToggleCapturedAt);
