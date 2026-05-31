@@ -1,6 +1,6 @@
 # Final Microsoft Store Screenshots
 
-Place final Partner Center screenshots in this folder.
+Final Partner Center screenshots are generated in this folder from real Clipton UI captures.
 
 Requirements:
 
@@ -11,17 +11,14 @@ Requirements:
 - Use actual app UI captures.
 - Do not add extra logos, app icons, slogans, or marketing overlay text.
 
-Recommended final set:
+Generated final set:
 
-- `01-quick-menu-en.png`
-- `02-history-en.png`
-- `03-snippets-en.png`
-- `04-history-settings-en.png`
-- `05-general-settings-en.png`
-- `01-quick-menu-ja.png`
-- `02-history-ja.png`
-- `03-snippets-ja.png`
-- `04-history-settings-ja.png`
-- `05-general-settings-ja.png`
+- `01-general-settings.png`
+- `02-clipboard-history.png`
+- `03-history-settings.png`
+- `04-snippet-library.png`
+- `05-about-privacy.png`
+
+Legacy root-level screenshot names are also refreshed with these real captures so stale mockups are not used by mistake.
 
 Captions are listed in `docs/STORE_LISTING.md`.
