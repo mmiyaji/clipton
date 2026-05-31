@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -100,9 +101,16 @@ public sealed class MainWindow : Window
     private readonly FontIcon _historySearchIcon = new();
     private readonly Button _advancedHistorySearchButton = new();
     private readonly Button _clearHistorySearchButton = new();
+    private readonly StackPanel _historyAdvancedSearchPanel = new() { Spacing = 10 };
+    private readonly ToggleButton _historyTypeTextFilter = new();
+    private readonly ToggleButton _historyTypeRichFilter = new();
+    private readonly ToggleButton _historyTypeHtmlFilter = new();
+    private readonly ToggleButton _historyTypeImageFilter = new();
+    private readonly ToggleButton _historyTypeFileFilter = new();
+    private readonly ToggleButton _historyPinnedFilter = new();
+    private readonly ToggleButton _historyUrlFilter = new();
     private readonly Button _loadMoreHistoryButton = new();
     private readonly TextBlock _historySearchStatusText = Description();
-    private readonly TextBlock _historyAdvancedSearchText = Description();
     private readonly TextBlock _selectedSnippetText = Description();
     private readonly Button _newSnippetButton = new();
     private readonly Button _exportSnippetsButton = new();
@@ -118,6 +126,7 @@ public sealed class MainWindow : Window
     private int _historyVisibleLimit = HistoryDisplayBatchSize;
     private bool _loading;
     private bool _updatingHistorySearchBox;
+    private bool _updatingHistorySearchFilters;
     private int _selectedPageIndex;
     private bool _sidebarCollapsed;
     private bool _autoSidebarApplied;
@@ -143,7 +152,6 @@ public sealed class MainWindow : Window
             _snippetDescriptionText,
             _aboutDescriptionText,
             _historySearchStatusText,
-            _historyAdvancedSearchText,
             _selectedSnippetText,
             _maskDefinitionsErrorText,
             _maskTestResultText);
@@ -235,8 +243,14 @@ public sealed class MainWindow : Window
         SetCommandButton(_maskDefinitionsButton, "\uE713", t("MaskDefinitions"));
         _historySearchBox.PlaceholderText = t("SearchPlaceholder");
         SetIconButton(_advancedHistorySearchButton, "\uE71C", t("AdvancedSearch"));
-        _historyAdvancedSearchText.Text = t("SearchPrompt");
         SetCommandButton(_clearHistorySearchButton, "\uE711", t("ClearSearch"));
+        SetHistoryFilterToggle(_historyTypeTextFilter, t("FormatText"));
+        SetHistoryFilterToggle(_historyTypeRichFilter, t("FormatRichText"));
+        SetHistoryFilterToggle(_historyTypeHtmlFilter, t("FormatHtml"));
+        SetHistoryFilterToggle(_historyTypeImageFilter, t("Image"));
+        SetHistoryFilterToggle(_historyTypeFileFilter, t("FormatFileDrop"));
+        SetHistoryFilterToggle(_historyPinnedFilter, t("PinnedHistory"));
+        SetHistoryFilterToggle(_historyUrlFilter, t("SearchFilterUrl"));
         _loadMoreHistoryButton.Content = string.Format(t("LoadMoreHistory"), 0);
         SetCommandButton(_newSnippetButton, "\uE710", t("NewSnippet"));
         SetCommandButton(_exportSnippetsButton, "\uEDE1", t("Export"));
@@ -478,7 +492,7 @@ public sealed class MainWindow : Window
                 return;
             }
 
-            ApplyHistorySearch(_historySearchBox.Text);
+            ApplyHistorySearch(BuildHistorySearchQueryFromFilters(_historySearchBox.Text));
         };
         _historySearchIcon.Glyph = "\uE721";
         _historySearchIcon.FontFamily = new FontFamily("Segoe Fluent Icons");
@@ -503,8 +517,7 @@ public sealed class MainWindow : Window
         _clearHistorySearchButton.Height = SearchControlHeight;
         _clearHistorySearchButton.Click += (_, _) => ClearHistorySearch();
 
-        _historyAdvancedSearchText.Visibility = Visibility.Collapsed;
-        _historyAdvancedSearchText.Margin = new Thickness(2, 0, 0, 0);
+        BuildHistoryAdvancedSearchPanel();
 
         var row = new Grid { ColumnSpacing = 12, MinHeight = SearchControlHeight };
         row.ColumnDefinitions.Add(new ColumnDefinition());
@@ -522,9 +535,43 @@ public sealed class MainWindow : Window
             Children =
             {
                 row,
-                _historyAdvancedSearchText
+                _historyAdvancedSearchPanel
             }
         };
+    }
+
+    private void BuildHistoryAdvancedSearchPanel()
+    {
+        _historyAdvancedSearchPanel.Visibility = Visibility.Collapsed;
+        _historyAdvancedSearchPanel.Margin = new Thickness(2, 4, 0, 0);
+
+        var typeRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        typeRow.Children.Add(DescriptionText("SearchFilterFormat", fontSize: 12));
+        typeRow.Children.Add(_historyTypeTextFilter);
+        typeRow.Children.Add(_historyTypeRichFilter);
+        typeRow.Children.Add(_historyTypeHtmlFilter);
+        typeRow.Children.Add(_historyTypeImageFilter);
+        typeRow.Children.Add(_historyTypeFileFilter);
+
+        var optionRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        optionRow.Children.Add(DescriptionText("SearchFilterOptions", fontSize: 12));
+        optionRow.Children.Add(_historyPinnedFilter);
+        optionRow.Children.Add(_historyUrlFilter);
+
+        foreach (var button in HistoryFilterButtons())
+        {
+            button.Height = 30;
+            button.MinWidth = 72;
+            button.Padding = new Thickness(12, 0, 12, 0);
+            button.VerticalAlignment = VerticalAlignment.Center;
+            button.HorizontalContentAlignment = HorizontalAlignment.Center;
+            button.VerticalContentAlignment = VerticalAlignment.Center;
+            button.Checked += (_, _) => ApplyAdvancedHistoryFiltersFromUi();
+            button.Unchecked += (_, _) => ApplyAdvancedHistoryFiltersFromUi();
+        }
+
+        _historyAdvancedSearchPanel.Children.Add(typeRow);
+        _historyAdvancedSearchPanel.Children.Add(optionRow);
     }
 
     private UIElement BuildMaskDefinitionsPanel()
@@ -776,9 +823,185 @@ public sealed class MainWindow : Window
 
     private void ToggleAdvancedHistorySearch()
     {
-        _historyAdvancedSearchText.Visibility = _historyAdvancedSearchText.Visibility == Visibility.Visible
+        _historyAdvancedSearchPanel.Visibility = _historyAdvancedSearchPanel.Visibility == Visibility.Visible
             ? Visibility.Collapsed
             : Visibility.Visible;
+    }
+
+    private void ApplyAdvancedHistoryFiltersFromUi()
+    {
+        if (_updatingHistorySearchFilters)
+        {
+            return;
+        }
+
+        _updatingHistorySearchFilters = true;
+        try
+        {
+            var selectedTypeButton = CheckedHistoryTypeFilter();
+            if (selectedTypeButton is not null)
+            {
+                foreach (var (button, _) in HistoryTypeFilterButtons())
+                {
+                    if (!ReferenceEquals(button, selectedTypeButton))
+                    {
+                        button.IsChecked = false;
+                    }
+                }
+            }
+
+            var query = BuildHistorySearchQueryFromFilters(_historySearchBox.Text);
+            ApplyHistorySearch(query);
+        }
+        finally
+        {
+            _updatingHistorySearchFilters = false;
+        }
+    }
+
+    private string BuildHistorySearchQueryFromFilters(string currentQuery)
+    {
+        var tokens = TokenizeSearchQuery(currentQuery)
+            .Where(token => !IsUiManagedSearchFilterToken(token))
+            .Select(QuoteSearchTokenIfNeeded)
+            .ToList();
+
+        var selectedType = SelectedHistoryTypeFilterValue();
+        if (selectedType is not null)
+        {
+            tokens.Add($"type:{selectedType}");
+        }
+
+        if (_historyPinnedFilter.IsChecked == true)
+        {
+            tokens.Add("pinned:true");
+        }
+
+        if (_historyUrlFilter.IsChecked == true)
+        {
+            tokens.Add("url:true");
+        }
+
+        return string.Join(" ", tokens);
+    }
+
+    private void SyncAdvancedHistoryFiltersFromQuery()
+    {
+        if (_updatingHistorySearchFilters)
+        {
+            return;
+        }
+
+        var filter = SearchFilter.Parse(_historySearchQuery);
+        _updatingHistorySearchFilters = true;
+        try
+        {
+            foreach (var (button, value) in HistoryTypeFilterButtons())
+            {
+                button.IsChecked = string.Equals(filter.Type, value, StringComparison.OrdinalIgnoreCase);
+            }
+
+            _historyPinnedFilter.IsChecked = filter.Pinned == true;
+            _historyUrlFilter.IsChecked = filter.HasUrl == true;
+        }
+        finally
+        {
+            _updatingHistorySearchFilters = false;
+        }
+    }
+
+    private ToggleButton? CheckedHistoryTypeFilter()
+    {
+        return HistoryTypeFilterButtons().FirstOrDefault(item => item.Button.IsChecked == true).Button;
+    }
+
+    private string? SelectedHistoryTypeFilterValue()
+    {
+        return HistoryTypeFilterButtons().FirstOrDefault(item => item.Button.IsChecked == true).Value;
+    }
+
+    private IEnumerable<(ToggleButton Button, string Value)> HistoryTypeFilterButtons()
+    {
+        yield return (_historyTypeTextFilter, "text");
+        yield return (_historyTypeRichFilter, "rich");
+        yield return (_historyTypeHtmlFilter, "html");
+        yield return (_historyTypeImageFilter, "image");
+        yield return (_historyTypeFileFilter, "file");
+    }
+
+    private IEnumerable<ToggleButton> HistoryFilterButtons()
+    {
+        foreach (var (button, _) in HistoryTypeFilterButtons())
+        {
+            yield return button;
+        }
+
+        yield return _historyPinnedFilter;
+        yield return _historyUrlFilter;
+    }
+
+    private static bool IsUiManagedSearchFilterToken(string token)
+    {
+        var separator = token.IndexOf(':');
+        if (separator <= 0)
+        {
+            return false;
+        }
+
+        return token[..separator].ToLowerInvariant() switch
+        {
+            "type" or "format" or "pinned" or "pin" or "url" or "hasurl" => true,
+            _ => false
+        };
+    }
+
+    private static string QuoteSearchTokenIfNeeded(string token)
+    {
+        return token.Any(char.IsWhiteSpace)
+            ? $"\"{token.Replace("\"", "\\\"", StringComparison.Ordinal)}\""
+            : token;
+    }
+
+    private static string[] TokenizeSearchQuery(string query)
+    {
+        var tokens = new List<string>();
+        var current = new List<char>();
+        var quoted = false;
+        foreach (var ch in query)
+        {
+            if (ch == '"')
+            {
+                quoted = !quoted;
+                continue;
+            }
+
+            if (char.IsWhiteSpace(ch) && !quoted)
+            {
+                AddCurrent();
+                continue;
+            }
+
+            current.Add(ch);
+        }
+
+        AddCurrent();
+        return tokens.ToArray();
+
+        void AddCurrent()
+        {
+            if (current.Count == 0)
+            {
+                return;
+            }
+
+            var token = new string(current.ToArray()).Trim();
+            if (token.Length > 0)
+            {
+                tokens.Add(token);
+            }
+
+            current.Clear();
+        }
     }
 
     private void LoadMoreHistory()
@@ -791,16 +1014,63 @@ public sealed class MainWindow : Window
     {
         var hasQuery = !string.IsNullOrWhiteSpace(_historySearchQuery);
         _historySearchStatusText.Text = hasQuery
-            ? string.Format(_runtime.Translate("SearchResults"), _historySearchQuery)
+            ? string.Format(_runtime.Translate("SearchResults"), BuildHistorySearchStatusLabel())
             : string.Empty;
         _historySearchStatusText.Visibility = hasQuery ? Visibility.Visible : Visibility.Collapsed;
         _clearHistorySearchButton.Visibility = hasQuery ? Visibility.Visible : Visibility.Collapsed;
-        if (!string.Equals(_historySearchBox.Text, _historySearchQuery, StringComparison.Ordinal))
+        var displayQuery = BuildHistorySearchTextBoxValue(_historySearchQuery);
+        if (!string.Equals(_historySearchBox.Text, displayQuery, StringComparison.Ordinal))
         {
             _updatingHistorySearchBox = true;
-            _historySearchBox.Text = _historySearchQuery;
+            _historySearchBox.Text = displayQuery;
             _updatingHistorySearchBox = false;
         }
+
+        SyncAdvancedHistoryFiltersFromQuery();
+    }
+
+    private string BuildHistorySearchTextBoxValue(string query)
+    {
+        return string.Join(" ", TokenizeSearchQuery(query)
+            .Where(token => !IsUiManagedSearchFilterToken(token))
+            .Select(QuoteSearchTokenIfNeeded));
+    }
+
+    private string BuildHistorySearchStatusLabel()
+    {
+        var parts = new List<string>();
+        var keyword = BuildHistorySearchTextBoxValue(_historySearchQuery);
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            parts.Add(keyword);
+        }
+
+        var filter = SearchFilter.Parse(_historySearchQuery);
+        var typeLabel = filter.Type?.ToLowerInvariant() switch
+        {
+            "text" => _runtime.Translate("FormatText"),
+            "rich" or "rtf" => _runtime.Translate("FormatRichText"),
+            "html" => _runtime.Translate("FormatHtml"),
+            "image" => _runtime.Translate("Image"),
+            "file" or "files" => _runtime.Translate("FormatFileDrop"),
+            _ => null
+        };
+        if (typeLabel is not null)
+        {
+            parts.Add(typeLabel);
+        }
+
+        if (filter.Pinned == true)
+        {
+            parts.Add(_runtime.Translate("PinnedHistory"));
+        }
+
+        if (filter.HasUrl == true)
+        {
+            parts.Add(_runtime.Translate("SearchFilterUrl"));
+        }
+
+        return parts.Count == 0 ? _historySearchQuery : string.Join(" / ", parts);
     }
 
     private void BuildSnippetPage()
@@ -1560,6 +1830,13 @@ public sealed class MainWindow : Window
             FontSize = 14,
             VerticalAlignment = VerticalAlignment.Center
         };
+        ToolTipService.SetToolTip(button, label);
+    }
+
+    private static void SetHistoryFilterToggle(ToggleButton button, string label)
+    {
+        button.Content = label;
+        AutomationProperties.SetName(button, label);
         ToolTipService.SetToolTip(button, label);
     }
 
