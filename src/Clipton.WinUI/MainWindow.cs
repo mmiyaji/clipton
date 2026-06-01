@@ -3068,7 +3068,7 @@ public sealed class MainWindow : Window
 
     private Brush CardBorderBrush() => Brush(IsDark ? "#3F3F3F" : "#E5E5E5");
 
-    private Brush DescriptionBrush() => Brush(IsDark ? "#C7C7C7" : "#667085");
+    private Brush DescriptionBrush() => Brush(IsDark ? "#C7C7C7" : "#475467");
 
     private static SolidColorBrush AccentBrush(byte alpha) => new(ColorHelper.FromArgb(alpha, 0, 120, 212));
 
@@ -3103,7 +3103,7 @@ public sealed class MainWindow : Window
 
     private static TextBlock Header(double size = 28) => new() { FontSize = size, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
 
-    private static TextBlock Description() => new() { Foreground = Brush("#667085"), TextWrapping = TextWrapping.Wrap };
+    private static TextBlock Description() => new() { Foreground = Brush("#475467"), TextWrapping = TextWrapping.Wrap };
 
     private static StackPanel SettingsPage() => new()
     {
