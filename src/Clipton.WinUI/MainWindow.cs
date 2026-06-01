@@ -2160,6 +2160,8 @@ public sealed class MainWindow : Window
             "{{uuid}}",
             "{{shortuuid}}",
             "{{tomorrow}}",
+            "{{adddays:7}}",
+            "{{adddays:-7|yyyy/MM/dd}}",
             "{{randomhex:8}}",
             "{{randomnumber:4}}",
             "{{br}}"

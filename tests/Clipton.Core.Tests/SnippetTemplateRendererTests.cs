@@ -36,6 +36,18 @@ public sealed class SnippetTemplateRendererTests
     }
 
     [Fact]
+    public void Render_ExpandsDateOffsetFunctions()
+    {
+        var now = new DateTimeOffset(2026, 5, 31, 9, 8, 7, TimeSpan.FromHours(9));
+
+        var rendered = SnippetTemplateRenderer.Render(
+            "{{adddays:3}} {{adddays:-7|yyyy/MM/dd}} {{addmonths:1}} {{addyears:-1}} {{addhours:2}} {{addminutes:30|HH:mm}}",
+            now);
+
+        Assert.Equal("2026-06-03 2026/05/24 2026-06-30 2025-05-31 2026-05-31 11:08 09:38", rendered);
+    }
+
+    [Fact]
     public void Render_ExpandsRandomFunctionsWithRequestedLength()
     {
         var rendered = SnippetTemplateRenderer.Render("{{shortuuid}} {{randomhex:12}} {{randomnumber:4}}");

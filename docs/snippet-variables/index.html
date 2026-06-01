@@ -51,6 +51,10 @@
           <tr><td><code>{{year}}</code> / <code>{{month}}</code> / <code>{{day}}</code></td><td>年、月、日</td><td><code>2026</code>, <code>05</code>, <code>31</code></td><td><button class="copy-button" data-copy="{{year}}">コピー</button></td></tr>
           <tr><td><code>{{weekday}}</code></td><td>曜日</td><td><code>日曜日</code></td><td><button class="copy-button" data-copy="{{weekday}}">コピー</button></td></tr>
           <tr><td><code>{{tomorrow}}</code> / <code>{{yesterday}}</code></td><td>明日、昨日の日付</td><td><code>2026-06-01</code></td><td><button class="copy-button" data-copy="{{tomorrow}}">コピー</button></td></tr>
+          <tr><td><code>{{adddays:7}}</code></td><td>指定日数を加算した日付</td><td><code>2026-06-07</code></td><td><button class="copy-button" data-copy="{{adddays:7}}">コピー</button></td></tr>
+          <tr><td><code>{{adddays:-7|yyyy/MM/dd}}</code></td><td>指定日数を加算し、形式を指定</td><td><code>2026/05/24</code></td><td><button class="copy-button" data-copy="{{adddays:-7|yyyy/MM/dd}}">コピー</button></td></tr>
+          <tr><td><code>{{addmonths:1}}</code> / <code>{{addyears:-1}}</code></td><td>月・年を加算</td><td><code>2026-06-30</code></td><td><button class="copy-button" data-copy="{{addmonths:1}}">コピー</button></td></tr>
+          <tr><td><code>{{addhours:2}}</code> / <code>{{addminutes:30|HH:mm}}</code></td><td>時・分を加算</td><td><code>2026-05-31 11:08</code></td><td><button class="copy-button" data-copy="{{addhours:2}}">コピー</button></td></tr>
           <tr><td><code>{{quarter}}</code></td><td>四半期</td><td><code>2</code></td><td><button class="copy-button" data-copy="{{quarter}}">コピー</button></td></tr>
           <tr><td><code>{{week}}</code> / <code>{{isoweek}}</code></td><td>ISO週番号</td><td><code>22</code></td><td><button class="copy-button" data-copy="{{week}}">コピー</button></td></tr>
           <tr><td><code>{{unix}}</code> / <code>{{unixms}}</code></td><td>Unixタイムスタンプ</td><td><code>1780186087</code></td><td><button class="copy-button" data-copy="{{unix}}">コピー</button></td></tr>
@@ -64,12 +68,14 @@
       </table>
 
       <h3>日時フォーマット</h3>
-      <p><code>{{date}}</code>, <code>{{time}}</code>, <code>{{datetime}}</code>, <code>{{weekday}}</code>, <code>{{tomorrow}}</code>, <code>{{utcdate}}</code> などの日時系変数は .NET の日時フォーマットを指定できます。</p>
+      <p><code>{{date}}</code>, <code>{{time}}</code>, <code>{{datetime}}</code>, <code>{{weekday}}</code>, <code>{{tomorrow}}</code>, <code>{{utcdate}}</code> などの日時系変数は .NET の日時フォーマットを指定できます。<code>{{adddays:7|yyyy/MM/dd}}</code> のように、加算系は <code>|</code> の後ろへ形式を指定できます。</p>
       <pre><code>{{date:yyyy/MM/dd}}
 {{date("yyyyMMdd")}}
 {{time:HH:mm:ss}}
 {{datetime:yyyy-MM-dd HH:mm:ss}}
 {{tomorrow:yyyy/MM/dd}}
+{{adddays:7|yyyy/MM/dd}}
+{{addminutes:30|HH:mm}}
 {{weekday:ddd}}</code></pre>
 
       <h3>例</h3>
@@ -96,6 +102,10 @@
           <tr><td><code>{{year}}</code> / <code>{{month}}</code> / <code>{{day}}</code></td><td>Year, month, day</td><td><code>2026</code>, <code>05</code>, <code>31</code></td><td><button class="copy-button" data-copy="{{year}}">Copy</button></td></tr>
           <tr><td><code>{{weekday}}</code></td><td>Weekday</td><td><code>Sunday</code></td><td><button class="copy-button" data-copy="{{weekday}}">Copy</button></td></tr>
           <tr><td><code>{{tomorrow}}</code> / <code>{{yesterday}}</code></td><td>Tomorrow and yesterday</td><td><code>2026-06-01</code></td><td><button class="copy-button" data-copy="{{tomorrow}}">Copy</button></td></tr>
+          <tr><td><code>{{adddays:7}}</code></td><td>Add days</td><td><code>2026-06-07</code></td><td><button class="copy-button" data-copy="{{adddays:7}}">Copy</button></td></tr>
+          <tr><td><code>{{adddays:-7|yyyy/MM/dd}}</code></td><td>Add days with a custom format</td><td><code>2026/05/24</code></td><td><button class="copy-button" data-copy="{{adddays:-7|yyyy/MM/dd}}">Copy</button></td></tr>
+          <tr><td><code>{{addmonths:1}}</code> / <code>{{addyears:-1}}</code></td><td>Add months or years</td><td><code>2026-06-30</code></td><td><button class="copy-button" data-copy="{{addmonths:1}}">Copy</button></td></tr>
+          <tr><td><code>{{addhours:2}}</code> / <code>{{addminutes:30|HH:mm}}</code></td><td>Add hours or minutes</td><td><code>2026-05-31 11:08</code></td><td><button class="copy-button" data-copy="{{addhours:2}}">Copy</button></td></tr>
           <tr><td><code>{{quarter}}</code></td><td>Quarter</td><td><code>2</code></td><td><button class="copy-button" data-copy="{{quarter}}">Copy</button></td></tr>
           <tr><td><code>{{week}}</code> / <code>{{isoweek}}</code></td><td>ISO week number</td><td><code>22</code></td><td><button class="copy-button" data-copy="{{week}}">Copy</button></td></tr>
           <tr><td><code>{{unix}}</code> / <code>{{unixms}}</code></td><td>Unix timestamp</td><td><code>1780186087</code></td><td><button class="copy-button" data-copy="{{unix}}">Copy</button></td></tr>
@@ -108,12 +118,14 @@
         </tbody>
       </table>
 
-      <p>Custom date and time formats are supported with either colon or function-style syntax.</p>
+      <p>Custom date and time formats are supported with either colon or function-style syntax. Offset variables use <code>|</code> before the output format, such as <code>{{adddays:7|yyyy/MM/dd}}</code>.</p>
       <pre><code>{{date:yyyy/MM/dd}}
 {{date("yyyyMMdd")}}
 {{time:HH:mm:ss}}
 {{datetime:yyyy-MM-dd HH:mm:ss}}
-{{tomorrow:yyyy/MM/dd}}</code></pre>
+{{tomorrow:yyyy/MM/dd}}
+{{adddays:7|yyyy/MM/dd}}
+{{addminutes:30|HH:mm}}</code></pre>
     </section>
   </main>
   <script>

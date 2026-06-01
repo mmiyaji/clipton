@@ -39,6 +39,11 @@ public static class SnippetTemplateRenderer
                 "day" => timestamp.ToString("dd", CultureInfo.InvariantCulture),
                 "tomorrow" => Format(timestamp.AddDays(1), format, "yyyy-MM-dd"),
                 "yesterday" => Format(timestamp.AddDays(-1), format, "yyyy-MM-dd"),
+                "adddays" => FormatOffset(format, "yyyy-MM-dd", value => timestamp.AddDays(value)) ?? match.Value,
+                "addmonths" => FormatOffset(format, "yyyy-MM-dd", value => timestamp.AddMonths((int)value)) ?? match.Value,
+                "addyears" => FormatOffset(format, "yyyy-MM-dd", value => timestamp.AddYears((int)value)) ?? match.Value,
+                "addhours" => FormatOffset(format, "yyyy-MM-dd HH:mm", value => timestamp.AddHours(value)) ?? match.Value,
+                "addminutes" => FormatOffset(format, "yyyy-MM-dd HH:mm", value => timestamp.AddMinutes(value)) ?? match.Value,
                 "quarter" => (((timestamp.Month - 1) / 3) + 1).ToString(CultureInfo.InvariantCulture),
                 "week" or "isoweek" => ISOWeek.GetWeekOfYear(timestamp.Date).ToString("00", CultureInfo.InvariantCulture),
                 "weekday" => timestamp.ToString(string.IsNullOrWhiteSpace(format) ? "dddd" : format, CultureInfo.CurrentCulture),
@@ -60,6 +65,16 @@ public static class SnippetTemplateRenderer
         return timestamp.ToString(string.IsNullOrWhiteSpace(format) ? fallback : format, CultureInfo.CurrentCulture);
     }
 
+    private static string? FormatOffset(string value, string fallbackFormat, Func<double, DateTimeOffset> add)
+    {
+        if (!TryParseOffset(value, out var offset, out var format))
+        {
+            return null;
+        }
+
+        return Format(add(offset), format, fallbackFormat);
+    }
+
     private static string NormalizeFormat(string value)
     {
         var trimmed = value.Trim();
@@ -73,6 +88,13 @@ public static class SnippetTemplateRenderer
         return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
             ? Math.Clamp(parsed, min, max)
             : fallback;
+    }
+
+    private static bool TryParseOffset(string value, out double offset, out string format)
+    {
+        var parts = value.Split('|', 2, StringSplitOptions.TrimEntries);
+        format = parts.Length == 2 ? NormalizeFormat(parts[1]) : string.Empty;
+        return double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out offset);
     }
 
     private static string RandomHex(int length)
