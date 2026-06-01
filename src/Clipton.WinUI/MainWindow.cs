@@ -2162,6 +2162,9 @@ public sealed class MainWindow : Window
             "{{tomorrow}}",
             "{{adddays:7}}",
             "{{adddays:-7|yyyy/MM/dd}}",
+            "{{filepath}}",
+            "{{filename}}",
+            "{{filecount}}",
             "{{randomhex:8}}",
             "{{randomnumber:4}}",
             "{{br}}"

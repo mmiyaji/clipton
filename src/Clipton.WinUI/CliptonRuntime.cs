@@ -179,7 +179,7 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        ClipboardBridge.PutText(SnippetTemplateRenderer.Render(snippet.Text));
+        ClipboardBridge.PutText(SnippetTemplateRenderer.Render(snippet.Text, filePaths: GetCurrentClipboardFilePaths()));
         SendPaste();
     }
 
@@ -1509,7 +1509,9 @@ public sealed class CliptonRuntime : IDisposable
         var plainText = ClipboardBridge.GetPlainText(item);
         var pasteOptions = item.ImagePng is { Length: > 0 }
             ? CreateImagePasteOptions(item)
-            : CreateTextPasteOptions(plainText, item.Id);
+            : item.FilePaths.Count > 0
+                ? CreateFilePasteOptions(item)
+                : CreateTextPasteOptions(plainText, item.Id);
         return new QuickMenuItem(
             header,
             display.FormatSummary,
@@ -1817,8 +1819,13 @@ public sealed class CliptonRuntime : IDisposable
             "Enter",
             () => PasteSnippet(snippet.Folder, snippet.Name),
             PlainTextInvoke: () => PasteSnippet(snippet.Folder, snippet.Name),
-            PasteOptions: CreateTextPasteOptions(() => SnippetTemplateRenderer.Render(snippet.Text)),
+            PasteOptions: CreateTextPasteOptions(() => SnippetTemplateRenderer.Render(snippet.Text, filePaths: GetCurrentClipboardFilePaths())),
             IconGlyph: "S");
+    }
+
+    private IReadOnlyList<string> GetCurrentClipboardFilePaths()
+    {
+        return ClipboardBridge.Capture()?.FilePaths ?? [];
     }
 
     private IReadOnlyList<QuickMenuPasteOption> CreateTextPasteOptions(string? text, string? historyId = null)
@@ -1892,6 +1899,26 @@ public sealed class CliptonRuntime : IDisposable
         {
             return null;
         }
+    }
+
+    private IReadOnlyList<QuickMenuPasteOption> CreateFilePasteOptions(ClipboardSnapshot item)
+    {
+        var options = new List<QuickMenuPasteOption>
+        {
+            new(Translate("PasteOriginal"), "\uE8A5", () => PasteHistoryItem(item.Id, asPlainText: false)),
+            new(Translate("PasteFilePaths"), "\uE8C8", () => PasteText(JoinFileValues(item.FilePaths, path => path))),
+            new(Translate("PasteFileNames"), "\uE8A7", () => PasteText(JoinFileValues(item.FilePaths, Path.GetFileName))),
+            new(Translate("PasteFileNamesWithoutExtension"), "\uE8A7", () => PasteText(JoinFileValues(item.FilePaths, Path.GetFileNameWithoutExtension))),
+            new(Translate("PasteFileDirectories"), "\uED43", () => PasteText(JoinFileValues(item.FilePaths, path => Path.GetDirectoryName(path) ?? string.Empty)))
+        };
+
+        options.Add(CreatePinPasteOption(item.Id));
+        return options;
+    }
+
+    private static string JoinFileValues(IEnumerable<string> filePaths, Func<string, string?> selector)
+    {
+        return string.Join(Environment.NewLine, filePaths.Select(selector).Where(value => !string.IsNullOrEmpty(value)));
     }
 
     private static string RemoveLineBreaks(string text)

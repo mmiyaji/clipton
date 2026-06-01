@@ -8,7 +8,7 @@ public static class SnippetTemplateRenderer
 {
     private static readonly Regex TokenPattern = new(@"\{\{\s*(?<name>[a-zA-Z][a-zA-Z0-9_]*)(?:\s*:\s*(?<format>[^}]*?)|\(\s*(?<formatParen>.*?)\s*\))?\s*\}\}", RegexOptions.Compiled);
 
-    public static string Render(string template, DateTimeOffset? now = null)
+    public static string Render(string template, DateTimeOffset? now = null, IReadOnlyList<string>? filePaths = null)
     {
         if (string.IsNullOrEmpty(template))
         {
@@ -22,7 +22,7 @@ public static class SnippetTemplateRenderer
             var rawFormat = match.Groups["format"].Success
                 ? match.Groups["format"].Value
                 : match.Groups["formatParen"].Success ? match.Groups["formatParen"].Value : string.Empty;
-            var format = NormalizeFormat(rawFormat);
+            var format = IsFileVariable(name) ? NormalizeQuotedValue(rawFormat) : NormalizeFormat(rawFormat);
             return name switch
             {
                 "date" => Format(timestamp, format, "yyyy-MM-dd"),
@@ -54,6 +54,12 @@ public static class SnippetTemplateRenderer
                 "shortuuid" => Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture)[..8],
                 "random" or "randomhex" => RandomHex(ParseLength(format, 8, 1, 64)),
                 "randomnumber" => RandomNumber(ParseLength(format, 6, 1, 9)),
+                "filepath" or "filepaths" => JoinFiles(filePaths, FileVariableKind.FullPath, format),
+                "filename" or "filenames" => JoinFiles(filePaths, FileVariableKind.Name, format),
+                "filenamewithoutextension" or "filestem" or "filestems" => JoinFiles(filePaths, FileVariableKind.NameWithoutExtension, format),
+                "fileextension" or "fileextensions" => JoinFiles(filePaths, FileVariableKind.Extension, format),
+                "filedirectory" or "filedirectories" => JoinFiles(filePaths, FileVariableKind.Directory, format),
+                "filecount" => (filePaths?.Count ?? 0).ToString(CultureInfo.InvariantCulture),
                 "br" or "newline" => Environment.NewLine,
                 _ => match.Value
             };
@@ -77,7 +83,12 @@ public static class SnippetTemplateRenderer
 
     private static string NormalizeFormat(string value)
     {
-        var trimmed = value.Trim();
+        return NormalizeQuotedValue(value.Trim());
+    }
+
+    private static string NormalizeQuotedValue(string value)
+    {
+        var trimmed = value;
         return trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[^1] == '"'
             ? trimmed[1..^1]
             : trimmed;
@@ -112,5 +123,52 @@ public static class SnippetTemplateRenderer
         }
 
         return new string(chars);
+    }
+
+    private static string JoinFiles(IReadOnlyList<string>? filePaths, FileVariableKind kind, string separator)
+    {
+        if (filePaths is not { Count: > 0 })
+        {
+            return string.Empty;
+        }
+
+        var actualSeparator = string.IsNullOrEmpty(separator)
+            ? Environment.NewLine
+            : separator
+                .Replace(@"\n", Environment.NewLine, StringComparison.Ordinal)
+                .Replace(@"\t", "\t", StringComparison.Ordinal);
+        var values = filePaths.Select(path => FormatFileValue(path, kind)).Where(value => !string.IsNullOrEmpty(value));
+        return string.Join(actualSeparator, values);
+    }
+
+    private static bool IsFileVariable(string name)
+    {
+        return name is "filepath" or "filepaths"
+            or "filename" or "filenames"
+            or "filenamewithoutextension" or "filestem" or "filestems"
+            or "fileextension" or "fileextensions"
+            or "filedirectory" or "filedirectories";
+    }
+
+    private static string FormatFileValue(string path, FileVariableKind kind)
+    {
+        return kind switch
+        {
+            FileVariableKind.FullPath => path,
+            FileVariableKind.Name => Path.GetFileName(path),
+            FileVariableKind.NameWithoutExtension => Path.GetFileNameWithoutExtension(path),
+            FileVariableKind.Extension => Path.GetExtension(path),
+            FileVariableKind.Directory => Path.GetDirectoryName(path) ?? string.Empty,
+            _ => path
+        };
+    }
+
+    private enum FileVariableKind
+    {
+        FullPath,
+        Name,
+        NameWithoutExtension,
+        Extension,
+        Directory
     }
 }

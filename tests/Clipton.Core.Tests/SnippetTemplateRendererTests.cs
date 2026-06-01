@@ -59,6 +59,23 @@ public sealed class SnippetTemplateRendererTests
     }
 
     [Fact]
+    public void Render_ExpandsFileVariables()
+    {
+        var files = new[]
+        {
+            @"C:\Work\Report.md",
+            @"C:\Work\Notes.txt"
+        };
+
+        Assert.Equal(@"C:\Work\Report.md" + Environment.NewLine + @"C:\Work\Notes.txt", SnippetTemplateRenderer.Render("{{filepaths}}", filePaths: files));
+        Assert.Equal("Report.md, Notes.txt", SnippetTemplateRenderer.Render("{{filenames:\", \"}}", filePaths: files));
+        Assert.Equal("Report|Notes", SnippetTemplateRenderer.Render("{{filestems:|}}", filePaths: files));
+        Assert.Equal(".md/.txt", SnippetTemplateRenderer.Render("{{fileextensions:/}}", filePaths: files));
+        Assert.Equal(@"C:\Work", SnippetTemplateRenderer.Render("{{filedirectory}}", filePaths: files[..1]));
+        Assert.Equal("2", SnippetTemplateRenderer.Render("{{filecount}}", filePaths: files));
+    }
+
+    [Fact]
     public void Render_LeavesUnknownVariablesUnchanged()
     {
         Assert.Equal("Hello {{name}}", SnippetTemplateRenderer.Render("Hello {{name}}"));

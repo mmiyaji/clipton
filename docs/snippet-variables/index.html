@@ -63,6 +63,11 @@
           <tr><td><code>{{shortuuid}}</code></td><td>短い8桁ID</td><td><code>9f31a0c4</code></td><td><button class="copy-button" data-copy="{{shortuuid}}">コピー</button></td></tr>
           <tr><td><code>{{random}}</code> / <code>{{randomhex:12}}</code></td><td>ランダムな16進文字列</td><td><code>4f9a10cb</code></td><td><button class="copy-button" data-copy="{{randomhex:12}}">コピー</button></td></tr>
           <tr><td><code>{{randomnumber:4}}</code></td><td>ランダムな数字</td><td><code>4821</code></td><td><button class="copy-button" data-copy="{{randomnumber:4}}">コピー</button></td></tr>
+          <tr><td><code>{{filepath}}</code> / <code>{{filepaths}}</code></td><td>現在コピーされているファイルのフルパス</td><td><code>C:\Work\Report.md</code></td><td><button class="copy-button" data-copy="{{filepath}}">コピー</button></td></tr>
+          <tr><td><code>{{filename}}</code> / <code>{{filenames}}</code></td><td>ファイル名</td><td><code>Report.md</code></td><td><button class="copy-button" data-copy="{{filename}}">コピー</button></td></tr>
+          <tr><td><code>{{filestem}}</code> / <code>{{fileextension}}</code></td><td>拡張子なしの名前、拡張子</td><td><code>Report</code>, <code>.md</code></td><td><button class="copy-button" data-copy="{{filestem}}">コピー</button></td></tr>
+          <tr><td><code>{{filedirectory}}</code></td><td>格納フォルダー</td><td><code>C:\Work</code></td><td><button class="copy-button" data-copy="{{filedirectory}}">コピー</button></td></tr>
+          <tr><td><code>{{filecount}}</code></td><td>コピーされているファイル数</td><td><code>2</code></td><td><button class="copy-button" data-copy="{{filecount}}">コピー</button></td></tr>
           <tr><td><code>{{br}}</code> / <code>{{newline}}</code></td><td>改行</td><td>複数行テンプレート用</td><td><button class="copy-button" data-copy="{{br}}">コピー</button></td></tr>
         </tbody>
       </table>
@@ -84,7 +89,7 @@
 検証コード: {{randomnumber:6}}
 1行目{{br}}2行目</code></pre>
 
-      <p class="note">未対応の変数は変換されず、そのまま貼り付けられます。コマンド実行や環境変数参照はサポートしていません。</p>
+      <p class="note">ファイル系変数は、ファイルをコピーした状態で登録単語を貼り付けると展開されます。複数ファイルは既定で改行区切りです。<code>{{filenames:", "}}</code> のように区切り文字を指定できます。未対応の変数は変換されず、そのまま貼り付けられます。コマンド実行や環境変数参照はサポートしていません。</p>
 
       <h2>English</h2>
       <p>Snippet variables are expanded only when a registered snippet is pasted. Regular clipboard history paste operations do not expand variables.</p>
@@ -114,6 +119,11 @@
           <tr><td><code>{{shortuuid}}</code></td><td>Short 8-character ID</td><td><code>9f31a0c4</code></td><td><button class="copy-button" data-copy="{{shortuuid}}">Copy</button></td></tr>
           <tr><td><code>{{random}}</code> / <code>{{randomhex:12}}</code></td><td>Random hex string</td><td><code>4f9a10cb</code></td><td><button class="copy-button" data-copy="{{randomhex:12}}">Copy</button></td></tr>
           <tr><td><code>{{randomnumber:4}}</code></td><td>Random digits</td><td><code>4821</code></td><td><button class="copy-button" data-copy="{{randomnumber:4}}">Copy</button></td></tr>
+          <tr><td><code>{{filepath}}</code> / <code>{{filepaths}}</code></td><td>Full paths for currently copied files</td><td><code>C:\Work\Report.md</code></td><td><button class="copy-button" data-copy="{{filepath}}">Copy</button></td></tr>
+          <tr><td><code>{{filename}}</code> / <code>{{filenames}}</code></td><td>File names</td><td><code>Report.md</code></td><td><button class="copy-button" data-copy="{{filename}}">Copy</button></td></tr>
+          <tr><td><code>{{filestem}}</code> / <code>{{fileextension}}</code></td><td>Name without extension and extension</td><td><code>Report</code>, <code>.md</code></td><td><button class="copy-button" data-copy="{{filestem}}">Copy</button></td></tr>
+          <tr><td><code>{{filedirectory}}</code></td><td>Containing folder</td><td><code>C:\Work</code></td><td><button class="copy-button" data-copy="{{filedirectory}}">Copy</button></td></tr>
+          <tr><td><code>{{filecount}}</code></td><td>Copied file count</td><td><code>2</code></td><td><button class="copy-button" data-copy="{{filecount}}">Copy</button></td></tr>
           <tr><td><code>{{br}}</code> / <code>{{newline}}</code></td><td>Line break</td><td>For multi-line snippets</td><td><button class="copy-button" data-copy="{{br}}">Copy</button></td></tr>
         </tbody>
       </table>
