@@ -51,7 +51,7 @@ internal static class ClipboardTestHelpers
             {
                 return action();
             }
-            catch (Exception ex) when (attempt < maxAttempts - 1 && ex is ExternalException or InvalidOperationException)
+            catch (Exception ex) when (attempt < maxAttempts - 1 && ex is ExternalException or COMException or InvalidOperationException)
             {
                 Thread.Sleep(75);
             }

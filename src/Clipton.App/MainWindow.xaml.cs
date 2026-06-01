@@ -57,6 +57,7 @@ public sealed partial class MainWindow : Window
         StartupDescriptionText.Text = t("StartupDescription");
         SnippetNameTitleText.Text = t("SnippetName");
         SnippetTextTitleText.Text = t("SnippetText");
+        RegisterFromHistoryButton.Content = t("RegisterFromHistory");
         ClearButton.Content = t("ClearHistory");
         SaveSnippetButton.Content = t("Save");
         DeleteSnippetButton.Content = t("Delete");
@@ -65,11 +66,13 @@ public sealed partial class MainWindow : Window
         PersistHistoryCheckBox.Content = t("PersistHistory");
         MaskSensitiveContentCheckBox.Content = t("MaskSensitiveContent");
         FolderModeCheckBox.Content = t("FolderMode");
+        SimpleContextMenuCheckBox.Content = t("SimpleContextMenuMode");
         StartupCheckBox.IsChecked = _runtime.Settings.StartWithWindows;
         PauseCaptureCheckBox.IsChecked = _runtime.Settings.PauseCapture;
         PersistHistoryCheckBox.IsChecked = _runtime.Settings.PersistEncryptedHistory;
         MaskSensitiveContentCheckBox.IsChecked = _runtime.Settings.MaskSensitiveContent;
         FolderModeCheckBox.IsChecked = _runtime.Settings.FolderMode;
+        SimpleContextMenuCheckBox.IsChecked = _runtime.Settings.SimpleContextMenuMode;
         HotkeyBox.Text = _runtime.Settings.Hotkey;
         HotkeyText.Text = $"{t("Hotkey")}: {_runtime.Settings.Hotkey}";
         SetComboBoxText(ThemeBox, "light", t("ThemeLight"));
@@ -141,6 +144,27 @@ public sealed partial class MainWindow : Window
         _runtime.ClearHistory();
     }
 
+    private void RegisterFromHistoryButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (HistoryList.SelectedItem is not HistoryItemViewModel selected)
+        {
+            return;
+        }
+
+        var item = _runtime.History.Find(selected.Id);
+        if (string.IsNullOrWhiteSpace(item?.Text))
+        {
+            return;
+        }
+
+        SnippetFolderBox.Clear();
+        SnippetNameBox.Text = CreateSnippetName(item.Text);
+        SnippetTextBox.Text = item.Text;
+        NavList.SelectedItem = SnippetNavItem;
+        SnippetNameBox.Focus();
+        SnippetNameBox.SelectAll();
+    }
+
     private async void StartupCheckBox_OnChanged(object sender, RoutedEventArgs e)
     {
         if (_loading)
@@ -191,6 +215,16 @@ public sealed partial class MainWindow : Window
         }
 
         _runtime.SetFolderMode(FolderModeCheckBox.IsChecked == true);
+    }
+
+    private void SimpleContextMenuCheckBox_OnChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        _runtime.SetSimpleContextMenuMode(SimpleContextMenuCheckBox.IsChecked == true);
     }
 
     private void HistoryList_OnKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
@@ -328,5 +362,11 @@ public sealed partial class MainWindow
                 return;
             }
         }
+    }
+
+    private static string CreateSnippetName(string text)
+    {
+        var normalized = string.Join(" ", text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return normalized.Length <= 32 ? normalized : normalized[..32];
     }
 }

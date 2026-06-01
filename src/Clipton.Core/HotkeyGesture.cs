@@ -76,12 +76,37 @@ public sealed record HotkeyGesture(HotkeyModifiers Modifiers, string Key)
             }
         }
 
-        if (key is null || modifiers == HotkeyModifiers.None)
+        if (key is null || !IsSafeModifierCombination(modifiers) || !IsSupportedKey(key))
         {
             return false;
         }
 
         gesture = new HotkeyGesture(modifiers, key);
         return true;
+    }
+
+    private static bool IsSafeModifierCombination(HotkeyModifiers modifiers)
+    {
+        return modifiers.HasFlag(HotkeyModifiers.Control)
+            || modifiers.HasFlag(HotkeyModifiers.Alt)
+            || modifiers.HasFlag(HotkeyModifiers.Windows);
+    }
+
+    private static bool IsSupportedKey(string key)
+    {
+        if (key.Length == 1)
+        {
+            var c = char.ToUpperInvariant(key[0]);
+            return c is >= 'A' and <= 'Z' or >= '0' and <= '9';
+        }
+
+        if (string.Equals(key, "SPACE", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return key.StartsWith('F')
+            && int.TryParse(key[1..], out var functionKey)
+            && functionKey is >= 1 and <= 24;
     }
 }

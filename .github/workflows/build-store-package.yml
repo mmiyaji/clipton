@@ -1,0 +1,44 @@
+name: Build Store Package
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-store-package:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build Store upload package
+        shell: pwsh
+        run: |
+          msbuild packaging\Clipton.Package\Clipton.Package.wapproj `
+            /restore `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:AppxBundle=Always `
+            /p:UapAppxPackageBuildMode=StoreUpload
+
+      - name: Upload Store package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipton-store-package
+          path: |
+            packaging/Clipton.Package/bin/x64/Release/AppPackages/*.appxupload
+            packaging/Clipton.Package/bin/x64/Release/AppPackages/*.msixupload
+            packaging/Clipton.Package/bin/x64/Release/AppPackages/*.appxbundle
+            packaging/Clipton.Package/bin/x64/Release/AppPackages/*.msixbundle
+            packaging/Clipton.Package/bin/x64/Release/AppPackages/**/*.appxupload
+            packaging/Clipton.Package/bin/x64/Release/AppPackages/**/*.msixupload
+            packaging/Clipton.Package/bin/x64/Release/AppPackages/**/*.appxbundle
+            packaging/Clipton.Package/bin/x64/Release/AppPackages/**/*.msixbundle
+          if-no-files-found: error
+          retention-days: 14

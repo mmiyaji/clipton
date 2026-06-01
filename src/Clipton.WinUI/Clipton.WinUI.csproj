@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Clipton.Core\Clipton.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.0.12" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="2.0.1" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>false</ImplicitUsings>
+    <UseWinUI>true</UseWinUI>
+    <UseWindowsForms>true</UseWindowsForms>
+    <DisableXamlGeneratedMain>true</DisableXamlGeneratedMain>
+    <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <WindowsAppSDKBootstrapAutoInitializeOptions_OnPackageIdentity_NoOp>true</WindowsAppSDKBootstrapAutoInitializeOptions_OnPackageIdentity_NoOp>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\Clipton.ico</ApplicationIcon>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\Clipton.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\CliptonDark.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Clipton.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\CliptonDark.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\CliptonTray.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\CliptonTrayDark.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

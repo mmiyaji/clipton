@@ -27,8 +27,16 @@ public sealed class JsonSettingsStore
             settings.PersistEncryptedHistory = true;
         }
 
-        settings.MaxHistoryItems = Math.Clamp(Math.Max(settings.MaxHistoryItems, 200), 1, 500);
-        settings.Locale = string.IsNullOrWhiteSpace(settings.Locale) ? "en" : settings.Locale;
+        settings.MaxHistoryItems = Math.Clamp(settings.MaxHistoryItems, 1, 1000);
+        settings.ClipboardCaptureDelayMilliseconds = NormalizeClipboardCaptureDelay(settings.ClipboardCaptureDelayMilliseconds);
+        settings.PinnedHistoryIds = settings.PinnedHistoryIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        settings.Locale = NormalizeLocale(settings.Locale);
+        settings.Theme = NormalizeTheme(settings.Theme);
+        settings.QuickMenuImagePreviewSize = NormalizeQuickMenuImagePreviewSize(settings.QuickMenuImagePreviewSize);
+        NormalizeQuickMenuShortcuts(settings);
         return settings;
     }
 
@@ -42,4 +50,118 @@ public sealed class JsonSettingsStore
 
         File.WriteAllText(_path, JsonSerializer.Serialize(settings, Options));
     }
+
+    private static string NormalizeLocale(string? locale)
+    {
+        if (string.Equals(locale, "system", StringComparison.OrdinalIgnoreCase))
+        {
+            return "system";
+        }
+
+        return string.Equals(locale, "ja", StringComparison.OrdinalIgnoreCase) ? "ja" : "en";
+    }
+
+    private static string NormalizeTheme(string? theme)
+    {
+        if (string.Equals(theme, "system", StringComparison.OrdinalIgnoreCase))
+        {
+            return "system";
+        }
+
+        return string.Equals(theme, "dark", StringComparison.OrdinalIgnoreCase) ? "dark" : "light";
+    }
+
+    private static string NormalizeQuickMenuImagePreviewSize(string? value)
+    {
+        return value?.ToLowerInvariant() switch
+        {
+            "none" or "small" or "large" => value.ToLowerInvariant(),
+            _ => "medium"
+        };
+    }
+
+    private static int NormalizeClipboardCaptureDelay(int value)
+    {
+        return value is 0 or 50 or 100 or 150 or 250 or 500 or 1000
+            ? value
+            : 150;
+    }
+
+    private static void NormalizeQuickMenuShortcuts(CliptonSettings settings)
+    {
+        settings.QuickMenuShortcuts ??= new QuickMenuShortcutSettings();
+
+        var shortcuts = settings.QuickMenuShortcuts;
+        shortcuts.Search = NormalizeShortcut(
+            shortcuts.Search,
+            QuickMenuShortcutSettings.DefaultSearch,
+            ["Ctrl+S", "Ctrl+F", "S", "F"]);
+        shortcuts.PastePlainText = NormalizeShortcut(
+            shortcuts.PastePlainText,
+            QuickMenuShortcutSettings.DefaultPastePlainText,
+            ["T", "P", "Ctrl+T", "Ctrl+P"]);
+        shortcuts.ToggleMaskReveal = NormalizeShortcut(
+            shortcuts.ToggleMaskReveal,
+            QuickMenuShortcutSettings.DefaultToggleMaskReveal,
+            ["M", "Ctrl+M"]);
+        shortcuts.ToggleCapturedAt = NormalizeShortcut(
+            shortcuts.ToggleCapturedAt,
+            QuickMenuShortcutSettings.DefaultToggleCapturedAt,
+            ["Ctrl+D", "D"]);
+
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        shortcuts.Search = UniqueShortcut(shortcuts.Search, QuickMenuShortcutSettings.DefaultSearch, used);
+        shortcuts.PastePlainText = UniqueShortcut(shortcuts.PastePlainText, QuickMenuShortcutSettings.DefaultPastePlainText, used);
+        shortcuts.ToggleMaskReveal = UniqueShortcut(shortcuts.ToggleMaskReveal, QuickMenuShortcutSettings.DefaultToggleMaskReveal, used);
+        shortcuts.ToggleCapturedAt = UniqueShortcut(shortcuts.ToggleCapturedAt, QuickMenuShortcutSettings.DefaultToggleCapturedAt, used);
+    }
+
+    private static string NormalizeShortcut(string? value, string fallback, IReadOnlyCollection<string> allowed)
+    {
+        var normalized = NormalizeShortcutText(value);
+        return allowed.Contains(normalized, StringComparer.OrdinalIgnoreCase)
+            ? allowed.First(item => string.Equals(item, normalized, StringComparison.OrdinalIgnoreCase))
+            : fallback;
+    }
+
+    private static string NormalizeShortcutText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var parts = value.Split('+', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        if (parts.Take(parts.Length - 1).Any(part => !part.Equals("Ctrl", StringComparison.OrdinalIgnoreCase)
+            && !part.Equals("Control", StringComparison.OrdinalIgnoreCase)))
+        {
+            return string.Empty;
+        }
+
+        var control = parts.Take(parts.Length - 1).Any(part => part.Equals("Ctrl", StringComparison.OrdinalIgnoreCase)
+            || part.Equals("Control", StringComparison.OrdinalIgnoreCase));
+        var key = parts[^1].ToUpperInvariant();
+        return control ? $"Ctrl+{key}" : key;
+    }
+
+    private static string UniqueShortcut(string shortcut, string fallback, HashSet<string> used)
+    {
+        if (used.Add(shortcut))
+        {
+            return shortcut;
+        }
+
+        if (used.Add(fallback))
+        {
+            return fallback;
+        }
+
+        return shortcut;
+    }
+
 }

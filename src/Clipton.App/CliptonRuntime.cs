@@ -87,7 +87,7 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        ClipboardBridge.Put(ClipboardBridge.FromSnippet(snippet), asPlainText: true);
+        ClipboardBridge.PutText(SnippetTemplateRenderer.Render(snippet.Text));
         SendPaste();
     }
 
@@ -134,6 +134,12 @@ public sealed class CliptonRuntime : IDisposable
     public void SetFolderMode(bool enabled)
     {
         Settings.FolderMode = enabled;
+        SaveSettings();
+    }
+
+    public void SetSimpleContextMenuMode(bool enabled)
+    {
+        Settings.SimpleContextMenuMode = enabled;
         SaveSettings();
     }
 
@@ -244,7 +250,7 @@ public sealed class CliptonRuntime : IDisposable
     {
         _notifyIcon = new Forms.NotifyIcon
         {
-            Icon = System.Drawing.SystemIcons.Application,
+            Icon = LoadTrayIcon(),
             Text = "Clipton",
             Visible = true
         };
@@ -266,6 +272,17 @@ public sealed class CliptonRuntime : IDisposable
         _notifyIcon.ContextMenuStrip = menu;
     }
 
+    private static System.Drawing.Icon LoadTrayIcon()
+    {
+        var streamInfo = Application.GetResourceStream(new Uri("pack://application:,,,/Assets/Clipton.ico"));
+        if (streamInfo is null)
+        {
+            return System.Drawing.SystemIcons.Application;
+        }
+
+        return new System.Drawing.Icon(streamInfo.Stream);
+    }
+
     private void ShowQuickMenu()
     {
         CaptureClipboard();
@@ -274,28 +291,29 @@ public sealed class CliptonRuntime : IDisposable
         var menuItems = new List<QuickMenuItem>();
 
         var historyItems = History.Items.ToArray();
-        var directHistoryItems = Settings.FolderMode ? historyItems.Take(5) : historyItems.Take(20);
+        var directHistoryItems = Settings.FolderMode ? historyItems.Take(3) : historyItems.Take(20);
         foreach (var item in directHistoryItems)
         {
             menuItems.Add(CreateHistoryMenuItem(item));
         }
 
-        if (Settings.FolderMode && historyItems.Length > 5)
+        if (Settings.FolderMode && historyItems.Length > 3)
         {
-            var olderItems = historyItems.Skip(5).ToArray();
+            var olderItems = historyItems.Skip(3).ToArray();
             for (var start = 0; start < olderItems.Length; start += 50)
             {
-                var rangeItems = olderItems.Skip(start).Take(50).Select(CreateHistoryMenuItem).ToArray();
                 var rangeStart = start + 1;
-                var rangeEnd = start + rangeItems.Length;
+                var rangeCount = Math.Min(50, olderItems.Length - start);
+                var rangeEnd = start + rangeCount;
+                var rangeOffset = start;
                 menuItems.Add(new QuickMenuItem(
                     $"{rangeStart}~{rangeEnd}",
-                    $"{rangeItems.Length} items",
+                    $"{rangeCount} items",
                     ">",
                     "Enter",
                     Brushes.DimGray,
                     () => { },
-                    Children: rangeItems));
+                    LazyChildren: () => olderItems.Skip(rangeOffset).Take(rangeCount).Select(CreateHistoryMenuItem).ToArray()));
             }
         }
 
@@ -325,7 +343,7 @@ public sealed class CliptonRuntime : IDisposable
                 IsEnabled: true));
         }
 
-        var quickMenuWindow = new QuickMenuWindow(Translate("History"), menuItems, Settings.Theme);
+        var quickMenuWindow = new QuickMenuWindow(Translate("History"), menuItems, Settings.Theme, Settings.SimpleContextMenuMode);
         _quickMenuWindow = quickMenuWindow;
         var cursor = Forms.Cursor.Position;
         quickMenuWindow.Left = cursor.X;
@@ -361,14 +379,31 @@ public sealed class CliptonRuntime : IDisposable
 
     private void EnsureDefaultSnippets()
     {
-        if (Snippets.Snippets.Count > 0)
+        var changed = false;
+        if (Snippets.Snippets.Count == 0)
         {
-            return;
+            Snippets.Upsert(new Snippet("Email", "hello@example.com"));
+            Snippets.Upsert(new Snippet("Greeting", "Hello,"));
+            changed = true;
         }
 
-        Snippets.Upsert(new Snippet("Email", "hello@example.com"));
-        Snippets.Upsert(new Snippet("Greeting", "Hello,"));
-        SaveSnippets(_snippetPath, Snippets);
+        changed |= AddDefaultSnippet("datetime", "today", "{{date}}");
+        changed |= AddDefaultSnippet("datetime", "now", "{{time}}");
+        if (changed)
+        {
+            SaveSnippets(_snippetPath, Snippets);
+        }
+    }
+
+    private bool AddDefaultSnippet(string folder, string name, string text)
+    {
+        if (Snippets.Find(folder, name) is not null)
+        {
+            return false;
+        }
+
+        Snippets.Upsert(new Snippet(name, text, folder));
+        return true;
     }
 
     private static SnippetCatalog LoadSnippets(string path)
@@ -440,18 +475,31 @@ public sealed class CliptonRuntime : IDisposable
     public HistoryItemViewModel CreateHistoryItemViewModel(ClipboardSnapshot snapshot)
     {
         var formats = string.Join(", ", snapshot.Formats);
-        var snippet = Snippets.FindByText(snapshot.Text);
+        var plainText = ClipboardBridge.GetPlainText(snapshot);
+        var snippet = Snippets.FindByText(plainText);
         if (snippet is not null)
         {
             return new HistoryItemViewModel(snapshot.Id, snippet.DisplayName, $"{Translate("RegisteredSnippetMasked")} - {formats}");
         }
 
-        if (Settings.MaskSensitiveContent && SensitiveContentDetector.ShouldMask(snapshot.Text))
+        if (Settings.MaskSensitiveContent && SensitiveContentDetector.CreateMaskedPreview(plainText) is { } maskedPreview)
         {
-            return new HistoryItemViewModel(snapshot.Id, Translate("MaskedSensitive"), formats);
+            return new HistoryItemViewModel(snapshot.Id, NormalizePreviewText(maskedPreview), $"{Translate("MaskedSensitive")} - {formats}");
         }
 
-        return new HistoryItemViewModel(snapshot.Id, snapshot.Preview, formats);
+        return new HistoryItemViewModel(snapshot.Id, CreatePreviewText(snapshot, plainText), formats);
+    }
+
+    private static string CreatePreviewText(ClipboardSnapshot snapshot, string? plainText)
+    {
+        return string.IsNullOrWhiteSpace(plainText)
+            ? snapshot.Preview
+            : NormalizePreviewText(plainText);
+    }
+
+    private static string NormalizePreviewText(string text)
+    {
+        return text.ReplaceLineEndings(" ").Trim();
     }
 
     private IReadOnlyList<QuickMenuItem> CreateSnippetMenuItems(IEnumerable<Snippet> snippets)

@@ -6,6 +6,9 @@ namespace Clipton.Core;
 public sealed class ClipboardHistory
 {
     private readonly List<ClipboardSnapshot> _items = new();
+    private readonly Dictionary<string, ClipboardSnapshot> _itemsById = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ClipboardSnapshot> _itemsByFingerprint = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _fingerprintsById = new(StringComparer.Ordinal);
     private string? _lastFingerprint;
 
     public ClipboardHistory(int capacity = 30)
@@ -18,7 +21,7 @@ public sealed class ClipboardHistory
         Capacity = capacity;
     }
 
-    public int Capacity { get; }
+    public int Capacity { get; private set; }
 
     public IReadOnlyList<ClipboardSnapshot> Items => _items;
 
@@ -31,12 +34,20 @@ public sealed class ClipboardHistory
         }
 
         _lastFingerprint = fingerprint;
-        _items.RemoveAll(item => CreateFingerprint(item) == fingerprint);
+        if (_itemsByFingerprint.TryGetValue(fingerprint, out var duplicate))
+        {
+            RemoveTracked(duplicate);
+        }
+
         _items.Insert(0, snapshot);
+        Track(snapshot, fingerprint);
 
         if (_items.Count > Capacity)
         {
-            _items.RemoveRange(Capacity, _items.Count - Capacity);
+            foreach (var item in _items.Skip(Capacity).ToArray())
+            {
+                RemoveTracked(item);
+            }
         }
 
         return true;
@@ -45,12 +56,15 @@ public sealed class ClipboardHistory
     public void Clear()
     {
         _items.Clear();
+        _itemsById.Clear();
+        _itemsByFingerprint.Clear();
+        _fingerprintsById.Clear();
         _lastFingerprint = null;
     }
 
     public bool Remove(string id)
     {
-        var removed = _items.RemoveAll(item => item.Id == id) > 0;
+        var removed = _itemsById.TryGetValue(id, out var item) && RemoveTracked(item);
         if (_items.Count == 0)
         {
             _lastFingerprint = null;
@@ -59,7 +73,46 @@ public sealed class ClipboardHistory
         return removed;
     }
 
-    public ClipboardSnapshot? Find(string id) => _items.FirstOrDefault(item => item.Id == id);
+    public ClipboardSnapshot? Find(string id) => _itemsById.GetValueOrDefault(id);
+
+    public void SetCapacity(int capacity)
+    {
+        if (capacity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(capacity), "Capacity must be positive.");
+        }
+
+        Capacity = capacity;
+        if (_items.Count <= Capacity)
+        {
+            return;
+        }
+
+        foreach (var item in _items.Skip(Capacity).ToArray())
+        {
+            RemoveTracked(item);
+        }
+    }
+
+    private void Track(ClipboardSnapshot snapshot, string fingerprint)
+    {
+        _itemsById[snapshot.Id] = snapshot;
+        _itemsByFingerprint[fingerprint] = snapshot;
+        _fingerprintsById[snapshot.Id] = fingerprint;
+    }
+
+    private bool RemoveTracked(ClipboardSnapshot snapshot)
+    {
+        var removed = _items.Remove(snapshot);
+        _itemsById.Remove(snapshot.Id);
+
+        if (_fingerprintsById.Remove(snapshot.Id, out var fingerprint))
+        {
+            _itemsByFingerprint.Remove(fingerprint);
+        }
+
+        return removed;
+    }
 
     public static string CreateFingerprint(ClipboardSnapshot snapshot)
     {

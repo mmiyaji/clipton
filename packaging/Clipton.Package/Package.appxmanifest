@@ -7,13 +7,13 @@
   IgnorableNamespaces="uap uap5 rescap">
 
   <Identity
-    Name="Clipton.ClipboardManager"
-    Publisher="CN=Clipton"
-    Version="0.1.0.0" />
+    Name="mmiyaji.Clipton"
+    Publisher="CN=663C5D03-791A-4B2C-8509-629FA1CA125A"
+    Version="0.1.3.0" />
 
   <Properties>
     <DisplayName>Clipton</DisplayName>
-    <PublisherDisplayName>Clipton</PublisherDisplayName>
+    <PublisherDisplayName>mmiyaji</PublisherDisplayName>
     <Logo>Images\StoreLogo.png</Logo>
   </Properties>
 
@@ -47,7 +47,7 @@
       <Extensions>
         <uap5:Extension
           Category="windows.startupTask"
-          Executable="Clipton.App\Clipton.App.exe"
+          Executable="Clipton.WinUI\Clipton.WinUI.exe"
           EntryPoint="Windows.FullTrustApplication">
           <uap5:StartupTask
             TaskId="CliptonStartup"

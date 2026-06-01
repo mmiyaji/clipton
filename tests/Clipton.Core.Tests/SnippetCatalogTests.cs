@@ -50,4 +50,41 @@ public sealed class SnippetCatalogTests
         Assert.NotNull(snippet);
         Assert.Equal("Secrets / ApiKey", snippet.DisplayName);
     }
+
+    [Fact]
+    public void Find_NormalizesFolderSeparators()
+    {
+        var catalog = new SnippetCatalog();
+        catalog.Upsert(new Snippet("Reply", "Thanks", @"Work\Templates"));
+
+        var snippet = catalog.Find("Work/Templates", "reply");
+
+        Assert.NotNull(snippet);
+        Assert.Equal("Work/Templates", snippet.Folder);
+    }
+
+    [Fact]
+    public void Upsert_RebuildsTextIndexWhenSnippetTextChanges()
+    {
+        var catalog = new SnippetCatalog();
+
+        catalog.Upsert(new Snippet("Token", "old-secret", "Secrets"));
+        catalog.Upsert(new Snippet("Token", "new-secret", "Secrets"));
+
+        Assert.Null(catalog.FindByText("old-secret"));
+        Assert.Equal("new-secret", catalog.FindByText("new-secret")?.Text);
+    }
+
+    [Fact]
+    public void FindAndFindByText_HandleLargeCatalog()
+    {
+        var catalog = new SnippetCatalog();
+        for (var i = 0; i < 2_000; i++)
+        {
+            catalog.Upsert(new Snippet($"Name-{i}", $"Text-{i}", $"Folder-{i % 20}"));
+        }
+
+        Assert.Equal("Text-1999", catalog.Find("Folder-19", "name-1999")?.Text);
+        Assert.Equal("Folder-19 / Name-1999", catalog.FindByText("Text-1999")?.DisplayName);
+    }
 }

@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clipton Snippet Variables</title>
+  <style>
+    body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; color: #1f1f1f; background: #f7f7f7; }
+    main { max-width: 980px; margin: 0 auto; padding: 48px 24px; line-height: 1.75; }
+    h1 { font-size: 2rem; margin: 0 0 12px; }
+    h2 { font-size: 1.15rem; margin-top: 32px; }
+    h3 { font-size: 1rem; margin-top: 24px; }
+    section { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 28px; }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0 24px; }
+    th, td { border-bottom: 1px solid #e5e5e5; padding: 10px 8px; text-align: left; vertical-align: top; }
+    th { background: #f3f4f6; font-weight: 600; }
+    code { background: #f3f4f6; border-radius: 4px; padding: 2px 5px; font-family: Consolas, "Courier New", monospace; }
+    pre { overflow-x: auto; background: #1f1f1f; color: #f5f5f5; border-radius: 6px; padding: 14px; }
+    pre code { background: transparent; color: inherit; border-radius: 0; padding: 0; }
+    .updated, .note { color: #667085; font-size: .95rem; }
+    .copy-button { appearance: none; border: 1px solid #d0d5dd; border-radius: 4px; background: #fff; color: #1f1f1f; padding: 4px 10px; font: inherit; line-height: 1.3; cursor: pointer; }
+    .copy-button:hover { background: #f3f4f6; }
+    .copy-button:focus-visible { outline: 2px solid #0067c0; outline-offset: 2px; }
+    .copy-button.copied { border-color: #0067c0; color: #0067c0; }
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <h1>Clipton Snippet Variables</h1>
+      <p class="updated">Last updated: 2026-06-01</p>
+
+      <h2>日本語</h2>
+      <p>登録単語の本文に <code>{{date}}</code> のような変数を書くと、登録単語を貼り付ける瞬間の値に展開されます。通常のクリップボード履歴貼り付けでは展開されません。</p>
+
+      <h3>基本変数</h3>
+      <table>
+        <thead>
+          <tr><th>変数</th><th>内容</th><th>例</th><th>コピー</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>{{date}}</code></td><td>現在の日付</td><td><code>2026-05-31</code></td><td><button class="copy-button" data-copy="{{date}}">コピー</button></td></tr>
+          <tr><td><code>{{time}}</code></td><td>現在の時刻</td><td><code>09:08</code></td><td><button class="copy-button" data-copy="{{time}}">コピー</button></td></tr>
+          <tr><td><code>{{datetime}}</code> / <code>{{now}}</code></td><td>現在の日付と時刻</td><td><code>2026-05-31 09:08</code></td><td><button class="copy-button" data-copy="{{datetime}}">コピー</button></td></tr>
+          <tr><td><code>{{utcdate}}</code></td><td>UTC日付</td><td><code>2026-05-31</code></td><td><button class="copy-button" data-copy="{{utcdate}}">コピー</button></td></tr>
+          <tr><td><code>{{utctime}}</code></td><td>UTC時刻</td><td><code>00:08</code></td><td><button class="copy-button" data-copy="{{utctime}}">コピー</button></td></tr>
+          <tr><td><code>{{utcdatetime}}</code> / <code>{{utcnow}}</code></td><td>UTC日時</td><td><code>2026-05-31 00:08</code></td><td><button class="copy-button" data-copy="{{utcdatetime}}">コピー</button></td></tr>
+          <tr><td><code>{{isodate}}</code></td><td>ISO形式の日付</td><td><code>2026-05-31</code></td><td><button class="copy-button" data-copy="{{isodate}}">コピー</button></td></tr>
+          <tr><td><code>{{isodatetime}}</code></td><td>ISO 8601形式の日時</td><td><code>2026-05-31T09:08:07.0000000+09:00</code></td><td><button class="copy-button" data-copy="{{isodatetime}}">コピー</button></td></tr>
+          <tr><td><code>{{isoutc}}</code></td><td>UTCのISO 8601形式日時</td><td><code>2026-05-31T00:08:07.0000000+00:00</code></td><td><button class="copy-button" data-copy="{{isoutc}}">コピー</button></td></tr>
+          <tr><td><code>{{year}}</code> / <code>{{month}}</code> / <code>{{day}}</code></td><td>年、月、日</td><td><code>2026</code>, <code>05</code>, <code>31</code></td><td><button class="copy-button" data-copy="{{year}}">コピー</button></td></tr>
+          <tr><td><code>{{weekday}}</code></td><td>曜日</td><td><code>日曜日</code></td><td><button class="copy-button" data-copy="{{weekday}}">コピー</button></td></tr>
+          <tr><td><code>{{tomorrow}}</code> / <code>{{yesterday}}</code></td><td>明日、昨日の日付</td><td><code>2026-06-01</code></td><td><button class="copy-button" data-copy="{{tomorrow}}">コピー</button></td></tr>
+          <tr><td><code>{{adddays:7}}</code></td><td>指定日数を加算した日付</td><td><code>2026-06-07</code></td><td><button class="copy-button" data-copy="{{adddays:7}}">コピー</button></td></tr>
+          <tr><td><code>{{adddays:-7|yyyy/MM/dd}}</code></td><td>指定日数を加算し、形式を指定</td><td><code>2026/05/24</code></td><td><button class="copy-button" data-copy="{{adddays:-7|yyyy/MM/dd}}">コピー</button></td></tr>
+          <tr><td><code>{{addmonths:1}}</code> / <code>{{addyears:-1}}</code></td><td>月・年を加算</td><td><code>2026-06-30</code></td><td><button class="copy-button" data-copy="{{addmonths:1}}">コピー</button></td></tr>
+          <tr><td><code>{{addhours:2}}</code> / <code>{{addminutes:30|HH:mm}}</code></td><td>時・分を加算</td><td><code>2026-05-31 11:08</code></td><td><button class="copy-button" data-copy="{{addhours:2}}">コピー</button></td></tr>
+          <tr><td><code>{{quarter}}</code></td><td>四半期</td><td><code>2</code></td><td><button class="copy-button" data-copy="{{quarter}}">コピー</button></td></tr>
+          <tr><td><code>{{week}}</code> / <code>{{isoweek}}</code></td><td>ISO週番号</td><td><code>22</code></td><td><button class="copy-button" data-copy="{{week}}">コピー</button></td></tr>
+          <tr><td><code>{{unix}}</code> / <code>{{unixms}}</code></td><td>Unixタイムスタンプ</td><td><code>1780186087</code></td><td><button class="copy-button" data-copy="{{unix}}">コピー</button></td></tr>
+          <tr><td><code>{{timezone}}</code></td><td>タイムゾーンオフセット</td><td><code>+09:00</code></td><td><button class="copy-button" data-copy="{{timezone}}">コピー</button></td></tr>
+          <tr><td><code>{{uuid}}</code> / <code>{{guid}}</code></td><td>新しいUUID</td><td><code>2d0b45d0-6b9e-4d2c-a8dc-...</code></td><td><button class="copy-button" data-copy="{{uuid}}">コピー</button></td></tr>
+          <tr><td><code>{{shortuuid}}</code></td><td>短い8桁ID</td><td><code>9f31a0c4</code></td><td><button class="copy-button" data-copy="{{shortuuid}}">コピー</button></td></tr>
+          <tr><td><code>{{random}}</code> / <code>{{randomhex:12}}</code></td><td>ランダムな16進文字列</td><td><code>4f9a10cb</code></td><td><button class="copy-button" data-copy="{{randomhex:12}}">コピー</button></td></tr>
+          <tr><td><code>{{randomnumber:4}}</code></td><td>ランダムな数字</td><td><code>4821</code></td><td><button class="copy-button" data-copy="{{randomnumber:4}}">コピー</button></td></tr>
+          <tr><td><code>{{filepath}}</code> / <code>{{filepaths}}</code></td><td>現在コピーされているファイルのフルパス</td><td><code>C:\Work\Report.md</code></td><td><button class="copy-button" data-copy="{{filepath}}">コピー</button></td></tr>
+          <tr><td><code>{{filename}}</code> / <code>{{filenames}}</code></td><td>ファイル名</td><td><code>Report.md</code></td><td><button class="copy-button" data-copy="{{filename}}">コピー</button></td></tr>
+          <tr><td><code>{{filestem}}</code> / <code>{{fileextension}}</code></td><td>拡張子なしの名前、拡張子</td><td><code>Report</code>, <code>.md</code></td><td><button class="copy-button" data-copy="{{filestem}}">コピー</button></td></tr>
+          <tr><td><code>{{filedirectory}}</code></td><td>格納フォルダー</td><td><code>C:\Work</code></td><td><button class="copy-button" data-copy="{{filedirectory}}">コピー</button></td></tr>
+          <tr><td><code>{{filecount}}</code></td><td>コピーされているファイル数</td><td><code>2</code></td><td><button class="copy-button" data-copy="{{filecount}}">コピー</button></td></tr>
+          <tr><td><code>{{br}}</code> / <code>{{newline}}</code></td><td>改行</td><td>複数行テンプレート用</td><td><button class="copy-button" data-copy="{{br}}">コピー</button></td></tr>
+        </tbody>
+      </table>
+
+      <h3>日時フォーマット</h3>
+      <p><code>{{date}}</code>, <code>{{time}}</code>, <code>{{datetime}}</code>, <code>{{weekday}}</code>, <code>{{tomorrow}}</code>, <code>{{utcdate}}</code> などの日時系変数は .NET の日時フォーマットを指定できます。<code>{{adddays:7|yyyy/MM/dd}}</code> のように、加算系は <code>|</code> の後ろへ形式を指定できます。</p>
+      <pre><code>{{date:yyyy/MM/dd}}
+{{date("yyyyMMdd")}}
+{{time:HH:mm:ss}}
+{{datetime:yyyy-MM-dd HH:mm:ss}}
+{{tomorrow:yyyy/MM/dd}}
+{{adddays:7|yyyy/MM/dd}}
+{{addminutes:30|HH:mm}}
+{{weekday:ddd}}</code></pre>
+
+      <h3>例</h3>
+      <pre><code>本日 {{date:yyyy/MM/dd}} {{time}} 時点で確認しました。
+受付ID: {{shortuuid}}
+検証コード: {{randomnumber:6}}
+1行目{{br}}2行目</code></pre>
+
+      <p class="note">ファイル系変数は、ファイルをコピーした状態で登録単語を貼り付けると展開されます。複数ファイルは既定で改行区切りです。<code>{{filenames:", "}}</code> のように区切り文字を指定できます。未対応の変数は変換されず、そのまま貼り付けられます。コマンド実行や環境変数参照はサポートしていません。</p>
+
+      <h2>English</h2>
+      <p>Snippet variables are expanded only when a registered snippet is pasted. Regular clipboard history paste operations do not expand variables.</p>
+
+      <table>
+        <thead>
+          <tr><th>Variable</th><th>Description</th><th>Example</th><th>Copy</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>{{date}}</code></td><td>Current date</td><td><code>2026-05-31</code></td><td><button class="copy-button" data-copy="{{date}}">Copy</button></td></tr>
+          <tr><td><code>{{time}}</code></td><td>Current time</td><td><code>09:08</code></td><td><button class="copy-button" data-copy="{{time}}">Copy</button></td></tr>
+          <tr><td><code>{{datetime}}</code> / <code>{{now}}</code></td><td>Current date and time</td><td><code>2026-05-31 09:08</code></td><td><button class="copy-button" data-copy="{{datetime}}">Copy</button></td></tr>
+          <tr><td><code>{{utcdate}}</code> / <code>{{utctime}}</code> / <code>{{utcdatetime}}</code></td><td>UTC date and time</td><td><code>2026-05-31 00:08</code></td><td><button class="copy-button" data-copy="{{utcdatetime}}">Copy</button></td></tr>
+          <tr><td><code>{{isodate}}</code> / <code>{{isodatetime}}</code> / <code>{{isoutc}}</code></td><td>ISO date and time</td><td><code>2026-05-31T09:08:07.0000000+09:00</code></td><td><button class="copy-button" data-copy="{{isodatetime}}">Copy</button></td></tr>
+          <tr><td><code>{{year}}</code> / <code>{{month}}</code> / <code>{{day}}</code></td><td>Year, month, day</td><td><code>2026</code>, <code>05</code>, <code>31</code></td><td><button class="copy-button" data-copy="{{year}}">Copy</button></td></tr>
+          <tr><td><code>{{weekday}}</code></td><td>Weekday</td><td><code>Sunday</code></td><td><button class="copy-button" data-copy="{{weekday}}">Copy</button></td></tr>
+          <tr><td><code>{{tomorrow}}</code> / <code>{{yesterday}}</code></td><td>Tomorrow and yesterday</td><td><code>2026-06-01</code></td><td><button class="copy-button" data-copy="{{tomorrow}}">Copy</button></td></tr>
+          <tr><td><code>{{adddays:7}}</code></td><td>Add days</td><td><code>2026-06-07</code></td><td><button class="copy-button" data-copy="{{adddays:7}}">Copy</button></td></tr>
+          <tr><td><code>{{adddays:-7|yyyy/MM/dd}}</code></td><td>Add days with a custom format</td><td><code>2026/05/24</code></td><td><button class="copy-button" data-copy="{{adddays:-7|yyyy/MM/dd}}">Copy</button></td></tr>
+          <tr><td><code>{{addmonths:1}}</code> / <code>{{addyears:-1}}</code></td><td>Add months or years</td><td><code>2026-06-30</code></td><td><button class="copy-button" data-copy="{{addmonths:1}}">Copy</button></td></tr>
+          <tr><td><code>{{addhours:2}}</code> / <code>{{addminutes:30|HH:mm}}</code></td><td>Add hours or minutes</td><td><code>2026-05-31 11:08</code></td><td><button class="copy-button" data-copy="{{addhours:2}}">Copy</button></td></tr>
+          <tr><td><code>{{quarter}}</code></td><td>Quarter</td><td><code>2</code></td><td><button class="copy-button" data-copy="{{quarter}}">Copy</button></td></tr>
+          <tr><td><code>{{week}}</code> / <code>{{isoweek}}</code></td><td>ISO week number</td><td><code>22</code></td><td><button class="copy-button" data-copy="{{week}}">Copy</button></td></tr>
+          <tr><td><code>{{unix}}</code> / <code>{{unixms}}</code></td><td>Unix timestamp</td><td><code>1780186087</code></td><td><button class="copy-button" data-copy="{{unix}}">Copy</button></td></tr>
+          <tr><td><code>{{timezone}}</code></td><td>Time zone offset</td><td><code>+09:00</code></td><td><button class="copy-button" data-copy="{{timezone}}">Copy</button></td></tr>
+          <tr><td><code>{{uuid}}</code> / <code>{{guid}}</code></td><td>New UUID</td><td><code>2d0b45d0-6b9e-4d2c-a8dc-...</code></td><td><button class="copy-button" data-copy="{{uuid}}">Copy</button></td></tr>
+          <tr><td><code>{{shortuuid}}</code></td><td>Short 8-character ID</td><td><code>9f31a0c4</code></td><td><button class="copy-button" data-copy="{{shortuuid}}">Copy</button></td></tr>
+          <tr><td><code>{{random}}</code> / <code>{{randomhex:12}}</code></td><td>Random hex string</td><td><code>4f9a10cb</code></td><td><button class="copy-button" data-copy="{{randomhex:12}}">Copy</button></td></tr>
+          <tr><td><code>{{randomnumber:4}}</code></td><td>Random digits</td><td><code>4821</code></td><td><button class="copy-button" data-copy="{{randomnumber:4}}">Copy</button></td></tr>
+          <tr><td><code>{{filepath}}</code> / <code>{{filepaths}}</code></td><td>Full paths for currently copied files</td><td><code>C:\Work\Report.md</code></td><td><button class="copy-button" data-copy="{{filepath}}">Copy</button></td></tr>
+          <tr><td><code>{{filename}}</code> / <code>{{filenames}}</code></td><td>File names</td><td><code>Report.md</code></td><td><button class="copy-button" data-copy="{{filename}}">Copy</button></td></tr>
+          <tr><td><code>{{filestem}}</code> / <code>{{fileextension}}</code></td><td>Name without extension and extension</td><td><code>Report</code>, <code>.md</code></td><td><button class="copy-button" data-copy="{{filestem}}">Copy</button></td></tr>
+          <tr><td><code>{{filedirectory}}</code></td><td>Containing folder</td><td><code>C:\Work</code></td><td><button class="copy-button" data-copy="{{filedirectory}}">Copy</button></td></tr>
+          <tr><td><code>{{filecount}}</code></td><td>Copied file count</td><td><code>2</code></td><td><button class="copy-button" data-copy="{{filecount}}">Copy</button></td></tr>
+          <tr><td><code>{{br}}</code> / <code>{{newline}}</code></td><td>Line break</td><td>For multi-line snippets</td><td><button class="copy-button" data-copy="{{br}}">Copy</button></td></tr>
+        </tbody>
+      </table>
+
+      <p>Custom date and time formats are supported with either colon or function-style syntax. Offset variables use <code>|</code> before the output format, such as <code>{{adddays:7|yyyy/MM/dd}}</code>.</p>
+      <pre><code>{{date:yyyy/MM/dd}}
+{{date("yyyyMMdd")}}
+{{time:HH:mm:ss}}
+{{datetime:yyyy-MM-dd HH:mm:ss}}
+{{tomorrow:yyyy/MM/dd}}
+{{adddays:7|yyyy/MM/dd}}
+{{addminutes:30|HH:mm}}</code></pre>
+    </section>
+  </main>
+  <script>
+    async function copyText(value) {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(value);
+        return;
+      }
+
+      const textarea = document.createElement("textarea");
+      textarea.value = value;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+    }
+
+    document.querySelectorAll(".copy-button").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const value = button.dataset.copy;
+        if (!value) return;
+        await copyText(value);
+        const original = button.textContent;
+        button.textContent = original === "Copy" ? "Copied" : "コピー済み";
+        button.classList.add("copied");
+        window.setTimeout(() => {
+          button.textContent = original;
+          button.classList.remove("copied");
+        }, 1200);
+      });
+    });
+  </script>
+</body>
+</html>

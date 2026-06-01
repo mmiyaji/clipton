@@ -3,6 +3,7 @@
   <Folder Name="/src/">
     <Project Path="src/Clipton.App/Clipton.App.csproj" />
     <Project Path="src/Clipton.Core/Clipton.Core.csproj" />
+    <Project Path="src/Clipton.WinUI/Clipton.WinUI.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Clipton.App.Tests/Clipton.App.Tests.csproj" />
