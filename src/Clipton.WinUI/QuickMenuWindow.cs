@@ -544,6 +544,8 @@ public sealed class QuickMenuWindow : Window
         var root = new Grid
         {
             Padding = new Thickness(18),
+            MinWidth = 560,
+            MinHeight = 420,
             RequestedTheme = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase)
                 ? ElementTheme.Dark
                 : ElementTheme.Light,
@@ -559,23 +561,28 @@ public sealed class QuickMenuWindow : Window
         {
             Text = _searchPrompt,
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 12)
+            Margin = new Thickness(0, 0, 0, 12),
+            VerticalAlignment = VerticalAlignment.Center
         };
         root.Children.Add(prompt);
         var input = new TextBox
         {
             PlaceholderText = _searchTitle,
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            Margin = new Thickness(0, 0, 0, 12)
+            MinHeight = 34,
+            Margin = new Thickness(0, 0, 0, 12),
+            VerticalContentAlignment = VerticalAlignment.Center
         };
         input.Loaded += (_, _) => FocusSearchInput(input);
         Grid.SetRow(input, 1);
         root.Children.Add(input);
         var previewList = new ListView
         {
-            Height = 210,
+            MinHeight = 160,
             Margin = new Thickness(0, 0, 0, 16),
-            SelectionMode = ListViewSelectionMode.None
+            SelectionMode = ListViewSelectionMode.None,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
         };
         Grid.SetRow(previewList, 2);
         root.Children.Add(previewList);
@@ -609,23 +616,36 @@ public sealed class QuickMenuWindow : Window
             previewList.Items.Clear();
             foreach (var item in matches)
             {
+                var title = new TextBlock
+                {
+                    Text = item.Title,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                var subtitle = new TextBlock
+                {
+                    Text = item.Subtitle,
+                    FontSize = 12,
+                    Foreground = new SolidColorBrush(string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase)
+                        ? Color.FromArgb(255, 199, 199, 199)
+                        : Color.FromArgb(255, 102, 112, 133)),
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
                 previewList.Items.Add(new ListViewItem
                 {
+                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                    MinHeight = 56,
+                    Padding = new Thickness(14, 8, 14, 8),
                     Content = new StackPanel
                     {
                         Spacing = 2,
+                        HorizontalAlignment = HorizontalAlignment.Stretch,
+                        VerticalAlignment = VerticalAlignment.Center,
                         Children =
                         {
-                            new TextBlock { Text = item.Title, TextTrimming = TextTrimming.CharacterEllipsis },
-                            new TextBlock
-                            {
-                                Text = item.Subtitle,
-                                FontSize = 12,
-                                Foreground = new SolidColorBrush(string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase)
-                                    ? Color.FromArgb(255, 199, 199, 199)
-                                    : Color.FromArgb(255, 102, 112, 133)),
-                                TextTrimming = TextTrimming.CharacterEllipsis
-                            }
+                            title,
+                            subtitle
                         }
                     }
                 });
@@ -667,7 +687,7 @@ public sealed class QuickMenuWindow : Window
         var id = Win32Interop.GetWindowIdFromWindow(hwnd);
         if (AppWindow.GetFromWindowId(id) is { } appWindow)
         {
-            appWindow.Resize(new SizeInt32(640, 420));
+            appWindow.Resize(new SizeInt32(720, 560));
             var dark = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase);
             appWindow.TitleBar.BackgroundColor = dark ? Color.FromArgb(255, 31, 31, 31) : Color.FromArgb(255, 243, 243, 243);
             appWindow.TitleBar.ForegroundColor = dark ? Color.FromArgb(255, 243, 243, 243) : Color.FromArgb(255, 31, 31, 31);
@@ -675,9 +695,9 @@ public sealed class QuickMenuWindow : Window
             appWindow.TitleBar.ButtonForegroundColor = appWindow.TitleBar.ForegroundColor;
             if (appWindow.Presenter is OverlappedPresenter presenter)
             {
-                presenter.IsResizable = false;
-                presenter.IsMaximizable = false;
-                presenter.IsMinimizable = false;
+                presenter.IsResizable = true;
+                presenter.IsMaximizable = true;
+                presenter.IsMinimizable = true;
             }
         }
 
