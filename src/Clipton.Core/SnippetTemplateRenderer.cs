@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 
 namespace Clipton.Core;
@@ -27,14 +28,27 @@ public static class SnippetTemplateRenderer
                 "date" => Format(timestamp, format, "yyyy-MM-dd"),
                 "time" => Format(timestamp, format, "HH:mm"),
                 "datetime" or "now" => Format(timestamp, format, "yyyy-MM-dd HH:mm"),
+                "utcdate" => Format(timestamp.ToUniversalTime(), format, "yyyy-MM-dd"),
+                "utctime" => Format(timestamp.ToUniversalTime(), format, "HH:mm"),
+                "utcdatetime" or "utcnow" => Format(timestamp.ToUniversalTime(), format, "yyyy-MM-dd HH:mm"),
                 "isodate" => timestamp.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                 "isodatetime" => timestamp.ToString("O", CultureInfo.InvariantCulture),
+                "isoutc" => timestamp.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
                 "year" => timestamp.ToString("yyyy", CultureInfo.InvariantCulture),
                 "month" => timestamp.ToString("MM", CultureInfo.InvariantCulture),
                 "day" => timestamp.ToString("dd", CultureInfo.InvariantCulture),
+                "tomorrow" => Format(timestamp.AddDays(1), format, "yyyy-MM-dd"),
+                "yesterday" => Format(timestamp.AddDays(-1), format, "yyyy-MM-dd"),
+                "quarter" => (((timestamp.Month - 1) / 3) + 1).ToString(CultureInfo.InvariantCulture),
+                "week" or "isoweek" => ISOWeek.GetWeekOfYear(timestamp.Date).ToString("00", CultureInfo.InvariantCulture),
                 "weekday" => timestamp.ToString(string.IsNullOrWhiteSpace(format) ? "dddd" : format, CultureInfo.CurrentCulture),
                 "unix" => timestamp.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture),
+                "unixms" => timestamp.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture),
+                "timezone" => timestamp.ToString("zzz", CultureInfo.InvariantCulture),
                 "guid" or "uuid" => Guid.NewGuid().ToString("D", CultureInfo.InvariantCulture),
+                "shortuuid" => Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture)[..8],
+                "random" or "randomhex" => RandomHex(ParseLength(format, 8, 1, 64)),
+                "randomnumber" => RandomNumber(ParseLength(format, 6, 1, 9)),
                 "br" or "newline" => Environment.NewLine,
                 _ => match.Value
             };
@@ -52,5 +66,29 @@ public static class SnippetTemplateRenderer
         return trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[^1] == '"'
             ? trimmed[1..^1]
             : trimmed;
+    }
+
+    private static int ParseLength(string value, int fallback, int min, int max)
+    {
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? Math.Clamp(parsed, min, max)
+            : fallback;
+    }
+
+    private static string RandomHex(int length)
+    {
+        var bytes = RandomNumberGenerator.GetBytes((length + 1) / 2);
+        return Convert.ToHexString(bytes).ToLowerInvariant()[..length];
+    }
+
+    private static string RandomNumber(int digits)
+    {
+        var chars = new char[digits];
+        for (var i = 0; i < chars.Length; i++)
+        {
+            chars[i] = (char)('0' + RandomNumberGenerator.GetInt32(0, 10));
+        }
+
+        return new string(chars);
     }
 }
