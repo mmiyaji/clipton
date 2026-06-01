@@ -544,8 +544,8 @@ public sealed class QuickMenuWindow : Window
         var root = new Grid
         {
             Padding = new Thickness(18),
-            MinWidth = 560,
-            MinHeight = 420,
+            MinWidth = 520,
+            MinHeight = 180,
             RequestedTheme = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase)
                 ? ElementTheme.Dark
                 : ElementTheme.Light,
@@ -555,7 +555,6 @@ public sealed class QuickMenuWindow : Window
         };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         var prompt = new TextBlock
         {
@@ -576,16 +575,6 @@ public sealed class QuickMenuWindow : Window
         input.Loaded += (_, _) => FocusSearchInput(input);
         Grid.SetRow(input, 1);
         root.Children.Add(input);
-        var previewList = new ListView
-        {
-            MinHeight = 160,
-            Margin = new Thickness(0, 0, 0, 16),
-            SelectionMode = ListViewSelectionMode.None,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch
-        };
-        Grid.SetRow(previewList, 2);
-        root.Children.Add(previewList);
         var buttons = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -598,59 +587,11 @@ public sealed class QuickMenuWindow : Window
         buttons.Children.Add(advancedButton);
         buttons.Children.Add(cancelButton);
         buttons.Children.Add(searchButton);
-        Grid.SetRow(buttons, 3);
+        Grid.SetRow(buttons, 2);
         root.Children.Add(buttons);
         window.Content = root;
 
         var completed = false;
-        void UpdatePreview()
-        {
-            var query = input.Text.Trim();
-            var matches = string.IsNullOrWhiteSpace(query)
-                ? _rootItems.Where(item => !item.IsSeparator && item.IsEnabled).Take(12).ToArray()
-                : FlattenSearchableItems(_rootItems)
-                    .Where(item => MatchesSearch(item, query))
-                    .Take(12)
-                    .ToArray();
-
-            previewList.Items.Clear();
-            foreach (var item in matches)
-            {
-                var title = new TextBlock
-                {
-                    Text = item.Title,
-                    TextTrimming = TextTrimming.CharacterEllipsis,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                var subtitle = new TextBlock
-                {
-                    Text = item.Subtitle,
-                    FontSize = 12,
-                    Foreground = new SolidColorBrush(string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase)
-                        ? Color.FromArgb(255, 199, 199, 199)
-                        : Color.FromArgb(255, 102, 112, 133)),
-                    TextTrimming = TextTrimming.CharacterEllipsis,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                previewList.Items.Add(new ListViewItem
-                {
-                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                    MinHeight = 56,
-                    Padding = new Thickness(14, 8, 14, 8),
-                    Content = new StackPanel
-                    {
-                        Spacing = 2,
-                        HorizontalAlignment = HorizontalAlignment.Stretch,
-                        VerticalAlignment = VerticalAlignment.Center,
-                        Children =
-                        {
-                            title,
-                            subtitle
-                        }
-                    }
-                });
-            }
-        }
 
         void Complete(SearchPromptResult? value)
         {
@@ -664,7 +605,6 @@ public sealed class QuickMenuWindow : Window
             window.Close();
         }
 
-        input.TextChanged += (_, _) => UpdatePreview();
         searchButton.Click += (_, _) => Complete(new SearchPromptResult(input.Text, false));
         advancedButton.Click += (_, _) => Complete(new SearchPromptResult(null, true));
         cancelButton.Click += (_, _) => Complete(null);
@@ -687,7 +627,7 @@ public sealed class QuickMenuWindow : Window
         var id = Win32Interop.GetWindowIdFromWindow(hwnd);
         if (AppWindow.GetFromWindowId(id) is { } appWindow)
         {
-            appWindow.Resize(new SizeInt32(720, 560));
+            appWindow.Resize(new SizeInt32(560, 220));
             var dark = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase);
             appWindow.TitleBar.BackgroundColor = dark ? Color.FromArgb(255, 31, 31, 31) : Color.FromArgb(255, 243, 243, 243);
             appWindow.TitleBar.ForegroundColor = dark ? Color.FromArgb(255, 243, 243, 243) : Color.FromArgb(255, 31, 31, 31);
@@ -702,7 +642,6 @@ public sealed class QuickMenuWindow : Window
         }
 
         NativeMethods.SetForegroundWindow(hwnd);
-        UpdatePreview();
         FocusSearchInput(input);
         _ = Task.Delay(120).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => FocusSearchInput(input)));
         return await result.Task;
