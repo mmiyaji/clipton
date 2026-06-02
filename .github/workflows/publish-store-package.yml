@@ -1,0 +1,75 @@
+name: Publish Store Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      store_product_id:
+        description: Microsoft Store product ID
+        required: true
+        default: 9NSS9P4F6S5M
+
+jobs:
+  publish-store-package:
+    runs-on: windows-latest
+    environment: microsoft-store
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build Store upload package
+        shell: pwsh
+        run: |
+          msbuild packaging\Clipton.Package\Clipton.Package.wapproj `
+            /restore `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:AppxBundle=Always `
+            /p:UapAppxPackageBuildMode=StoreUpload
+
+      - name: Locate Store upload package
+        id: package
+        shell: pwsh
+        run: |
+          $package = Get-ChildItem `
+              -Path "packaging\Clipton.Package\bin\x64\Release\AppPackages" `
+              -Recurse `
+              -File `
+              -Include "*.msixupload","*.appxupload" |
+            Sort-Object LastWriteTimeUtc -Descending |
+            Select-Object -First 1
+
+          if ($null -eq $package) {
+            throw "Store upload package was not found."
+          }
+
+          "path=$($package.FullName)" >> $env:GITHUB_OUTPUT
+          Write-Host "Store upload package: $($package.FullName)"
+
+      - name: Upload Store package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipton-store-package
+          path: ${{ steps.package.outputs.path }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Configure Microsoft Store CLI
+        uses: microsoft/microsoft-store-apppublisher@v1.1
+
+      - name: Reconfigure Store credentials
+        shell: pwsh
+        run: |
+          msstore reconfigure `
+            --tenantId "${{ secrets.AZURE_AD_TENANT_ID }}" `
+            --sellerId "${{ secrets.SELLER_ID }}" `
+            --clientId "${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}" `
+            --clientSecret "${{ secrets.AZURE_AD_APPLICATION_SECRET }}"
+
+      - name: Publish package to Microsoft Store
+        shell: pwsh
+        run: |
+          msstore publish "${{ steps.package.outputs.path }}" -id "${{ inputs.store_product_id }}"
