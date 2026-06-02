@@ -22,7 +22,7 @@ public sealed class CliptonSettings
 
     public int ClipboardCaptureDelayMilliseconds { get; set; } = 150;
 
-    public bool FolderMode { get; set; }
+    public bool FolderMode { get; set; } = true;
 
     public bool SimpleContextMenuMode { get; set; }
 
@@ -44,9 +44,9 @@ public sealed class CliptonSettings
 
     public string[] PinnedHistoryIds { get; set; } = [];
 
-    public string Theme { get; set; } = "light";
+    public string Theme { get; set; } = "system";
 
-    public string Locale { get; set; } = "en";
+    public string Locale { get; set; } = "system";
 }
 
 public sealed class QuickMenuShortcutSettings

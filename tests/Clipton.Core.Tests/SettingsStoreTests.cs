@@ -23,8 +23,12 @@ public sealed class SettingsStoreTests
         Assert.True(loaded.QuickMenuShowShortcutHints);
         Assert.Equal(150, loaded.ClipboardCaptureDelayMilliseconds);
         Assert.False(loaded.DiagnosticLoggingEnabled);
+        Assert.True(loaded.FolderMode);
         Assert.True(loaded.HideSettingsWindowOnStartup);
         Assert.False(loaded.InitialLaunchCompleted);
+        Assert.Equal("system", loaded.Locale);
+        Assert.True(loaded.MaskSensitiveContent);
+        Assert.Equal("system", loaded.Theme);
     }
 
     [Fact]
