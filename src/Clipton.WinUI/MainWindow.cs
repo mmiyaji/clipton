@@ -18,7 +18,6 @@ using Windows.Storage.Pickers;
 using Windows.System;
 using Windows.UI.Core;
 using WinRT.Interop;
-using Forms = System.Windows.Forms;
 
 namespace Clipton.WinUI;
 
@@ -152,6 +151,7 @@ public sealed class MainWindow : Window
     private bool _hiddenToTray;
     private bool _maskDefinitionsExpanded;
     private bool _onboardingDialogOpen;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _onboardingTimer;
     private Border? _maskDefinitionsCard;
 
     public MainWindow(CliptonRuntime runtime)
@@ -206,12 +206,29 @@ public sealed class MainWindow : Window
         }
 
         _onboardingDialogOpen = true;
-        _ = DispatcherQueue.TryEnqueue(async () =>
+        _onboardingTimer?.Stop();
+        var timer = DispatcherQueue.CreateTimer();
+        _onboardingTimer = timer;
+        timer.Interval = TimeSpan.FromMilliseconds(250);
+        timer.IsRepeating = false;
+        timer.Tick += async (_, _) =>
         {
-            await Task.Delay(250);
-            await ShowOnboardingDialogAsync();
-            _onboardingDialogOpen = false;
-        });
+            timer.Stop();
+            _onboardingTimer = null;
+            try
+            {
+                await ShowOnboardingDialogAsync();
+            }
+            catch (Exception exception)
+            {
+                AppDiagnostics.Log(exception, "Onboarding");
+            }
+            finally
+            {
+                _onboardingDialogOpen = false;
+            }
+        };
+        timer.Start();
     }
 
     public void RefreshItems()
@@ -1433,7 +1450,7 @@ public sealed class MainWindow : Window
         }
         catch
         {
-            Forms.Clipboard.SetText(url);
+            ClipboardBridge.PutText(url);
         }
     }
 

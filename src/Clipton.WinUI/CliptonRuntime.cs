@@ -9,7 +9,6 @@ using Microsoft.Win32;
 using Drawing = System.Drawing;
 using Drawing2D = System.Drawing.Drawing2D;
 using Imaging = System.Drawing.Imaging;
-using Forms = System.Windows.Forms;
 
 namespace Clipton.WinUI;
 
@@ -17,10 +16,6 @@ public sealed class CliptonRuntime : IDisposable
 {
     private const int HistorySaveDebounceMilliseconds = 500;
     private const int QuickMenuHotkeyDebounceMilliseconds = 160;
-    private const int TrayMenuItemHeight = 36;
-    private const int TrayMenuItemMinWidth = 168;
-    private const int TrayMenuIconSize = 16;
-    private const int TrayMenuTextLeft = 44;
     private const int TempPasteMaxFiles = 100;
     private static readonly TimeSpan TempPasteMaxAge = TimeSpan.FromHours(24);
     private static readonly Regex UrlRegex = new(@"\b(?:https?|ftp)://[^\s<>()""']+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -35,7 +30,7 @@ public sealed class CliptonRuntime : IDisposable
     private CancellationTokenSource? _historySaveDebounce;
     private long _historySaveVersion;
     private HotkeyMessageWindow? _messageWindow;
-    private Forms.NotifyIcon? _notifyIcon;
+    private NativeTrayIcon? _notifyIcon;
     private MainWindow? _mainWindow;
     private QuickMenuWindow? _quickMenuWindow;
     private IntPtr _pasteTargetWindow;
@@ -721,20 +716,14 @@ public sealed class CliptonRuntime : IDisposable
 
     private void CreateTrayIcon()
     {
-        _notifyIcon = new Forms.NotifyIcon
-        {
-            Icon = AppAssets.LoadTrayIcon(EffectiveTheme),
-            Text = "Clipton",
-            Visible = true
-        };
-        _notifyIcon.MouseClick += (_, e) =>
-        {
-            if (e.Button == Forms.MouseButtons.Left)
-            {
-                _dispatcherQueue.TryEnqueue(ShowMainWindow);
-            }
-        };
-        _notifyIcon.DoubleClick += (_, _) => _dispatcherQueue.TryEnqueue(ShowMainWindow);
+        _notifyIcon = new NativeTrayIcon(
+            AppAssets.LoadTrayIcon(EffectiveTheme),
+            Translate("History"),
+            Translate("Settings"),
+            Translate("Exit"),
+            () => _dispatcherQueue.TryEnqueue(ShowQuickMenu),
+            () => _dispatcherQueue.TryEnqueue(ShowMainWindow),
+            () => _dispatcherQueue.TryEnqueue(ExitApplication));
         RefreshTrayText();
     }
 
@@ -745,9 +734,7 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        var oldIcon = _notifyIcon.Icon;
-        _notifyIcon.Icon = AppAssets.LoadTrayIcon(EffectiveTheme);
-        oldIcon?.Dispose();
+        _notifyIcon.UpdateIcon(AppAssets.LoadTrayIcon(EffectiveTheme));
     }
 
     private void RefreshTrayText()
@@ -757,195 +744,7 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        var oldMenu = _notifyIcon.ContextMenuStrip;
-        var dark = string.Equals(EffectiveTheme, "dark", StringComparison.OrdinalIgnoreCase);
-        var palette = TrayMenuPalette.Create(dark);
-        var menu = new Forms.ContextMenuStrip
-        {
-            BackColor = palette.Background,
-            ForeColor = palette.Text,
-            Font = new Drawing.Font("Segoe UI Variable Text", 9f, Drawing.FontStyle.Regular, Drawing.GraphicsUnit.Point),
-            ImageScalingSize = new Drawing.Size(TrayMenuIconSize, TrayMenuIconSize),
-            Padding = new Forms.Padding(4),
-            Renderer = new WinUiTrayMenuRenderer(palette),
-            ShowCheckMargin = false,
-            ShowImageMargin = true
-        };
-        menu.Items.Add(CreateTrayMenuItem(Translate("History"), "\uE81C", palette, (_, _) => _dispatcherQueue.TryEnqueue(ShowQuickMenu)));
-        menu.Items.Add(CreateTrayMenuItem(Translate("Settings"), "\uE713", palette, (_, _) => _dispatcherQueue.TryEnqueue(ShowMainWindow)));
-        menu.Items.Add(new Forms.ToolStripSeparator { Margin = new Forms.Padding(4, 3, 4, 3) });
-        menu.Items.Add(CreateTrayMenuItem(Translate("Exit"), "\uE8BB", palette, (_, _) => _dispatcherQueue.TryEnqueue(ExitApplication)));
-        _notifyIcon.ContextMenuStrip = menu;
-        oldMenu?.Dispose();
-    }
-
-    private static Forms.ToolStripMenuItem CreateTrayMenuItem(string text, string glyph, TrayMenuPalette palette, EventHandler onClick)
-    {
-        return new Forms.ToolStripMenuItem(text, CreateTrayMenuGlyph(glyph, palette.Icon), onClick)
-        {
-            AutoSize = false,
-            DisplayStyle = Forms.ToolStripItemDisplayStyle.ImageAndText,
-            ForeColor = palette.Text,
-            ImageAlign = Drawing.ContentAlignment.MiddleCenter,
-            Margin = Forms.Padding.Empty,
-            Padding = Forms.Padding.Empty,
-            Size = new Drawing.Size(GetTrayMenuItemWidth(text), TrayMenuItemHeight),
-            TextAlign = Drawing.ContentAlignment.MiddleLeft,
-            TextImageRelation = Forms.TextImageRelation.ImageBeforeText
-        };
-    }
-
-    private static int GetTrayMenuItemWidth(string text)
-    {
-        using var font = new Drawing.Font("Segoe UI Variable Text", 9f, Drawing.FontStyle.Regular, Drawing.GraphicsUnit.Point);
-        var textSize = Forms.TextRenderer.MeasureText(text, font);
-        return Math.Max(TrayMenuItemMinWidth, TrayMenuTextLeft + textSize.Width + 24);
-    }
-
-    private static Drawing.Bitmap CreateTrayMenuGlyph(string glyph, Drawing.Color color)
-    {
-        const int size = 20;
-        var bitmap = new Drawing.Bitmap(size, size);
-        using var graphics = Drawing.Graphics.FromImage(bitmap);
-        graphics.Clear(Drawing.Color.Transparent);
-        graphics.TextRenderingHint = Drawing.Text.TextRenderingHint.AntiAliasGridFit;
-        using var font = new Drawing.Font("Segoe Fluent Icons", 9.5f, Drawing.FontStyle.Regular, Drawing.GraphicsUnit.Point);
-        using var brush = new Drawing.SolidBrush(color);
-        using var format = new Drawing.StringFormat
-        {
-            Alignment = Drawing.StringAlignment.Center,
-            LineAlignment = Drawing.StringAlignment.Center,
-            FormatFlags = Drawing.StringFormatFlags.NoWrap
-        };
-        graphics.DrawString(glyph, font, brush, new Drawing.RectangleF(0, 0, size, size), format);
-        return bitmap;
-    }
-
-    private sealed class WinUiTrayMenuRenderer(TrayMenuPalette palette) : Forms.ToolStripProfessionalRenderer
-    {
-        protected override void OnRenderToolStripBackground(Forms.ToolStripRenderEventArgs e)
-        {
-            using var brush = new Drawing.SolidBrush(palette.Background);
-            e.Graphics.FillRectangle(brush, e.AffectedBounds);
-        }
-
-        protected override void OnRenderToolStripBorder(Forms.ToolStripRenderEventArgs e)
-        {
-            using var pen = new Drawing.Pen(palette.Border);
-            var bounds = new Drawing.Rectangle(0, 0, e.ToolStrip.Width - 1, e.ToolStrip.Height - 1);
-            e.Graphics.DrawRectangle(pen, bounds);
-        }
-
-        protected override void OnRenderImageMargin(Forms.ToolStripRenderEventArgs e)
-        {
-            using var brush = new Drawing.SolidBrush(palette.Background);
-            e.Graphics.FillRectangle(brush, e.AffectedBounds);
-        }
-
-        protected override void OnRenderMenuItemBackground(Forms.ToolStripItemRenderEventArgs e)
-        {
-            if (!e.Item.Selected && !e.Item.Pressed)
-            {
-                return;
-            }
-
-            var bounds = new Drawing.Rectangle(4, 2, e.Item.Width - 8, e.Item.Height - 4);
-            if (bounds.Width <= 0 || bounds.Height <= 0)
-            {
-                return;
-            }
-
-            var previousMode = e.Graphics.SmoothingMode;
-            e.Graphics.SmoothingMode = Drawing2D.SmoothingMode.AntiAlias;
-            using var path = CreateRoundedRectangle(bounds, 4);
-            using var brush = new Drawing.SolidBrush(e.Item.Pressed ? palette.Pressed : palette.Hover);
-            e.Graphics.FillPath(brush, path);
-            e.Graphics.SmoothingMode = previousMode;
-        }
-
-        protected override void OnRenderItemImage(Forms.ToolStripItemImageRenderEventArgs e)
-        {
-            if (e.Image is null)
-            {
-                return;
-            }
-
-            var y = (e.Item.Height - TrayMenuIconSize) / 2;
-            var x = (TrayMenuTextLeft - TrayMenuIconSize) / 2;
-            var bounds = new Drawing.Rectangle(x, y, TrayMenuIconSize, TrayMenuIconSize);
-            e.Graphics.DrawImage(e.Image, bounds);
-        }
-
-        protected override void OnRenderSeparator(Forms.ToolStripSeparatorRenderEventArgs e)
-        {
-            if (e.ToolStrip is null)
-            {
-                return;
-            }
-
-            var y = e.Item.Bounds.Height / 2;
-            using var pen = new Drawing.Pen(palette.Separator);
-            e.Graphics.DrawLine(pen, 38, y, e.ToolStrip.Width - 8, y);
-        }
-
-        protected override void OnRenderItemText(Forms.ToolStripItemTextRenderEventArgs e)
-        {
-            var textBounds = new Drawing.Rectangle(
-                TrayMenuTextLeft,
-                0,
-                Math.Max(0, e.Item.Width - TrayMenuTextLeft - 16),
-                e.Item.Height);
-            Forms.TextRenderer.DrawText(
-                e.Graphics,
-                e.Text,
-                e.TextFont,
-                textBounds,
-                palette.Text,
-                Forms.TextFormatFlags.Left | Forms.TextFormatFlags.VerticalCenter | Forms.TextFormatFlags.SingleLine | Forms.TextFormatFlags.EndEllipsis | Forms.TextFormatFlags.NoPrefix);
-        }
-    }
-
-    private sealed record TrayMenuPalette(
-        Drawing.Color Background,
-        Drawing.Color Text,
-        Drawing.Color Icon,
-        Drawing.Color Hover,
-        Drawing.Color Pressed,
-        Drawing.Color Border,
-        Drawing.Color Separator)
-    {
-        public static TrayMenuPalette Create(bool dark)
-        {
-            return dark
-                ? new TrayMenuPalette(
-                    Drawing.Color.FromArgb(255, 32, 32, 32),
-                    Drawing.Color.FromArgb(255, 243, 243, 243),
-                    Drawing.Color.FromArgb(255, 96, 205, 255),
-                    Drawing.Color.FromArgb(255, 54, 54, 54),
-                    Drawing.Color.FromArgb(255, 62, 62, 62),
-                    Drawing.Color.FromArgb(255, 69, 69, 69),
-                    Drawing.Color.FromArgb(255, 62, 62, 62))
-                : new TrayMenuPalette(
-                    Drawing.Color.FromArgb(255, 249, 249, 249),
-                    Drawing.Color.FromArgb(255, 32, 32, 32),
-                    Drawing.Color.FromArgb(255, 0, 95, 184),
-                    Drawing.Color.FromArgb(255, 238, 238, 238),
-                    Drawing.Color.FromArgb(255, 229, 229, 229),
-                    Drawing.Color.FromArgb(255, 218, 218, 218),
-                    Drawing.Color.FromArgb(255, 225, 225, 225));
-        }
-    }
-
-    private static Drawing2D.GraphicsPath CreateRoundedRectangle(Drawing.Rectangle bounds, int radius)
-    {
-        var diameter = radius * 2;
-        var path = new Drawing2D.GraphicsPath();
-        path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
-        path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
-        path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
-        path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
-        path.CloseFigure();
-        return path;
+        _notifyIcon.UpdateMenuText(Translate("History"), Translate("Settings"), Translate("Exit"));
     }
 
     private void ShowQuickMenu()

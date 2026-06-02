@@ -12,7 +12,6 @@ using Windows.Graphics;
 using Windows.System;
 using Windows.UI;
 using WinRT.Interop;
-using Forms = System.Windows.Forms;
 
 namespace Clipton.WinUI;
 
@@ -1179,8 +1178,8 @@ public sealed class QuickMenuWindow : Window
             presenter.IsMinimizable = false;
         }
 
-        var point = Forms.Cursor.Position;
-        var workingArea = Forms.Screen.FromPoint(point).WorkingArea;
+        var point = GetCursorPoint();
+        var workingArea = GetWorkingArea(point);
         var anchor = GetRootFlyoutAnchor(point, workingArea);
         _flyout.Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft;
         _appWindow.Resize(new SizeInt32(HostWindowSize, HostWindowSize));
@@ -1197,6 +1196,29 @@ public sealed class QuickMenuWindow : Window
         return new System.Drawing.Point(
             Math.Clamp(point.X, minX, maxX),
             Math.Clamp(point.Y, minY, maxY));
+    }
+
+    private static System.Drawing.Point GetCursorPoint()
+    {
+        return NativeMethods.GetCursorPos(out var point)
+            ? new System.Drawing.Point(point.X, point.Y)
+            : System.Drawing.Point.Empty;
+    }
+
+    private static System.Drawing.Rectangle GetWorkingArea(System.Drawing.Point point)
+    {
+        var nativePoint = new NativeMethods.Point { X = point.X, Y = point.Y };
+        var monitor = NativeMethods.MonitorFromPoint(nativePoint, NativeMethods.MonitorDefaultToNearest);
+        var info = new NativeMethods.MonitorInfo
+        {
+            Size = (uint)Marshal.SizeOf<NativeMethods.MonitorInfo>()
+        };
+        if (monitor == IntPtr.Zero || !NativeMethods.GetMonitorInfo(monitor, ref info))
+        {
+            return new System.Drawing.Rectangle(point.X, point.Y, EstimatedRootFlyoutWidth, EstimatedRootFlyoutHeight);
+        }
+
+        return System.Drawing.Rectangle.FromLTRB(info.Work.Left, info.Work.Top, info.Work.Right, info.Work.Bottom);
     }
 
     private static string FormatMenuText(string text)

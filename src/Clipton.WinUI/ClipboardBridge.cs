@@ -1,10 +1,13 @@
-using System.Collections.Specialized;
-using System.Drawing.Imaging;
 using System.Net;
+using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text.RegularExpressions;
 using Clipton.Core;
-using Forms = System.Windows.Forms;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.Foundation;
+using Windows.Storage;
+using Windows.Storage.Streams;
 
 namespace Clipton.WinUI;
 
@@ -32,7 +35,10 @@ public static class ClipboardBridge
     {
         WithClipboardRetry(() =>
         {
-            Forms.Clipboard.SetText(text, Forms.TextDataFormat.UnicodeText);
+            var data = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
+            data.SetText(text);
+            Clipboard.SetContent(data);
+            Clipboard.Flush();
             return true;
         });
     }
@@ -41,12 +47,7 @@ public static class ClipboardBridge
     {
         WithClipboardRetry(() =>
         {
-            using var stream = new MemoryStream(imagePng);
-            using var image = System.Drawing.Image.FromStream(stream);
-            var data = new Forms.DataObject();
-            data.SetData("PNG", false, new MemoryStream(imagePng));
-            data.SetImage(new System.Drawing.Bitmap(image));
-            Forms.Clipboard.SetDataObject(data, copy: true);
+            PutBitmap(imagePng);
             return true;
         });
     }
@@ -55,14 +56,7 @@ public static class ClipboardBridge
     {
         WithClipboardRetry(() =>
         {
-            var jpeg = EncodeJpeg(imagePng);
-            using var stream = new MemoryStream(jpeg);
-            using var image = System.Drawing.Image.FromStream(stream);
-            var data = new Forms.DataObject();
-            data.SetData("JFIF", false, new MemoryStream(jpeg));
-            data.SetData("JPEG", false, new MemoryStream(jpeg));
-            data.SetImage(new System.Drawing.Bitmap(image));
-            Forms.Clipboard.SetDataObject(data, copy: true);
+            PutBitmap(EncodeJpeg(imagePng));
             return true;
         });
     }
@@ -71,9 +65,7 @@ public static class ClipboardBridge
     {
         WithClipboardRetry(() =>
         {
-            var files = new StringCollection();
-            files.Add(path);
-            Forms.Clipboard.SetFileDropList(files);
+            PutFiles([path]);
             return true;
         });
     }
@@ -87,11 +79,8 @@ public static class ClipboardBridge
     {
         try
         {
-            if (!Forms.Clipboard.ContainsData(Forms.DataFormats.UnicodeText)
-                && !Forms.Clipboard.ContainsData(Forms.DataFormats.Rtf)
-                && !Forms.Clipboard.ContainsData(Forms.DataFormats.Html)
-                && !Forms.Clipboard.ContainsFileDropList()
-                && !Forms.Clipboard.ContainsImage())
+            var data = Clipboard.GetContent();
+            if (!ContainsAnySupportedFormat(data))
             {
                 return null;
             }
@@ -103,21 +92,21 @@ public static class ClipboardBridge
             byte[]? image = null;
             IReadOnlyList<string>? filePaths = null;
 
-            if (Forms.Clipboard.ContainsText(Forms.TextDataFormat.UnicodeText))
+            if (data.Contains(StandardDataFormats.Text))
             {
-                text = Forms.Clipboard.GetText(Forms.TextDataFormat.UnicodeText);
+                text = Wait(data.GetTextAsync);
                 if (!string.IsNullOrEmpty(text)) formats.Add(ClipboardFormatKind.Text);
             }
 
-            if (Forms.Clipboard.ContainsText(Forms.TextDataFormat.Rtf))
+            if (data.Contains(StandardDataFormats.Rtf))
             {
-                rtf = Forms.Clipboard.GetText(Forms.TextDataFormat.Rtf);
+                rtf = Wait(data.GetRtfAsync);
                 if (!string.IsNullOrEmpty(rtf)) formats.Add(ClipboardFormatKind.RichText);
             }
 
-            if (Forms.Clipboard.ContainsText(Forms.TextDataFormat.Html))
+            if (data.Contains(StandardDataFormats.Html))
             {
-                html = Forms.Clipboard.GetText(Forms.TextDataFormat.Html);
+                html = Wait(data.GetHtmlFormatAsync);
                 if (!string.IsNullOrEmpty(html)) formats.Add(ClipboardFormatKind.Html);
             }
 
@@ -127,32 +116,41 @@ public static class ClipboardBridge
                 if (!string.IsNullOrEmpty(text)) formats.Add(ClipboardFormatKind.Text);
             }
 
-            if (Forms.Clipboard.ContainsFileDropList())
+            if (data.Contains(StandardDataFormats.StorageItems))
             {
-                filePaths = Forms.Clipboard.GetFileDropList().Cast<string>().ToArray();
+                var storageItems = Wait(data.GetStorageItemsAsync);
+                filePaths = storageItems
+                    .OfType<StorageFile>()
+                    .Select(file => file.Path)
+                    .Where(path => !string.IsNullOrWhiteSpace(path))
+                    .ToArray();
                 if (filePaths.Count > 0) formats.Add(ClipboardFormatKind.FileDrop);
             }
 
-            if (Forms.Clipboard.ContainsImage())
+            if (data.Contains(StandardDataFormats.Bitmap))
             {
-                var bitmap = Forms.Clipboard.GetImage();
-                if (bitmap is not null)
-                {
-                    using var stream = new MemoryStream();
-                    bitmap.Save(stream, ImageFormat.Png);
-                    image = stream.ToArray();
-                    formats.Add(ClipboardFormatKind.Image);
-                }
+                var bitmap = Wait(data.GetBitmapAsync);
+                image = ReadAllBytes(bitmap);
+                if (image.Length > 0) formats.Add(ClipboardFormatKind.Image);
             }
 
             return formats.Count == 0
                 ? null
                 : new ClipboardSnapshot(Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, formats, text, rtf, html, image, filePaths);
         }
-        catch (ExternalException)
+        catch (Exception exception) when (exception is ExternalException or COMException or UnauthorizedAccessException)
         {
             return null;
         }
+    }
+
+    private static bool ContainsAnySupportedFormat(DataPackageView data)
+    {
+        return data.Contains(StandardDataFormats.Text)
+            || data.Contains(StandardDataFormats.Rtf)
+            || data.Contains(StandardDataFormats.Html)
+            || data.Contains(StandardDataFormats.StorageItems)
+            || data.Contains(StandardDataFormats.Bitmap);
     }
 
     private static void PutOnce(ClipboardSnapshot snapshot, bool asPlainText)
@@ -160,30 +158,65 @@ public static class ClipboardBridge
         var plainText = GetPlainText(snapshot);
         if (asPlainText && !string.IsNullOrEmpty(plainText))
         {
-            Forms.Clipboard.SetText(plainText, Forms.TextDataFormat.UnicodeText);
+            PutText(plainText);
             return;
         }
 
         if (snapshot.FilePaths.Count > 0)
         {
-            var files = new StringCollection();
-            files.AddRange(snapshot.FilePaths.ToArray());
-            Forms.Clipboard.SetFileDropList(files);
+            PutFiles(snapshot.FilePaths);
             return;
         }
 
         if (snapshot.ImagePng is { Length: > 0 })
         {
-            using var stream = new MemoryStream(snapshot.ImagePng);
-            Forms.Clipboard.SetImage(System.Drawing.Image.FromStream(stream));
+            PutBitmap(snapshot.ImagePng);
             return;
         }
 
-        var data = new Forms.DataObject();
-        if (!string.IsNullOrEmpty(snapshot.Text)) data.SetText(snapshot.Text, Forms.TextDataFormat.UnicodeText);
-        if (!string.IsNullOrEmpty(snapshot.Rtf)) data.SetText(snapshot.Rtf, Forms.TextDataFormat.Rtf);
-        if (!string.IsNullOrEmpty(snapshot.Html)) data.SetText(snapshot.Html, Forms.TextDataFormat.Html);
-        Forms.Clipboard.SetDataObject(data, copy: true);
+        var data = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
+        if (!string.IsNullOrEmpty(snapshot.Text)) data.SetText(snapshot.Text);
+        if (!string.IsNullOrEmpty(snapshot.Rtf)) data.SetRtf(snapshot.Rtf);
+        if (!string.IsNullOrEmpty(snapshot.Html)) data.SetHtmlFormat(snapshot.Html);
+        Clipboard.SetContent(data);
+        Clipboard.Flush();
+    }
+
+    private static void PutFiles(IReadOnlyList<string> paths)
+    {
+        var files = paths
+            .Where(File.Exists)
+            .Select(path => Wait(() => StorageFile.GetFileFromPathAsync(path)))
+            .ToArray();
+        if (files.Length == 0)
+        {
+            return;
+        }
+
+        var data = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
+        data.SetStorageItems(files);
+        Clipboard.SetContent(data);
+        Clipboard.Flush();
+    }
+
+    private static void PutBitmap(byte[] bytes)
+    {
+        var stream = new InMemoryRandomAccessStream();
+        stream.WriteAsync(bytes.AsBuffer()).AsTask().GetAwaiter().GetResult();
+        stream.Seek(0);
+        var data = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
+        data.SetBitmap(RandomAccessStreamReference.CreateFromStream(stream));
+        Clipboard.SetContent(data);
+        Clipboard.Flush();
+    }
+
+    private static byte[] ReadAllBytes(RandomAccessStreamReference reference)
+    {
+        using var randomAccessStream = Wait(reference.OpenReadAsync);
+        using var stream = randomAccessStream.AsStreamForRead();
+        using var output = new MemoryStream();
+        stream.CopyTo(output);
+        return output.ToArray();
     }
 
     private static string? ExtractPlainText(string? rtf, string? html)
@@ -205,16 +238,11 @@ public static class ClipboardBridge
             return null;
         }
 
-        try
-        {
-            using var box = new Forms.RichTextBox();
-            box.Rtf = rtf;
-            return box.Text;
-        }
-        catch (ArgumentException)
-        {
-            return null;
-        }
+        var text = Regex.Replace(rtf, @"\\'[0-9a-fA-F]{2}", " ");
+        text = Regex.Replace(text, @"\\[a-zA-Z]+\d* ?", string.Empty);
+        text = Regex.Replace(text, @"[{}]", string.Empty);
+        text = Regex.Replace(text, @"\s+", " ");
+        return text.Trim();
     }
 
     private static string? ExtractPlainTextFromHtml(string? html)
@@ -254,7 +282,7 @@ public static class ClipboardBridge
     {
         using var input = new MemoryStream(imagePng);
         using var source = System.Drawing.Image.FromStream(input);
-        using var flattened = new System.Drawing.Bitmap(source.Width, source.Height, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+        using var flattened = new System.Drawing.Bitmap(source.Width, source.Height, PixelFormat.Format24bppRgb);
         using (var graphics = System.Drawing.Graphics.FromImage(flattened))
         {
             graphics.Clear(System.Drawing.Color.White);
@@ -277,6 +305,16 @@ public static class ClipboardBridge
         return output.ToArray();
     }
 
+    private static T Wait<T>(Func<IAsyncOperation<T>> action)
+    {
+        return action().AsTask().GetAwaiter().GetResult();
+    }
+
+    private static void Wait(Func<IAsyncAction> action)
+    {
+        action().AsTask().GetAwaiter().GetResult();
+    }
+
     private static T? WithClipboardRetry<T>(Func<T?> action)
     {
         const int maxAttempts = 20;
@@ -286,7 +324,7 @@ public static class ClipboardBridge
             {
                 return action();
             }
-            catch (Exception exception) when (attempt < maxAttempts - 1 && exception is ExternalException or COMException)
+            catch (Exception exception) when (attempt < maxAttempts - 1 && exception is ExternalException or COMException or UnauthorizedAccessException)
             {
                 Thread.Sleep(75);
             }

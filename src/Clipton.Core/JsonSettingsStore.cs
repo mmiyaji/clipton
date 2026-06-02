@@ -20,9 +20,20 @@ public sealed class JsonSettingsStore
         }
 
         var json = File.ReadAllText(_path);
-        var settings = JsonSerializer.Deserialize<CliptonSettings>(json, Options) ?? new CliptonSettings();
-        using var document = JsonDocument.Parse(json);
-        if (!document.RootElement.TryGetProperty(nameof(CliptonSettings.HistoryPersistenceConfigured), out _))
+        CliptonSettings settings;
+        bool historyPersistenceConfigured;
+        try
+        {
+            settings = JsonSerializer.Deserialize<CliptonSettings>(json, Options) ?? new CliptonSettings();
+            using var document = JsonDocument.Parse(json);
+            historyPersistenceConfigured = document.RootElement.TryGetProperty(nameof(CliptonSettings.HistoryPersistenceConfigured), out _);
+        }
+        catch (JsonException)
+        {
+            return new CliptonSettings();
+        }
+
+        if (!historyPersistenceConfigured)
         {
             settings.PersistEncryptedHistory = true;
         }
