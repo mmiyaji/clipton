@@ -1,5 +1,5 @@
 using Clipton.Core;
-using Forms = System.Windows.Forms;
+using System.Runtime.InteropServices;
 
 namespace Clipton.WinUI;
 
@@ -15,10 +15,9 @@ public sealed class HotkeyMessageWindow : IDisposable
         _thread = new Thread(() =>
         {
             using var window = new MessageWindow(onHotkey, onClipboardChanged);
-            window.Create();
             _window = window;
             _ready.Set();
-            Forms.Application.Run();
+            window.RunMessageLoop();
         })
         {
             IsBackground = true,
@@ -64,12 +63,13 @@ public sealed class HotkeyMessageWindow : IDisposable
         }
     }
 
-    private sealed class MessageWindow : Forms.NativeWindow, IDisposable
+    private sealed class MessageWindow : IDisposable
     {
         private const int HotkeyId = 0x434C;
         private readonly Action<IntPtr> _onHotkey;
         private readonly Action _onClipboardChanged;
         private readonly object _registrationLock = new();
+        private readonly Win32MessageWindow _window;
         private RegistrationRequest? _pendingRegistration;
         private ManualResetEventSlim? _pendingUnregistrationSignal;
         private bool _registered;
@@ -80,19 +80,19 @@ public sealed class HotkeyMessageWindow : IDisposable
         {
             _onHotkey = onHotkey;
             _onClipboardChanged = onClipboardChanged;
+            _window = new Win32MessageWindow("CliptonHotkeyMessageWindow", WndProc);
+            NativeMethods.AddClipboardFormatListener(Handle);
         }
 
-        public void Create()
+        private IntPtr Handle => _window.Handle;
+
+        public void RunMessageLoop()
         {
-            CreateHandle(new Forms.CreateParams
+            while (NativeMethods.GetMessage(out var message, IntPtr.Zero, 0, 0))
             {
-                Caption = "CliptonHotkeyMessageWindow",
-                X = -32000,
-                Y = -32000,
-                Width = 1,
-                Height = 1
-            });
-            NativeMethods.AddClipboardFormatListener(Handle);
+                NativeMethods.TranslateMessage(ref message);
+                NativeMethods.DispatchMessage(ref message);
+            }
         }
 
         public bool RequestRegister(HotkeyGesture gesture)
@@ -139,12 +139,12 @@ public sealed class HotkeyMessageWindow : IDisposable
             }
 
             NativeMethods.RemoveClipboardFormatListener(Handle);
-            DestroyHandle();
+            _window.Dispose();
         }
 
-        protected override void WndProc(ref Forms.Message m)
+        private IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
         {
-            if (m.Msg == NativeMethods.WmAppRegisterHotkey)
+            if (msg == NativeMethods.WmAppRegisterHotkey)
             {
                 RegistrationRequest? request;
                 lock (_registrationLock)
@@ -157,17 +157,17 @@ public sealed class HotkeyMessageWindow : IDisposable
                 {
                     request.SetResult(Register(request.Gesture));
                 }
-                return;
+                return IntPtr.Zero;
             }
 
-            if (m.Msg == NativeMethods.WmAppDisposeHotkeyWindow)
+            if (msg == NativeMethods.WmAppDisposeHotkeyWindow)
             {
                 Dispose();
-                Forms.Application.ExitThread();
-                return;
+                NativeMethods.PostQuitMessage(0);
+                return IntPtr.Zero;
             }
 
-            if (m.Msg == NativeMethods.WmAppUnregisterHotkey)
+            if (msg == NativeMethods.WmAppUnregisterHotkey)
             {
                 ManualResetEventSlim? signal;
                 lock (_registrationLock)
@@ -178,22 +178,23 @@ public sealed class HotkeyMessageWindow : IDisposable
 
                 UnregisterCurrent();
                 signal?.Set();
-                return;
+                return IntPtr.Zero;
             }
 
-            if (m.Msg == NativeMethods.WmHotkey && m.WParam.ToInt32() == HotkeyId)
+            if (msg == NativeMethods.WmHotkey && wParam.ToInt32() == HotkeyId)
             {
+                AppDiagnostics.Info("Hotkey", "Hotkey message received.");
                 _onHotkey(NativeMethods.GetForegroundWindow());
-                return;
+                return IntPtr.Zero;
             }
 
-            if (m.Msg == NativeMethods.WmClipboardUpdate)
+            if (msg == NativeMethods.WmClipboardUpdate)
             {
                 _onClipboardChanged();
-                return;
+                return IntPtr.Zero;
             }
 
-            base.WndProc(ref m);
+            return NativeMethods.DefWindowProc(hWnd, msg, wParam, lParam);
         }
 
         private bool Register(HotkeyGesture gesture)
@@ -202,6 +203,9 @@ public sealed class HotkeyMessageWindow : IDisposable
             UnregisterCurrent(clearGesture: false);
 
             var requestedRegistered = NativeMethods.RegisterHotKey(Handle, HotkeyId, ToNativeModifiers(gesture.Modifiers), ToVirtualKey(gesture.Key));
+            AppDiagnostics.Info("Hotkey", requestedRegistered
+                ? $"Registered hotkey {gesture}."
+                : $"Failed to register hotkey {gesture}. error={Marshal.GetLastWin32Error()}");
             _registered = requestedRegistered;
             _registeredGesture = requestedRegistered ? gesture : null;
             if (!requestedRegistered && previousGesture is not null)
