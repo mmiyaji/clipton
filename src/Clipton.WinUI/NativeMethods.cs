@@ -206,16 +206,16 @@ internal static class NativeMethods
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     internal static extern IntPtr GetModuleHandle(string? lpModuleName);
 
-    [DllImport("shell32.dll", EntryPoint = "Shell_NotifyIconW", SetLastError = true)]
+    [DllImport("shell32.dll", EntryPoint = "Shell_NotifyIconW", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool ShellNotifyIcon(uint dwMessage, ref NotifyIconData lpData);
 
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern IntPtr CreatePopupMenu();
 
-    [DllImport("user32.dll", EntryPoint = "AppendMenuW", SetLastError = true)]
+    [DllImport("user32.dll", EntryPoint = "AppendMenuW", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool AppendMenu(IntPtr hMenu, uint uFlags, nuint uIDNewItem, string? lpNewItem);
+    internal static extern bool AppendMenu(IntPtr hMenu, uint uFlags, nuint uIDNewItem, [MarshalAs(UnmanagedType.LPWStr)] string? lpNewItem);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
