@@ -20,7 +20,6 @@ public sealed class QuickMenuWindow : Window
     private const int MaxMenuLineLength = 34;
     private const int HostWindowSize = 1;
     private const int ScreenEdgePadding = 8;
-    private const int EstimatedRootFlyoutWidth = 380;
     private const int EstimatedRootFlyoutHeight = 420;
     private readonly QuickMenuNavigator _navigator;
     private readonly IReadOnlyList<QuickMenuItem> _rootItems;
@@ -1180,22 +1179,27 @@ public sealed class QuickMenuWindow : Window
 
         var point = GetCursorPoint();
         var workingArea = GetWorkingArea(point);
-        var anchor = GetRootFlyoutAnchor(point, workingArea);
-        _flyout.Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft;
+        var placement = GetRootFlyoutPlacement(point, workingArea);
+        _flyout.Placement = placement.Placement;
         _appWindow.Resize(new SizeInt32(HostWindowSize, HostWindowSize));
-        _appWindow.Move(new PointInt32(anchor.X, anchor.Y));
+        _appWindow.Move(new PointInt32(placement.Anchor.X, placement.Anchor.Y));
         NativeMethods.SetForegroundWindow(_hwnd);
     }
 
-    private static System.Drawing.Point GetRootFlyoutAnchor(System.Drawing.Point point, System.Drawing.Rectangle workingArea)
+    private static RootFlyoutPlacement GetRootFlyoutPlacement(System.Drawing.Point point, System.Drawing.Rectangle workingArea)
     {
         var minX = workingArea.Left + ScreenEdgePadding;
         var minY = workingArea.Top + ScreenEdgePadding;
-        var maxX = Math.Max(minX, workingArea.Right - ScreenEdgePadding - EstimatedRootFlyoutWidth);
-        var maxY = Math.Max(minY, workingArea.Bottom - ScreenEdgePadding - EstimatedRootFlyoutHeight);
-        return new System.Drawing.Point(
+        var maxX = Math.Max(minX, workingArea.Right - ScreenEdgePadding);
+        var maxY = Math.Max(minY, workingArea.Bottom - ScreenEdgePadding);
+        var anchor = new System.Drawing.Point(
             Math.Clamp(point.X, minX, maxX),
             Math.Clamp(point.Y, minY, maxY));
+        var openAbove = anchor.Y + EstimatedRootFlyoutHeight > workingArea.Bottom - ScreenEdgePadding
+            && anchor.Y - workingArea.Top > workingArea.Bottom - anchor.Y;
+        var placement = openAbove ? FlyoutPlacementMode.Top : FlyoutPlacementMode.Bottom;
+
+        return new RootFlyoutPlacement(anchor, placement);
     }
 
     private static System.Drawing.Point GetCursorPoint()
@@ -1215,7 +1219,7 @@ public sealed class QuickMenuWindow : Window
         };
         if (monitor == IntPtr.Zero || !NativeMethods.GetMonitorInfo(monitor, ref info))
         {
-            return new System.Drawing.Rectangle(point.X, point.Y, EstimatedRootFlyoutWidth, EstimatedRootFlyoutHeight);
+            return new System.Drawing.Rectangle(point.X, point.Y, HostWindowSize, HostWindowSize);
         }
 
         return System.Drawing.Rectangle.FromLTRB(info.Work.Left, info.Work.Top, info.Work.Right, info.Work.Bottom);
@@ -1420,5 +1424,9 @@ public sealed record QuickMenuPasteOption(
     string IconGlyph,
     Action Invoke,
     string? IconFontFamily = null);
+
+internal sealed record RootFlyoutPlacement(
+    System.Drawing.Point Anchor,
+    FlyoutPlacementMode Placement);
 
 internal sealed record SearchPromptResult(string? Query, bool OpenDetailedSearch);

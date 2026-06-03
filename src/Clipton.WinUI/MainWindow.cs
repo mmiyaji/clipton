@@ -77,6 +77,7 @@ public sealed class MainWindow : Window
     private readonly Button _resetHotkeyButton = new();
     private readonly ComboBox _themeBox = new();
     private readonly ComboBox _localeBox = new();
+    private readonly ComboBox _quickMenuTopLevelHistoryItemsBox = new();
     private readonly ComboBox _quickMenuImagePreviewSizeBox = new();
     private readonly ComboBox _quickMenuSearchShortcutBox = new();
     private readonly ComboBox _quickMenuPlainTextShortcutBox = new();
@@ -99,7 +100,6 @@ public sealed class MainWindow : Window
     private readonly TextBlock _maskTestResultText = Description();
     private readonly ComboBox _maxHistoryItemsBox = new();
     private readonly ComboBox _clipboardCaptureDelayBox = new();
-    private readonly ToggleSwitch _folderModeToggle = CompactToggle();
     private readonly Button _registerFromHistoryButton = new();
     private readonly Button _exportHistoryButton = new();
     private readonly Button _importHistoryButton = new();
@@ -342,6 +342,10 @@ public sealed class MainWindow : Window
         SetComboBoxText(_quickMenuImagePreviewSizeBox, "small", t("ImagePreviewSizeSmall"));
         SetComboBoxText(_quickMenuImagePreviewSizeBox, "medium", t("ImagePreviewSizeMedium"));
         SetComboBoxText(_quickMenuImagePreviewSizeBox, "large", t("ImagePreviewSizeLarge"));
+        foreach (var count in QuickMenuHistoryBuckets.TopLevelHistoryItemOptions)
+        {
+            SetComboBoxText(_quickMenuTopLevelHistoryItemsBox, count.ToString(), count.ToString());
+        }
         SetComboBoxText(_clipboardCaptureDelayBox, "0", t("ClipboardCaptureDelayImmediate"));
         SetComboBoxText(_clipboardCaptureDelayBox, "50", string.Format(t("Milliseconds"), 50));
         SetComboBoxText(_clipboardCaptureDelayBox, "100", string.Format(t("Milliseconds"), 100));
@@ -358,7 +362,7 @@ public sealed class MainWindow : Window
         EnsureHistoryLimitComboItem(_runtime.Settings.MaxHistoryItems);
         SetComboSelection(_maxHistoryItemsBox, _runtime.Settings.MaxHistoryItems.ToString());
         SetComboSelection(_clipboardCaptureDelayBox, _runtime.Settings.ClipboardCaptureDelayMilliseconds.ToString());
-        _folderModeToggle.IsOn = _runtime.Settings.FolderMode;
+        SetComboSelection(_quickMenuTopLevelHistoryItemsBox, _runtime.Settings.QuickMenuTopLevelHistoryItems.ToString());
         _quickMenuShowCapturedAtToggle.IsOn = _runtime.Settings.QuickMenuShowCapturedAt;
         _quickMenuShowShortcutHintsToggle.IsOn = _runtime.Settings.QuickMenuShowShortcutHints;
         RefreshToggleStateLabels();
@@ -510,8 +514,14 @@ public sealed class MainWindow : Window
         _generalPage.Children.Add(SettingCard("\uE8BB", "HideSettingsWindowOnStartup", "HideSettingsWindowOnStartupDescription", _hideSettingsWindowOnStartupToggle));
 
         _generalPage.Children.Add(SectionHeader("QuickMenuSection"));
-        _folderModeToggle.Toggled += (_, _) => SaveHistoryOptions();
-        _generalPage.Children.Add(SettingCard("\uE8B7", "FolderMode", "FolderModeDescription", _folderModeToggle));
+        foreach (var count in QuickMenuHistoryBuckets.TopLevelHistoryItemOptions)
+        {
+            _quickMenuTopLevelHistoryItemsBox.Items.Add(new ComboBoxItem { Tag = count.ToString() });
+        }
+
+        _quickMenuTopLevelHistoryItemsBox.Width = 180;
+        _quickMenuTopLevelHistoryItemsBox.SelectionChanged += (_, _) => ChangeQuickMenuTopLevelHistoryItems();
+        _generalPage.Children.Add(SettingCard("\uE8B7", "QuickMenuTopLevelHistoryItems", "QuickMenuTopLevelHistoryItemsDescription", _quickMenuTopLevelHistoryItemsBox));
 
         foreach (var size in new[] { "none", "small", "medium", "large" })
         {
@@ -1502,8 +1512,23 @@ public sealed class MainWindow : Window
         _runtime.SetPauseCapture(_pauseCaptureToggle.IsOn);
         _runtime.SetPersistEncryptedHistory(_persistHistoryToggle.IsOn);
         _runtime.SetMaskSensitiveContent(_maskSensitiveContentToggle.IsOn);
-        _runtime.SetFolderMode(_folderModeToggle.IsOn);
         RefreshItems();
+    }
+
+    private void ChangeQuickMenuTopLevelHistoryItems()
+    {
+        if (_loading || _quickMenuTopLevelHistoryItemsBox.SelectedItem is not ComboBoxItem selected || selected.Tag is not string tag)
+        {
+            return;
+        }
+
+        var count = int.TryParse(tag, out var parsed) ? parsed : _runtime.Settings.QuickMenuTopLevelHistoryItems;
+        if (_runtime.Settings.QuickMenuTopLevelHistoryItems == count)
+        {
+            return;
+        }
+
+        _runtime.SetQuickMenuTopLevelHistoryItems(count);
     }
 
     private void SaveDiagnosticLogging()
@@ -2528,6 +2553,8 @@ public sealed class MainWindow : Window
             card.BorderBrush = CardBorderBrush();
         }
         RefreshThemeTextBrushes();
+        RefreshItems();
+        UpdateMaskTestPreview();
         SelectPage(_selectedPageIndex);
     }
 
@@ -3085,7 +3112,7 @@ public sealed class MainWindow : Window
 
     private Brush CardBorderBrush() => Brush(IsDark ? "#3F3F3F" : "#E5E5E5");
 
-    private Brush DescriptionBrush() => Brush(IsDark ? "#C7C7C7" : "#475467");
+    private Brush DescriptionBrush() => Brush(IsDark ? "#D0D5DD" : "#344054");
 
     private static SolidColorBrush AccentBrush(byte alpha) => new(ColorHelper.FromArgb(alpha, 0, 120, 212));
 
@@ -3120,7 +3147,7 @@ public sealed class MainWindow : Window
 
     private static TextBlock Header(double size = 28) => new() { FontSize = size, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
 
-    private static TextBlock Description() => new() { Foreground = Brush("#475467"), TextWrapping = TextWrapping.Wrap };
+    private static TextBlock Description() => new() { Foreground = Brush("#344054"), TextWrapping = TextWrapping.Wrap };
 
     private static StackPanel SettingsPage() => new()
     {

@@ -47,6 +47,7 @@ public sealed class JsonSettingsStore
         settings.Locale = NormalizeLocale(settings.Locale);
         settings.Theme = NormalizeTheme(settings.Theme);
         settings.QuickMenuImagePreviewSize = NormalizeQuickMenuImagePreviewSize(settings.QuickMenuImagePreviewSize);
+        settings.QuickMenuTopLevelHistoryItems = QuickMenuHistoryBuckets.NormalizeTopLevelHistoryItems(settings.QuickMenuTopLevelHistoryItems);
         NormalizeQuickMenuShortcuts(settings);
         return settings;
     }

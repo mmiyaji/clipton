@@ -340,6 +340,13 @@ public sealed class CliptonRuntime : IDisposable
         SaveSettings();
     }
 
+    public void SetQuickMenuTopLevelHistoryItems(int count)
+    {
+        Settings.QuickMenuTopLevelHistoryItems = QuickMenuHistoryBuckets.NormalizeTopLevelHistoryItems(count);
+        Settings.FolderMode = true;
+        SaveSettings();
+    }
+
     public void SetQuickMenuImagePreviewSize(string size)
     {
         Settings.QuickMenuImagePreviewSize = NormalizeQuickMenuImagePreviewSize(size);
@@ -652,12 +659,6 @@ public sealed class CliptonRuntime : IDisposable
             try
             {
                 Volatile.Write(ref _lastQuickMenuRequestTick, Environment.TickCount64);
-                if (_quickMenuWindow is not null)
-                {
-                    _quickMenuWindow.FocusMenu();
-                    return;
-                }
-
                 ShowQuickMenu();
             }
             finally
@@ -763,30 +764,14 @@ public sealed class CliptonRuntime : IDisposable
             .Select(History.Find)
             .OfType<ClipboardSnapshot>()
             .ToArray();
-        var directHistoryItems = Settings.FolderMode ? historyItems.Take(3) : historyItems.Take(20);
+        var topLevelHistoryItems = QuickMenuHistoryBuckets.NormalizeTopLevelHistoryItems(Settings.QuickMenuTopLevelHistoryItems);
+        var directHistoryItems = historyItems.Take(topLevelHistoryItems);
         foreach (var item in directHistoryItems)
         {
             menuItems.Add(CreateHistoryMenuItem(item));
         }
 
-        if (Settings.FolderMode && historyItems.Length > 3)
-        {
-            var olderItems = historyItems.Skip(3).ToArray();
-            for (var start = 0; start < olderItems.Length; start += 50)
-            {
-                var rangeStart = start + 1;
-                var rangeCount = Math.Min(50, olderItems.Length - start);
-                var rangeEnd = start + rangeCount;
-                var rangeOffset = start;
-                menuItems.Add(new QuickMenuItem(
-                    $"{rangeStart}~{rangeEnd}",
-                    $"{rangeCount} items",
-                    ">",
-                    "Enter",
-                    () => { },
-                    LazyChildren: () => olderItems.Skip(rangeOffset).Take(rangeCount).Select(CreateHistoryMenuItem).ToArray()));
-            }
-        }
+        AddHistoryRangeFolders(menuItems, historyItems, topLevelHistoryItems);
 
         if (pinnedItems.Length > 0)
         {
@@ -913,6 +898,54 @@ public sealed class CliptonRuntime : IDisposable
             : 150;
     }
 
+    private void AddHistoryRangeFolders(List<QuickMenuItem> menuItems, IReadOnlyList<ClipboardSnapshot> historyItems, int topLevelCount)
+    {
+        foreach (var range in QuickMenuHistoryBuckets.CreateTopLevelRanges(historyItems.Count, topLevelCount))
+        {
+            if (range.IsNestedParent)
+            {
+                menuItems.Add(new QuickMenuItem(
+                    range.Label,
+                    $"{range.Count} items",
+                    ">",
+                    "Enter",
+                    () => { },
+                    LazyChildren: () => CreateNestedHistoryRangeFolders(historyItems)));
+                continue;
+            }
+
+            AddTopLevelHistoryRangeFolder(menuItems, historyItems, range);
+        }
+    }
+
+    private void AddTopLevelHistoryRangeFolder(List<QuickMenuItem> menuItems, IReadOnlyList<ClipboardSnapshot> historyItems, QuickMenuHistoryRange range)
+    {
+        menuItems.Add(new QuickMenuItem(
+            range.Label,
+            $"{range.Count} items",
+            ">",
+            "Enter",
+            () => { },
+            LazyChildren: () => historyItems.Skip(range.Offset).Take(range.Count).Select(CreateHistoryMenuItem).ToArray()));
+    }
+
+    private IReadOnlyList<QuickMenuItem> CreateNestedHistoryRangeFolders(IReadOnlyList<ClipboardSnapshot> historyItems)
+    {
+        var folders = new List<QuickMenuItem>();
+        foreach (var range in QuickMenuHistoryBuckets.CreateNestedRanges(historyItems.Count))
+        {
+            folders.Add(new QuickMenuItem(
+                range.Label,
+                $"{range.Count} items",
+                ">",
+                "Enter",
+                () => { },
+                LazyChildren: () => historyItems.Skip(range.Offset).Take(range.Count).Select(CreateHistoryMenuItem).ToArray()));
+        }
+
+        return folders;
+    }
+
     private static string NormalizeQuickMenuShortcut(string? shortcut, string fallback, IReadOnlyCollection<string> allowed)
     {
         if (string.IsNullOrWhiteSpace(shortcut))
@@ -976,6 +1009,14 @@ public sealed class CliptonRuntime : IDisposable
 
     private static string GetAppVersion()
     {
+        try
+        {
+            return FormatPackageVersion(Windows.ApplicationModel.Package.Current.Id.Version);
+        }
+        catch (InvalidOperationException)
+        {
+        }
+
         var assembly = typeof(CliptonRuntime).Assembly;
         var informationalVersion = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
         if (!string.IsNullOrWhiteSpace(informationalVersion))
@@ -991,12 +1032,17 @@ public sealed class CliptonRuntime : IDisposable
         try
         {
             var id = Windows.ApplicationModel.Package.Current.Id;
-            return $"{id.Name} {id.Version.Major}.{id.Version.Minor}.{id.Version.Build}.{id.Version.Revision}";
+            return $"{id.Name} {FormatPackageVersion(id.Version)}";
         }
         catch (InvalidOperationException)
         {
             return "Unpackaged";
         }
+    }
+
+    private static string FormatPackageVersion(Windows.ApplicationModel.PackageVersion version)
+    {
+        return $"{version.Major}.{version.Minor}.{version.Build}.{version.Revision}";
     }
 
     private void SaveHistory()

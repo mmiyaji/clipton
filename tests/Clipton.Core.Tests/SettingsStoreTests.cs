@@ -24,6 +24,7 @@ public sealed class SettingsStoreTests
         Assert.Equal(150, loaded.ClipboardCaptureDelayMilliseconds);
         Assert.False(loaded.DiagnosticLoggingEnabled);
         Assert.True(loaded.FolderMode);
+        Assert.Equal(5, loaded.QuickMenuTopLevelHistoryItems);
         Assert.True(loaded.HideSettingsWindowOnStartup);
         Assert.False(loaded.InitialLaunchCompleted);
         Assert.Equal("system", loaded.Locale);
@@ -93,6 +94,7 @@ public sealed class SettingsStoreTests
             PastePlainTextByDefault = true,
             PersistEncryptedHistory = true,
             QuickMenuImagePreviewSize = "large",
+            QuickMenuTopLevelHistoryItems = 30,
             QuickMenuShowCapturedAt = true,
             QuickMenuShowShortcutHints = false,
             QuickMenuShortcuts = new QuickMenuShortcutSettings
@@ -122,6 +124,7 @@ public sealed class SettingsStoreTests
         Assert.True(loaded.PastePlainTextByDefault);
         Assert.True(loaded.PersistEncryptedHistory);
         Assert.Equal("large", loaded.QuickMenuImagePreviewSize);
+        Assert.Equal(30, loaded.QuickMenuTopLevelHistoryItems);
         Assert.True(loaded.QuickMenuShowCapturedAt);
         Assert.False(loaded.QuickMenuShowShortcutHints);
         Assert.Equal("Ctrl+F", loaded.QuickMenuShortcuts.Search);
@@ -196,6 +199,19 @@ public sealed class SettingsStoreTests
         var loaded = store.Load();
 
         Assert.Equal("medium", loaded.QuickMenuImagePreviewSize);
+    }
+
+    [Fact]
+    public void Load_NormalizesUnsupportedTopLevelHistoryItemsToFive()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"QuickMenuTopLevelHistoryItems":12}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Equal(5, loaded.QuickMenuTopLevelHistoryItems);
     }
 
     [Fact]

@@ -24,6 +24,8 @@ public sealed class CliptonSettings
 
     public bool FolderMode { get; set; } = true;
 
+    public int QuickMenuTopLevelHistoryItems { get; set; } = 5;
+
     public bool SimpleContextMenuMode { get; set; }
 
     public string QuickMenuImagePreviewSize { get; set; } = "medium";
