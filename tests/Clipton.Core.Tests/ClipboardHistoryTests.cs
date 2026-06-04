@@ -86,6 +86,18 @@ public sealed class ClipboardHistoryTests
         Assert.Equal(2_000, history.Items.Count);
     }
 
+    [Fact]
+    public void AppendOlder_AddsToEndAndSkipsDuplicates()
+    {
+        var history = new ClipboardHistory(capacity: 10);
+
+        history.Add(TextSnapshot("2", "newer"));
+        Assert.True(history.AppendOlder(TextSnapshot("1", "older")));
+        Assert.False(history.AppendOlder(TextSnapshot("duplicate", "older")));
+
+        Assert.Equal(["2", "1"], history.Items.Select(item => item.Id));
+    }
+
     private static ClipboardSnapshot TextSnapshot(string id, string text)
     {
         return new ClipboardSnapshot(id, DateTimeOffset.UtcNow, [ClipboardFormatKind.Text], text: text);

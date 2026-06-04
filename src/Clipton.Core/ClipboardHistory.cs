@@ -53,6 +53,28 @@ public sealed class ClipboardHistory
         return true;
     }
 
+    public bool AppendOlder(ClipboardSnapshot snapshot)
+    {
+        var fingerprint = CreateFingerprint(snapshot);
+        if (_itemsByFingerprint.ContainsKey(fingerprint))
+        {
+            return false;
+        }
+
+        _items.Add(snapshot);
+        Track(snapshot, fingerprint);
+
+        if (_items.Count > Capacity)
+        {
+            foreach (var item in _items.Skip(Capacity).ToArray())
+            {
+                RemoveTracked(item);
+            }
+        }
+
+        return true;
+    }
+
     public void Clear()
     {
         _items.Clear();

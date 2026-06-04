@@ -15,6 +15,7 @@ namespace Clipton.WinUI;
 public sealed class CliptonRuntime : IDisposable
 {
     private const int HistorySaveDebounceMilliseconds = 500;
+    private const int InitialPersistedHistoryLoadCount = 200;
     private const int QuickMenuHotkeyDebounceMilliseconds = 160;
     private const int TempPasteMaxFiles = 100;
     private static readonly TimeSpan TempPasteMaxAge = TimeSpan.FromHours(24);
@@ -29,6 +30,8 @@ public sealed class CliptonRuntime : IDisposable
     private readonly object _historySaveGate = new();
     private CancellationTokenSource? _historySaveDebounce;
     private long _historySaveVersion;
+    private int _persistedHistoryCount;
+    private int _loadedPersistedHistoryCount;
     private HotkeyMessageWindow? _messageWindow;
     private NativeTrayIcon? _notifyIcon;
     private MainWindow? _mainWindow;
@@ -64,13 +67,16 @@ public sealed class CliptonRuntime : IDisposable
 
         if (Settings.PersistEncryptedHistory)
         {
-            foreach (var snapshot in _historyStore.Load().Reverse())
+            _persistedHistoryCount = _historyStore.Count();
+            var snapshots = _historyStore.LoadRecent(Math.Min(Settings.MaxHistoryItems, InitialPersistedHistoryLoadCount));
+            _loadedPersistedHistoryCount = snapshots.Count;
+            foreach (var snapshot in snapshots.Reverse())
             {
                 History.Add(snapshot);
             }
         }
 
-        AppProfiler.Mark($"History loaded. count={History.Items.Count}");
+        AppProfiler.Mark($"History loaded. count={History.Items.Count}; persisted={_persistedHistoryCount}");
     }
 
     public CliptonSettings Settings { get; }
@@ -82,6 +88,10 @@ public sealed class CliptonRuntime : IDisposable
     public ClipboardHistory History { get; }
 
     public SnippetCatalog Snippets { get; }
+
+    public int UnloadedPersistedHistoryCount => Math.Max(0, _persistedHistoryCount - _loadedPersistedHistoryCount);
+
+    public int AvailableHistoryCount => Math.Min(Settings.MaxHistoryItems, History.Items.Count + UnloadedPersistedHistoryCount);
 
     public string EffectiveLocale => ResolveLocale(Settings.Locale);
 
@@ -446,6 +456,16 @@ public sealed class CliptonRuntime : IDisposable
 
     public bool IsHistoryPinned(string id) => Settings.PinnedHistoryIds.Contains(id, StringComparer.Ordinal);
 
+    public void LoadMorePersistedHistory(int count = QuickMenuHistoryBuckets.BucketSize)
+    {
+        if (count <= 0)
+        {
+            return;
+        }
+
+        EnsurePersistedHistoryLoaded(_loadedPersistedHistoryCount + count);
+    }
+
     private void UnpinHistoryItem(string id, bool refresh)
     {
         var ids = Settings.PinnedHistoryIds.Where(item => !string.Equals(item, id, StringComparison.Ordinal)).ToArray();
@@ -501,6 +521,8 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         SaveHistory();
+        _persistedHistoryCount = _historyStore.Count();
+        _loadedPersistedHistoryCount = Math.Min(History.Items.Count, _persistedHistoryCount);
         _mainWindow?.RefreshItems();
         return Math.Max(0, History.Items.Count - before);
     }
@@ -575,6 +597,8 @@ public sealed class CliptonRuntime : IDisposable
     public void ClearHistory()
     {
         History.Clear();
+        _persistedHistoryCount = 0;
+        _loadedPersistedHistoryCount = 0;
         Settings.PinnedHistoryIds = [];
         SaveSettings();
         SaveHistory();
@@ -815,19 +839,20 @@ public sealed class CliptonRuntime : IDisposable
 
         var menuItems = new List<QuickMenuItem>();
         var pinnedIds = Settings.PinnedHistoryIds.ToHashSet(StringComparer.Ordinal);
-        var historyItems = History.Items.Where(item => !pinnedIds.Contains(item.Id)).ToArray();
+        var historyCount = CountUnpinnedHistoryItems(pinnedIds);
         var pinnedItems = Settings.PinnedHistoryIds
             .Select(History.Find)
             .OfType<ClipboardSnapshot>()
             .ToArray();
         var topLevelHistoryItems = QuickMenuHistoryBuckets.NormalizeTopLevelHistoryItems(Settings.QuickMenuTopLevelHistoryItems);
-        var directHistoryItems = historyItems.Take(topLevelHistoryItems);
+        var includeImageThumbnails = !string.Equals(Settings.QuickMenuImagePreviewSize, "none", StringComparison.OrdinalIgnoreCase);
+        var directHistoryItems = EnumerateUnpinnedHistoryItems(pinnedIds).Take(topLevelHistoryItems);
         foreach (var item in directHistoryItems)
         {
-            menuItems.Add(CreateHistoryMenuItem(item));
+            menuItems.Add(CreateHistoryMenuItem(item, includeImageThumbnails));
         }
 
-        AddHistoryRangeFolders(menuItems, historyItems, topLevelHistoryItems);
+        AddHistoryRangeFolders(menuItems, historyCount, topLevelHistoryItems, pinnedIds, includeImageThumbnails);
 
         if (pinnedItems.Length > 0)
         {
@@ -837,7 +862,7 @@ public sealed class CliptonRuntime : IDisposable
                 ">",
                 "Enter",
                 () => { },
-                LazyChildren: () => pinnedItems.Select(CreateHistoryMenuItem).ToArray(),
+                LazyChildren: () => pinnedItems.Select(item => CreateHistoryMenuItem(item, includeImageThumbnails)).ToArray(),
                 IconGlyph: "\uE718",
                 IconFontFamily: "Segoe Fluent Icons"));
         }
@@ -954,9 +979,77 @@ public sealed class CliptonRuntime : IDisposable
             : 150;
     }
 
-    private void AddHistoryRangeFolders(List<QuickMenuItem> menuItems, IReadOnlyList<ClipboardSnapshot> historyItems, int topLevelCount)
+    private int CountUnpinnedHistoryItems(ISet<string> pinnedIds)
     {
-        foreach (var range in QuickMenuHistoryBuckets.CreateTopLevelRanges(historyItems.Count, topLevelCount))
+        var count = 0;
+        foreach (var item in History.Items)
+        {
+            if (!pinnedIds.Contains(item.Id))
+            {
+                count++;
+            }
+        }
+
+        var unloadedPersistedItems = Math.Max(0, _persistedHistoryCount - _loadedPersistedHistoryCount);
+        return count + unloadedPersistedItems;
+    }
+
+    private IEnumerable<ClipboardSnapshot> EnumerateUnpinnedHistoryItems(ISet<string> pinnedIds)
+    {
+        foreach (var item in History.Items)
+        {
+            if (!pinnedIds.Contains(item.Id))
+            {
+                yield return item;
+            }
+        }
+    }
+
+    private void EnsurePersistedHistoryLoaded(int loadedPersistedCount)
+    {
+        if (!Settings.PersistEncryptedHistory || loadedPersistedCount <= _loadedPersistedHistoryCount)
+        {
+            return;
+        }
+
+        var target = Math.Min(Math.Min(loadedPersistedCount, Settings.MaxHistoryItems), _persistedHistoryCount);
+        while (_loadedPersistedHistoryCount < target)
+        {
+            var loadCount = Math.Min(QuickMenuHistoryBuckets.BucketSize, target - _loadedPersistedHistoryCount);
+            var snapshots = _historyStore.LoadRange(_loadedPersistedHistoryCount, loadCount);
+            if (snapshots.Count == 0)
+            {
+                _loadedPersistedHistoryCount = target;
+                break;
+            }
+
+            foreach (var snapshot in snapshots)
+            {
+                History.AppendOlder(snapshot);
+            }
+
+            _loadedPersistedHistoryCount += snapshots.Count;
+        }
+    }
+
+    private IReadOnlyList<ClipboardSnapshot> GetUnpinnedHistoryRange(ISet<string> pinnedIds, int offset, int count)
+    {
+        var targetLoadedPersistedCount = Math.Min(_persistedHistoryCount, offset + count + pinnedIds.Count);
+        EnsurePersistedHistoryLoaded(targetLoadedPersistedCount);
+        return EnumerateUnpinnedHistoryItems(pinnedIds)
+            .Skip(offset)
+            .Take(count)
+            .ToArray();
+    }
+
+    private void AddHistoryRangeFolders(
+        List<QuickMenuItem> menuItems,
+        int historyCount,
+        int topLevelCount,
+        ISet<string> pinnedIds,
+        bool includeImageThumbnails)
+    {
+        foreach (var range in QuickMenuHistoryBuckets.CreateTopLevelRanges(historyCount, topLevelCount))
         {
             if (range.IsNestedParent)
             {
@@ -966,15 +1059,19 @@ public sealed class CliptonRuntime : IDisposable
                     ">",
                     "Enter",
                     () => { },
-                    LazyChildren: () => CreateNestedHistoryRangeFolders(historyItems)));
+                    LazyChildren: () => CreateNestedHistoryRangeFolders(historyCount, pinnedIds, includeImageThumbnails)));
                 continue;
             }
 
-            AddTopLevelHistoryRangeFolder(menuItems, historyItems, range);
+            AddTopLevelHistoryRangeFolder(menuItems, range, pinnedIds, includeImageThumbnails);
         }
     }
 
-    private void AddTopLevelHistoryRangeFolder(List<QuickMenuItem> menuItems, IReadOnlyList<ClipboardSnapshot> historyItems, QuickMenuHistoryRange range)
+    private void AddTopLevelHistoryRangeFolder(
+        List<QuickMenuItem> menuItems,
+        QuickMenuHistoryRange range,
+        ISet<string> pinnedIds,
+        bool includeImageThumbnails)
     {
         menuItems.Add(new QuickMenuItem(
             range.Label,
@@ -982,13 +1079,18 @@ public sealed class CliptonRuntime : IDisposable
             ">",
             "Enter",
             () => { },
-            LazyChildren: () => historyItems.Skip(range.Offset).Take(range.Count).Select(CreateHistoryMenuItem).ToArray()));
+            LazyChildren: () => GetUnpinnedHistoryRange(pinnedIds, range.Offset, range.Count)
+                .Select(item => CreateHistoryMenuItem(item, includeImageThumbnails))
+                .ToArray()));
     }
 
-    private IReadOnlyList<QuickMenuItem> CreateNestedHistoryRangeFolders(IReadOnlyList<ClipboardSnapshot> historyItems)
+    private IReadOnlyList<QuickMenuItem> CreateNestedHistoryRangeFolders(
+        int historyCount,
+        ISet<string> pinnedIds,
+        bool includeImageThumbnails)
     {
         var folders = new List<QuickMenuItem>();
-        foreach (var range in QuickMenuHistoryBuckets.CreateNestedRanges(historyItems.Count))
+        foreach (var range in QuickMenuHistoryBuckets.CreateNestedRanges(historyCount))
         {
             folders.Add(new QuickMenuItem(
                 range.Label,
@@ -996,7 +1098,9 @@ public sealed class CliptonRuntime : IDisposable
                 ">",
                 "Enter",
                 () => { },
-                LazyChildren: () => historyItems.Skip(range.Offset).Take(range.Count).Select(CreateHistoryMenuItem).ToArray()));
+                LazyChildren: () => GetUnpinnedHistoryRange(pinnedIds, range.Offset, range.Count)
+                    .Select(item => CreateHistoryMenuItem(item, includeImageThumbnails))
+                    .ToArray()));
         }
 
         return folders;
@@ -1112,7 +1216,18 @@ public sealed class CliptonRuntime : IDisposable
 
         if (Settings.PersistEncryptedHistory)
         {
-            _historyStore.Save(History.Items.ToArray());
+            var snapshots = History.Items.ToArray();
+            if (UnloadedPersistedHistoryCount > 0)
+            {
+                _historyStore.SavePreservingOlder(snapshots, _loadedPersistedHistoryCount, Settings.MaxHistoryItems);
+            }
+            else
+            {
+                _historyStore.Save(snapshots);
+            }
+
+            PruneHistoryImageFiles(snapshots.Select(item => item.Id).ToHashSet(StringComparer.Ordinal));
+            _persistedHistoryCount = Math.Min(Settings.MaxHistoryItems, Math.Max(_persistedHistoryCount, snapshots.Length + UnloadedPersistedHistoryCount));
         }
         else
         {
@@ -1128,6 +1243,9 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         var snapshots = History.Items.ToArray();
+        var unloadedPersistedHistoryCount = UnloadedPersistedHistoryCount;
+        var loadedPersistedHistoryCount = _loadedPersistedHistoryCount;
+        var maxHistoryItems = Settings.MaxHistoryItems;
         var version = Interlocked.Increment(ref _historySaveVersion);
         var cts = new CancellationTokenSource();
         CancellationTokenSource? previous;
@@ -1146,7 +1264,16 @@ public sealed class CliptonRuntime : IDisposable
                 await Task.Delay(HistorySaveDebounceMilliseconds, cts.Token);
                 if (version == Volatile.Read(ref _historySaveVersion))
                 {
-                    _historyStore.Save(snapshots);
+                    if (unloadedPersistedHistoryCount > 0)
+                    {
+                        _historyStore.SavePreservingOlder(snapshots, loadedPersistedHistoryCount, maxHistoryItems);
+                    }
+                    else
+                    {
+                        _historyStore.Save(snapshots);
+                    }
+
+                    PruneHistoryImageFiles(snapshots.Select(item => item.Id).ToHashSet(StringComparer.Ordinal));
                 }
             }
             catch (OperationCanceledException)
@@ -1400,9 +1527,9 @@ public sealed class CliptonRuntime : IDisposable
         return "T";
     }
 
-    private QuickMenuItem CreateHistoryMenuItem(ClipboardSnapshot item)
+    private QuickMenuItem CreateHistoryMenuItem(ClipboardSnapshot item, bool includeImageThumbnail)
     {
-        var display = CreateHistoryItemViewModel(item);
+        var display = CreateHistoryItemViewModel(item, includeThumbnail: includeImageThumbnail);
         var header = item.Formats.Contains(ClipboardFormatKind.Image) ? Translate("Image") : display.Preview;
         var revealedHeader = IsMaskedHistoryItem(item) && !item.Formats.Contains(ClipboardFormatKind.Image)
             ? item.Preview
@@ -1423,7 +1550,7 @@ public sealed class CliptonRuntime : IDisposable
             PasteOptions: pasteOptions,
             IconGlyph: GetHistoryIconGlyph(item),
             IconFontFamily: GetHistoryIconFontFamily(item),
-            IconImagePath: SaveHistoryThumbnail(item),
+            IconImagePath: includeImageThumbnail ? SaveHistoryThumbnail(item) : null,
             RevealedTitle: revealedHeader,
             CapturedAt: item.CapturedAt,
             IsPinned: IsHistoryPinned(item.Id),
@@ -1562,6 +1689,46 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
+    private void PruneHistoryImageFiles(HashSet<string> activeHistoryIds)
+    {
+        if (!Directory.Exists(_thumbnailPath))
+        {
+            return;
+        }
+
+        foreach (var file in Directory.EnumerateFiles(_thumbnailPath, "*.png"))
+        {
+            var name = Path.GetFileNameWithoutExtension(file);
+            var id = GetHistoryImageFileId(name);
+            if (string.IsNullOrEmpty(id))
+            {
+                continue;
+            }
+
+            if (!activeHistoryIds.Contains(id))
+            {
+                TryDeleteFile(file);
+            }
+        }
+    }
+
+    private static string? GetHistoryImageFileId(string fileNameWithoutExtension)
+    {
+        const string thumbnailSuffix = "-96";
+        const string previewSuffix = "-preview";
+        if (fileNameWithoutExtension.EndsWith(thumbnailSuffix, StringComparison.Ordinal))
+        {
+            return fileNameWithoutExtension[..^thumbnailSuffix.Length];
+        }
+
+        if (fileNameWithoutExtension.EndsWith(previewSuffix, StringComparison.Ordinal))
+        {
+            return fileNameWithoutExtension[..^previewSuffix.Length];
+        }
+
+        return null;
+    }
+
     private static void TryDeleteFile(string path)
     {
         try
@@ -1573,11 +1740,11 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
-    public HistoryItemViewModel CreateHistoryItemViewModel(ClipboardSnapshot snapshot)
+    public HistoryItemViewModel CreateHistoryItemViewModel(ClipboardSnapshot snapshot, bool includeThumbnail = true)
     {
         var formats = CreateFormatSummary(snapshot.Formats);
         var plainText = ClipboardBridge.GetPlainText(snapshot);
-        var thumbnailPath = SaveHistoryThumbnail(snapshot);
+        var thumbnailPath = includeThumbnail ? SaveHistoryThumbnail(snapshot) : null;
         var isImage = snapshot.Formats.Contains(ClipboardFormatKind.Image);
         var snippet = Snippets.FindByText(plainText);
         if (snippet is not null)

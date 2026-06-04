@@ -242,8 +242,22 @@ public sealed class MainWindow : Window
     public void RefreshItems()
     {
         _historyListView.Items.Clear();
-        var historyItems = _runtime.History.Items.Where(HistoryMatchesSearch).ToArray();
-        var visibleHistoryItems = historyItems.Take(_historyVisibleLimit).ToArray();
+        var visibleHistoryItems = new List<ClipboardSnapshot>(_historyVisibleLimit);
+        var matchedHistoryCount = 0;
+        foreach (var snapshot in _runtime.History.Items)
+        {
+            if (!HistoryMatchesSearch(snapshot))
+            {
+                continue;
+            }
+
+            matchedHistoryCount++;
+            if (visibleHistoryItems.Count < _historyVisibleLimit)
+            {
+                visibleHistoryItems.Add(snapshot);
+            }
+        }
+
         foreach (var snapshot in visibleHistoryItems)
         {
             var item = _runtime.CreateHistoryItemViewModel(snapshot);
@@ -267,15 +281,21 @@ public sealed class MainWindow : Window
         }
 
         _historyEmptyText.Text = string.IsNullOrWhiteSpace(_historySearchQuery) ? _runtime.Translate("HistoryEmpty") : _runtime.Translate("NoSearchResults");
-        _historyEmptyText.Visibility = visibleHistoryItems.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-        _loadMoreHistoryButton.Visibility = historyItems.Length > visibleHistoryItems.Length ? Visibility.Visible : Visibility.Collapsed;
-        if (visibleHistoryItems.Length == 0)
+        _historyEmptyText.Visibility = visibleHistoryItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        var hasMoreLoadedMatches = matchedHistoryCount > visibleHistoryItems.Count;
+        var hasUnloadedHistory = _runtime.UnloadedPersistedHistoryCount > 0;
+        _loadMoreHistoryButton.Visibility = hasMoreLoadedMatches || hasUnloadedHistory ? Visibility.Visible : Visibility.Collapsed;
+        if (hasMoreLoadedMatches || hasUnloadedHistory)
+        {
+            var remaining = string.IsNullOrWhiteSpace(_historySearchQuery)
+                ? Math.Max(0, _runtime.AvailableHistoryCount - visibleHistoryItems.Count)
+                : Math.Max(0, matchedHistoryCount - visibleHistoryItems.Count) + _runtime.UnloadedPersistedHistoryCount;
+            _loadMoreHistoryButton.Content = string.Format(_runtime.Translate("LoadMoreHistory"), remaining);
+        }
+
+        if (visibleHistoryItems.Count == 0)
         {
             _selectedHistoryId = null;
-        }
-        else if (historyItems.Length > visibleHistoryItems.Length)
-        {
-            _loadMoreHistoryButton.Content = string.Format(_runtime.Translate("LoadMoreHistory"), historyItems.Length - visibleHistoryItems.Length);
         }
 
         if (_selectedHistoryId is not null)
@@ -1061,7 +1081,7 @@ public sealed class MainWindow : Window
         {
             var formats = string.Join(" ", item.Formats);
             var snippet = _runtime.Snippets.FindByText(plainText);
-            var preview = _runtime.CreateHistoryItemViewModel(item).Preview;
+            var preview = _runtime.CreateHistoryItemViewModel(item, includeThumbnail: false).Preview;
             return $"{formats} {snippet?.DisplayName} {preview} {plainText} {string.Join(" ", item.FilePaths)}";
         });
     }
@@ -1271,6 +1291,7 @@ public sealed class MainWindow : Window
     private void LoadMoreHistory()
     {
         _historyVisibleLimit += HistoryDisplayBatchSize;
+        _runtime.LoadMorePersistedHistory(HistoryDisplayBatchSize);
         RefreshItems();
     }
 
