@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
+using Windows.Storage.Streams;
 using Windows.System;
 using Windows.UI;
 using WinRT.Interop;
@@ -752,10 +753,9 @@ public sealed class QuickMenuWindow : Window
                 }
 
                 if (!string.Equals(_imagePreviewSize, "none", StringComparison.OrdinalIgnoreCase)
-                    && !string.IsNullOrWhiteSpace(item.IconImagePath)
-                    && File.Exists(item.IconImagePath))
+                    && item.IconImageBytes is { Length: > 0 })
                 {
-                    optionSubItem.Loaded += (_, _) => InsertImagePreview(optionSubItem, item.IconImagePath, _imagePreviewSize);
+                    optionSubItem.Loaded += async (_, _) => await InsertImagePreviewAsync(optionSubItem, item.IconImageBytes, _imagePreviewSize);
                 }
 
                 target.Add(optionSubItem);
@@ -822,10 +822,9 @@ public sealed class QuickMenuWindow : Window
             }
 
             if (!string.Equals(_imagePreviewSize, "none", StringComparison.OrdinalIgnoreCase)
-                && !string.IsNullOrWhiteSpace(item.IconImagePath)
-                && File.Exists(item.IconImagePath))
+                && item.IconImageBytes is { Length: > 0 })
             {
-                flyoutItem.Loaded += (_, _) => InsertImagePreview(flyoutItem, item.IconImagePath, _imagePreviewSize);
+                flyoutItem.Loaded += async (_, _) => await InsertImagePreviewAsync(flyoutItem, item.IconImageBytes, _imagePreviewSize);
             }
 
             focusableItems.Add(flyoutItem);
@@ -1253,8 +1252,8 @@ public sealed class QuickMenuWindow : Window
         {
             Glyph = item.IconGlyph,
             FontFamily = new FontFamily(item.IconFontFamily ?? "Segoe UI"),
-            FontSize = !string.IsNullOrWhiteSpace(item.IconImagePath) ? 13 : 12,
-            Opacity = !string.IsNullOrWhiteSpace(item.IconImagePath) ? 0.78 : 1
+            FontSize = item.IconImageBytes is { Length: > 0 } ? 13 : 12,
+            Opacity = item.IconImageBytes is { Length: > 0 } ? 0.78 : 1
         };
     }
 
@@ -1273,9 +1272,9 @@ public sealed class QuickMenuWindow : Window
         };
     }
 
-    private static void InsertImagePreview(MenuFlyoutItemBase flyoutItem, string? imagePath, string size)
+    private static async Task InsertImagePreviewAsync(MenuFlyoutItemBase flyoutItem, byte[]? imageBytes, string size)
     {
-        if (string.IsNullOrWhiteSpace(imagePath) || !File.Exists(imagePath))
+        if (imageBytes is not { Length: > 0 })
         {
             return;
         }
@@ -1303,7 +1302,7 @@ public sealed class QuickMenuWindow : Window
             Background = new SolidColorBrush(Color.FromArgb(32, 255, 255, 255)),
             Child = new Image
             {
-                Source = new BitmapImage(new Uri(imagePath)),
+                Source = await CreateBitmapImageAsync(imageBytes),
                 Stretch = Stretch.UniformToFill
             }
         };
@@ -1320,6 +1319,23 @@ public sealed class QuickMenuWindow : Window
 
         Grid.SetColumn(panel, column);
         grid.Children.Add(panel);
+    }
+
+    private static async Task<BitmapImage> CreateBitmapImageAsync(byte[] bytes)
+    {
+        var bitmap = new BitmapImage();
+        using var stream = new InMemoryRandomAccessStream();
+        using (var writer = new DataWriter(stream))
+        {
+            writer.WriteBytes(bytes);
+            await writer.StoreAsync();
+            await writer.FlushAsync();
+            writer.DetachStream();
+        }
+
+        stream.Seek(0);
+        await bitmap.SetSourceAsync(stream);
+        return bitmap;
     }
 
     private static (double Width, double Height) GetImagePreviewDimensions(string size)
@@ -1387,7 +1403,7 @@ public sealed record QuickMenuItem(
     IReadOnlyList<QuickMenuPasteOption>? PasteOptions = null,
     string? IconGlyph = null,
     string? IconFontFamily = null,
-    string? IconImagePath = null,
+    byte[]? IconImageBytes = null,
     string? RevealedTitle = null,
     DateTimeOffset? CapturedAt = null,
     bool IsPinned = false,

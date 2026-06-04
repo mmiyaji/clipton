@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Clipton.Core;
 using Microsoft.UI;
@@ -28,6 +29,8 @@ public sealed class CliptonRuntime : IDisposable
     private readonly string _thumbnailPath;
     private readonly string _tempPastePath;
     private readonly object _historySaveGate = new();
+    private readonly object _historyImageCacheGate = new();
+    private readonly Dictionary<string, byte[]> _historyImageBytesByKey = new(StringComparer.Ordinal);
     private CancellationTokenSource? _historySaveDebounce;
     private long _historySaveVersion;
     private int _persistedHistoryCount;
@@ -1550,7 +1553,7 @@ public sealed class CliptonRuntime : IDisposable
             PasteOptions: pasteOptions,
             IconGlyph: GetHistoryIconGlyph(item),
             IconFontFamily: GetHistoryIconFontFamily(item),
-            IconImagePath: includeImageThumbnail ? SaveHistoryThumbnail(item) : null,
+            IconImageBytes: includeImageThumbnail ? GetHistoryThumbnailBytes(item) : null,
             RevealedTitle: revealedHeader,
             CapturedAt: item.CapturedAt,
             IsPinned: IsHistoryPinned(item.Id),
@@ -1596,7 +1599,7 @@ public sealed class CliptonRuntime : IDisposable
             : "Segoe UI";
     }
 
-    private string? SaveHistoryThumbnail(ClipboardSnapshot item)
+    private byte[]? GetHistoryThumbnailBytes(ClipboardSnapshot item)
     {
         if (item.ImagePng is not { Length: > 0 })
         {
@@ -1606,10 +1609,28 @@ public sealed class CliptonRuntime : IDisposable
         try
         {
             Directory.CreateDirectory(_thumbnailPath);
-            var path = Path.Combine(_thumbnailPath, $"{item.Id}-96.png");
+            var cacheKey = $"{item.Id}-96";
+            if (TryGetCachedHistoryImageBytes(cacheKey) is { } cachedBytes)
+            {
+                return cachedBytes;
+            }
+
+            var path = Path.Combine(_thumbnailPath, $"{item.Id}-96.bin");
             if (File.Exists(path))
             {
-                return path;
+                var bytes = ReadProtectedBytes(path);
+                CacheHistoryImageBytes(cacheKey, bytes);
+                return bytes;
+            }
+
+            var legacyPath = Path.Combine(_thumbnailPath, $"{item.Id}-96.png");
+            if (File.Exists(legacyPath))
+            {
+                var legacyBytes = File.ReadAllBytes(legacyPath);
+                WriteProtectedBytes(path, legacyBytes);
+                TryDeleteFile(legacyPath);
+                CacheHistoryImageBytes(cacheKey, legacyBytes);
+                return legacyBytes;
             }
 
             using var sourceStream = new MemoryStream(item.ImagePng);
@@ -1625,8 +1646,12 @@ public sealed class CliptonRuntime : IDisposable
             graphics.PixelOffsetMode = Drawing2D.PixelOffsetMode.HighQuality;
             graphics.SmoothingMode = Drawing2D.SmoothingMode.HighQuality;
             graphics.DrawImage(source, (size - width) / 2, (size - height) / 2, width, height);
-            thumbnail.Save(path, Imaging.ImageFormat.Png);
-            return path;
+            using var thumbnailStream = new MemoryStream();
+            thumbnail.Save(thumbnailStream, Imaging.ImageFormat.Png);
+            var thumbnailBytes = thumbnailStream.ToArray();
+            WriteProtectedBytes(path, thumbnailBytes);
+            CacheHistoryImageBytes(cacheKey, thumbnailBytes);
+            return thumbnailBytes;
         }
         catch
         {
@@ -1634,7 +1659,7 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
-    private string? SaveHistoryImagePreview(ClipboardSnapshot item)
+    private byte[]? GetHistoryImagePreviewBytes(ClipboardSnapshot item)
     {
         if (item.ImagePng is not { Length: > 0 })
         {
@@ -1644,13 +1669,33 @@ public sealed class CliptonRuntime : IDisposable
         try
         {
             Directory.CreateDirectory(_thumbnailPath);
-            var path = Path.Combine(_thumbnailPath, $"{item.Id}-preview.png");
-            if (!File.Exists(path))
+            var cacheKey = $"{item.Id}-preview";
+            if (TryGetCachedHistoryImageBytes(cacheKey) is { } cachedBytes)
             {
-                File.WriteAllBytes(path, item.ImagePng);
+                return cachedBytes;
             }
 
-            return path;
+            var path = Path.Combine(_thumbnailPath, $"{item.Id}-preview.bin");
+            if (File.Exists(path))
+            {
+                var bytes = ReadProtectedBytes(path);
+                CacheHistoryImageBytes(cacheKey, bytes);
+                return bytes;
+            }
+
+            var legacyPath = Path.Combine(_thumbnailPath, $"{item.Id}-preview.png");
+            if (File.Exists(legacyPath))
+            {
+                var legacyBytes = File.ReadAllBytes(legacyPath);
+                WriteProtectedBytes(path, legacyBytes);
+                TryDeleteFile(legacyPath);
+                CacheHistoryImageBytes(cacheKey, legacyBytes);
+                return legacyBytes;
+            }
+
+            WriteProtectedBytes(path, item.ImagePng);
+            CacheHistoryImageBytes(cacheKey, item.ImagePng);
+            return item.ImagePng;
         }
         catch
         {
@@ -1658,9 +1703,9 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
-    public string? GetHistoryImagePreviewPath(string id)
+    public byte[]? GetHistoryImagePreviewBytes(string id)
     {
-        return History.Find(id) is { } item ? SaveHistoryImagePreview(item) : null;
+        return History.Find(id) is { } item ? GetHistoryImagePreviewBytes(item) : null;
     }
 
     private void DeleteHistoryImageFiles(string id)
@@ -1670,10 +1715,12 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        foreach (var file in Directory.EnumerateFiles(_thumbnailPath, $"{id}-*.png"))
+        foreach (var file in Directory.EnumerateFiles(_thumbnailPath, $"{id}-*.*"))
         {
             TryDeleteFile(file);
         }
+
+        RemoveCachedHistoryImageFiles(id);
     }
 
     private void ClearHistoryImageFiles()
@@ -1683,9 +1730,14 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        foreach (var file in Directory.EnumerateFiles(_thumbnailPath, "*.png"))
+        foreach (var file in Directory.EnumerateFiles(_thumbnailPath, "*.*"))
         {
             TryDeleteFile(file);
+        }
+
+        lock (_historyImageCacheGate)
+        {
+            _historyImageBytesByKey.Clear();
         }
     }
 
@@ -1696,7 +1748,7 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        foreach (var file in Directory.EnumerateFiles(_thumbnailPath, "*.png"))
+        foreach (var file in Directory.EnumerateFiles(_thumbnailPath, "*.*"))
         {
             var name = Path.GetFileNameWithoutExtension(file);
             var id = GetHistoryImageFileId(name);
@@ -1708,7 +1760,33 @@ public sealed class CliptonRuntime : IDisposable
             if (!activeHistoryIds.Contains(id))
             {
                 TryDeleteFile(file);
+                RemoveCachedHistoryImageFiles(id);
             }
+        }
+    }
+
+    private byte[]? TryGetCachedHistoryImageBytes(string key)
+    {
+        lock (_historyImageCacheGate)
+        {
+            return _historyImageBytesByKey.GetValueOrDefault(key);
+        }
+    }
+
+    private void CacheHistoryImageBytes(string key, byte[] bytes)
+    {
+        lock (_historyImageCacheGate)
+        {
+            _historyImageBytesByKey[key] = bytes;
+        }
+    }
+
+    private void RemoveCachedHistoryImageFiles(string id)
+    {
+        lock (_historyImageCacheGate)
+        {
+            _historyImageBytesByKey.Remove($"{id}-96");
+            _historyImageBytesByKey.Remove($"{id}-preview");
         }
     }
 
@@ -1729,6 +1807,26 @@ public sealed class CliptonRuntime : IDisposable
         return null;
     }
 
+    private static byte[] ReadProtectedBytes(string path)
+    {
+        var encrypted = File.ReadAllBytes(path);
+        return ProtectedData.Unprotect(encrypted, optionalEntropy: null, DataProtectionScope.CurrentUser);
+    }
+
+    private static void WriteProtectedBytes(string path, byte[] bytes)
+    {
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var encrypted = ProtectedData.Protect(bytes, optionalEntropy: null, DataProtectionScope.CurrentUser);
+        var tempPath = Path.Combine(directory ?? string.Empty, $"{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+        File.WriteAllBytes(tempPath, encrypted);
+        File.Move(tempPath, path, overwrite: true);
+    }
+
     private static void TryDeleteFile(string path)
     {
         try
@@ -1744,20 +1842,20 @@ public sealed class CliptonRuntime : IDisposable
     {
         var formats = CreateFormatSummary(snapshot.Formats);
         var plainText = ClipboardBridge.GetPlainText(snapshot);
-        var thumbnailPath = includeThumbnail ? SaveHistoryThumbnail(snapshot) : null;
+        var thumbnailBytes = includeThumbnail ? GetHistoryThumbnailBytes(snapshot) : null;
         var isImage = snapshot.Formats.Contains(ClipboardFormatKind.Image);
         var snippet = Snippets.FindByText(plainText);
         if (snippet is not null)
         {
-            return new HistoryItemViewModel(snapshot.Id, snippet.DisplayName, $"{Translate("RegisteredSnippetMasked")} - {formats}", snapshot.CapturedAt, isImage, thumbnailPath);
+            return new HistoryItemViewModel(snapshot.Id, snippet.DisplayName, $"{Translate("RegisteredSnippetMasked")} - {formats}", snapshot.CapturedAt, isImage, thumbnailBytes);
         }
 
         if (Settings.MaskSensitiveContent && CreateMaskedPreview(plainText) is { } maskedPreview)
         {
-            return new HistoryItemViewModel(snapshot.Id, NormalizePreviewText(maskedPreview), $"{Translate("MaskedSensitive")} - {formats}", snapshot.CapturedAt, isImage, thumbnailPath);
+            return new HistoryItemViewModel(snapshot.Id, NormalizePreviewText(maskedPreview), $"{Translate("MaskedSensitive")} - {formats}", snapshot.CapturedAt, isImage, thumbnailBytes);
         }
 
-        return new HistoryItemViewModel(snapshot.Id, CreatePreviewText(snapshot, plainText), formats, snapshot.CapturedAt, isImage, thumbnailPath);
+        return new HistoryItemViewModel(snapshot.Id, CreatePreviewText(snapshot, plainText), formats, snapshot.CapturedAt, isImage, thumbnailBytes);
     }
 
     private bool IsMaskedHistoryItem(ClipboardSnapshot snapshot)

@@ -16,6 +16,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
 using Windows.Storage.Pickers;
+using Windows.Storage.Streams;
 using Windows.System;
 using Windows.UI.Core;
 using WinRT.Interop;
@@ -2125,17 +2126,16 @@ public sealed class MainWindow : Window
 
     private async Task ShowHistoryImagePreviewAsync(HistoryItemViewModel item)
     {
-        var path = _runtime.GetHistoryImagePreviewPath(item.Id);
+        var imageBytes = _runtime.GetHistoryImagePreviewBytes(item.Id);
         if (_root.XamlRoot is null
-            || path is null
-            || !File.Exists(path))
+            || imageBytes is not { Length: > 0 })
         {
             return;
         }
 
         var image = new Image
         {
-            Source = new BitmapImage(new Uri(path)),
+            Source = await CreateBitmapImageAsync(imageBytes),
             Stretch = Stretch.Uniform,
             MaxWidth = 760,
             MaxHeight = 560,
@@ -3218,17 +3218,18 @@ public sealed class MainWindow : Window
         };
         host.Children.Add(border);
 
-        if (item.HasPreviewImage && item.ThumbnailImagePath is { } path && File.Exists(path))
+        if (item.HasPreviewImage && item.ThumbnailImageBytes is { Length: > 0 } thumbnailBytes)
         {
             border.BorderBrush = CardBorderBrush();
             border.BorderThickness = new Thickness(1);
-            border.Child = new Image
+            var image = new Image
             {
-                Source = new BitmapImage(new Uri(path)),
                 Stretch = Stretch.Uniform,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
+            image.Loaded += async (_, _) => image.Source = await CreateBitmapImageAsync(thumbnailBytes);
+            border.Child = image;
             host.Tapped += async (_, e) =>
             {
                 e.Handled = true;
@@ -3262,6 +3263,23 @@ public sealed class MainWindow : Window
         _titleText.VerticalAlignment = VerticalAlignment.Center;
         grid.Children.Add(_titleText);
         return grid;
+    }
+
+    private static async Task<BitmapImage> CreateBitmapImageAsync(byte[] bytes)
+    {
+        var bitmap = new BitmapImage();
+        using var stream = new InMemoryRandomAccessStream();
+        using (var writer = new DataWriter(stream))
+        {
+            writer.WriteBytes(bytes);
+            await writer.StoreAsync();
+            await writer.FlushAsync();
+            writer.DetachStream();
+        }
+
+        stream.Seek(0);
+        await bitmap.SetSourceAsync(stream);
+        return bitmap;
     }
 
     private static Border Pill(UIElement child) => new()
@@ -3543,11 +3561,11 @@ public sealed record HistoryItemViewModel(
     string FormatSummary,
     DateTimeOffset CapturedAt,
     bool IsImage = false,
-    string? ThumbnailImagePath = null)
+    byte[]? ThumbnailImageBytes = null)
 {
     public string CapturedAtText => CapturedAt.LocalDateTime.ToString("yyyy/MM/dd HH:mm");
 
-    public bool HasPreviewImage => !string.IsNullOrWhiteSpace(ThumbnailImagePath);
+    public bool HasPreviewImage => ThumbnailImageBytes is { Length: > 0 };
 
     public override string ToString() => $"{Preview}  {FormatSummary}  {CapturedAtText}";
 }
