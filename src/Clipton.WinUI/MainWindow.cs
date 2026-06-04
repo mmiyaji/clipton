@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using System.Threading;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -38,6 +39,7 @@ public sealed class MainWindow : Window
     private const string SnippetVariablesUrl = "https://mmiyaji.github.io/clipton/snippet-variables/";
     private readonly CliptonRuntime _runtime;
     private readonly Grid _root = new();
+    private readonly SemaphoreSlim _dialogGate = new(1, 1);
     private readonly NavigationView _navigationView = new();
     private readonly ScrollViewer _contentScroller = new();
     private readonly StackPanel _generalPage = SettingsPage();
@@ -59,6 +61,7 @@ public sealed class MainWindow : Window
     private readonly TextBlock _titleText = Header(20);
     private readonly TextBlock _hotkeyText = Description();
     private readonly UIElement _brandHeader;
+    private readonly Image _appLogoImage = new() { Width = 32, Height = 32 };
     private readonly StackPanel _navigationPaneFooter = new() { Padding = new Thickness(8, 10, 8, 0), Spacing = 12 };
     private readonly Border _hotkeyPill;
     private readonly TextBlock _generalHeaderText = Header();
@@ -96,6 +99,7 @@ public sealed class MainWindow : Window
     private readonly ComboBox _maskPrefixBox = new();
     private readonly TextBox _maskPatternsBox = new();
     private readonly TextBox _maskTestBox = new();
+    private readonly Button _maskDefinitionsSaveButton = new();
     private readonly TextBlock _maskDefinitionsErrorText = Description();
     private readonly TextBlock _maskTestResultText = Description();
     private readonly ComboBox _maxHistoryItemsBox = new();
@@ -138,6 +142,10 @@ public sealed class MainWindow : Window
     private string _historySearchQuery = string.Empty;
     private int _historyVisibleLimit = HistoryDisplayBatchSize;
     private bool _loading;
+    private bool _startupRegistrationSaving;
+    private bool _historyOptionsSaving;
+    private bool _snippetDeleteInProgress;
+    private bool _historyItemDeleteInProgress;
     private bool _updatingNavSelection;
     private bool _updatingHistorySearchBox;
     private bool _updatingHistorySearchFilters;
@@ -330,6 +338,10 @@ public sealed class MainWindow : Window
         SetCommandButton(_exitApplicationButton, "\uE8BB", t("ExitApplication"));
         SetCommandButton(_openLogsButton, "\uE838", t("OpenLogs"));
         SetCommandButton(_clearLogsButton, "\uE74D", t("ClearLogs"));
+        _maskPatternsBox.PlaceholderText = t("MaskPatternDefinitions");
+        _maskTestBox.PlaceholderText = t("MaskTestText");
+        _maskDefinitionsSaveButton.Content = t("Save");
+        AutomationProperties.SetName(_maskDefinitionsSaveButton, t("Save"));
         _captureHotkeyButton.Content = t("CaptureHotkey");
         _resetHotkeyButton.Content = t("ResetHotkey");
         SetComboBoxText(_themeBox, "system", t("ThemeSystem"));
@@ -365,6 +377,7 @@ public sealed class MainWindow : Window
         SetComboSelection(_quickMenuTopLevelHistoryItemsBox, _runtime.Settings.QuickMenuTopLevelHistoryItems.ToString());
         _quickMenuShowCapturedAtToggle.IsOn = _runtime.Settings.QuickMenuShowCapturedAt;
         _quickMenuShowShortcutHintsToggle.IsOn = _runtime.Settings.QuickMenuShowShortcutHints;
+        _startupToggle.IsEnabled = !_runtime.IsSafeMode;
         RefreshToggleStateLabels();
         RefreshLocalizedTextBlocks();
         EnsureHotkeyComboItem(_runtime.Settings.Hotkey);
@@ -465,7 +478,7 @@ public sealed class MainWindow : Window
             await TryApplyHotkeyAsync(hotkey);
         };
         _captureHotkeyButton.Click += async (_, _) => await CaptureCustomHotkeyAsync();
-        _resetHotkeyButton.Click += async (_, _) => await TryApplyHotkeyAsync(HotkeyGesture.Default.ToString());
+        _resetHotkeyButton.Click += async (_, _) => await ConfirmAndResetHotkeyAsync();
         var hotkeyControls = new Grid
         {
             ColumnSpacing = 8,
@@ -692,14 +705,14 @@ public sealed class MainWindow : Window
         _historySettingsPage.Children.Add(SectionHeader("CapturePrivacySection"));
         foreach (var toggle in new[] { _pauseCaptureToggle, _persistHistoryToggle, _maskSensitiveContentToggle })
         {
-            toggle.Toggled += (_, _) => SaveHistoryOptions();
+            toggle.Toggled += async (_, _) => await SaveHistoryOptionsAsync();
         }
 
         _historySettingsPage.Children.Add(SettingCard("\uE769", "PauseCapture", "PauseCaptureDescription", _pauseCaptureToggle));
         _diagnosticLoggingToggle.Toggled += (_, _) => SaveDiagnosticLogging();
         var diagnosticControls = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         _openLogsButton.Click += (_, _) => _runtime.OpenDiagnosticLogDirectory();
-        _clearLogsButton.Click += (_, _) => _runtime.ClearDiagnosticLogs();
+        _clearLogsButton.Click += async (_, _) => await ConfirmAndClearLogsAsync();
         diagnosticControls.Children.Add(_openLogsButton);
         diagnosticControls.Children.Add(_clearLogsButton);
         diagnosticControls.Children.Add(ToggleActionHost(_diagnosticLoggingToggle));
@@ -711,7 +724,7 @@ public sealed class MainWindow : Window
             _maxHistoryItemsBox.Items.Add(new ComboBoxItem { Tag = count.ToString(), Content = count.ToString() });
         }
 
-        _maxHistoryItemsBox.SelectionChanged += (_, _) => ChangeMaxHistoryItems();
+        _maxHistoryItemsBox.SelectionChanged += async (_, _) => await ChangeMaxHistoryItemsAsync();
         _historySettingsPage.Children.Add(SettingCard("\uE81C", "MaxHistoryItems", "MaxHistoryItemsDescription", _maxHistoryItemsBox));
         _clipboardCaptureDelayBox.Width = 180;
         foreach (var delay in new[] { 0, 50, 100, 150, 250, 500, 1000 })
@@ -873,16 +886,11 @@ public sealed class MainWindow : Window
         _maskTestResultText.Margin = new Thickness(2, 0, 0, 0);
 
         _maskDefinitionsErrorText.Visibility = Visibility.Collapsed;
-        var saveButton = new Button
-        {
-            Content = _runtime.Translate("Save"),
-            MinWidth = 96,
-            Height = 32,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 2, 0, 0)
-        };
-        AutomationProperties.SetName(saveButton, _runtime.Translate("Save"));
-        saveButton.Click += (_, _) => SaveMaskDefinitions();
+        _maskDefinitionsSaveButton.MinWidth = 96;
+        _maskDefinitionsSaveButton.Height = 32;
+        _maskDefinitionsSaveButton.HorizontalAlignment = HorizontalAlignment.Right;
+        _maskDefinitionsSaveButton.Margin = new Thickness(0, 2, 0, 0);
+        _maskDefinitionsSaveButton.Click += (_, _) => SaveMaskDefinitions();
 
         _maskDefinitionsPanel.Children.Add(prefixRow);
         _maskDefinitionsPanel.Children.Add(LocalizedText("MaskPatternDefinitions", fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
@@ -893,7 +901,7 @@ public sealed class MainWindow : Window
         _maskDefinitionsPanel.Children.Add(_maskTestBox);
         _maskDefinitionsPanel.Children.Add(_maskTestResultText);
         _maskDefinitionsPanel.Children.Add(_maskDefinitionsErrorText);
-        _maskDefinitionsPanel.Children.Add(saveButton);
+        _maskDefinitionsPanel.Children.Add(_maskDefinitionsSaveButton);
         _maskDefinitionsCard = Card(_maskDefinitionsPanel);
         _maskDefinitionsCard.Visibility = Visibility.Collapsed;
         return _maskDefinitionsCard;
@@ -1400,14 +1408,7 @@ public sealed class MainWindow : Window
                 _runtime.PasteSnippet(_selectedSnippet.Folder, _selectedSnippet.Name);
             }
         };
-        _deleteSnippetButton.Click += (_, _) =>
-        {
-            if (_selectedSnippet is null) return;
-            _runtime.RemoveSnippet(_selectedSnippet.Folder, _selectedSnippet.Name);
-            _selectedSnippet = null;
-            UpdateSelectedSnippetText();
-            RefreshItems();
-        };
+        _deleteSnippetButton.Click += async (_, _) => await ConfirmAndDeleteSelectedSnippetAsync();
         _exportSnippetsButton.Click += async (_, _) => await ExportSnippetsAsync();
         _importSnippetsButton.Click += async (_, _) => await ImportSnippetsAsync();
         buttons.Children.Add(_newSnippetButton);
@@ -1466,9 +1467,29 @@ public sealed class MainWindow : Window
 
     private async Task SetStartupAsync()
     {
-        if (_loading) return;
-        await _runtime.SetStartWithWindowsAsync(_startupToggle.IsOn);
-        RefreshTexts();
+        if (_loading || _startupRegistrationSaving) return;
+        _startupRegistrationSaving = true;
+        _startupToggle.IsEnabled = false;
+        var requested = _startupToggle.IsOn;
+        try
+        {
+            await _runtime.SetStartWithWindowsAsync(requested);
+        }
+        finally
+        {
+            _loading = true;
+            try
+            {
+                _startupToggle.IsOn = _runtime.Settings.StartWithWindows;
+            }
+            finally
+            {
+                _loading = false;
+                _startupToggle.IsEnabled = !_runtime.IsSafeMode;
+                _startupRegistrationSaving = false;
+                RefreshTexts();
+            }
+        }
     }
 
     private void SaveStartupWindowOptions()
@@ -1497,6 +1518,27 @@ public sealed class MainWindow : Window
         RefreshTexts();
     }
 
+    private async Task ConfirmAndResetHotkeyAsync()
+    {
+        var defaultHotkey = HotkeyGesture.Default.ToString();
+        if (string.Equals(_runtime.Settings.Hotkey, defaultHotkey, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var confirmed = await ConfirmDialogAsync(
+            _runtime.Translate("ConfirmResetHotkeyTitle"),
+            string.Format(_runtime.Translate("ConfirmResetHotkeyMessage"), defaultHotkey),
+            _runtime.Translate("ResetHotkey"),
+            _runtime.Translate("Cancel"));
+        if (!confirmed)
+        {
+            return;
+        }
+
+        await TryApplyHotkeyAsync(defaultHotkey);
+    }
+
     private async Task CaptureCustomHotkeyAsync()
     {
         var hotkey = await PromptForHotkeyAsync();
@@ -1506,13 +1548,56 @@ public sealed class MainWindow : Window
         }
     }
 
-    private void SaveHistoryOptions()
+    private async Task SaveHistoryOptionsAsync()
     {
-        if (_loading) return;
-        _runtime.SetPauseCapture(_pauseCaptureToggle.IsOn);
-        _runtime.SetPersistEncryptedHistory(_persistHistoryToggle.IsOn);
-        _runtime.SetMaskSensitiveContent(_maskSensitiveContentToggle.IsOn);
-        RefreshItems();
+        if (_loading || _historyOptionsSaving) return;
+        _historyOptionsSaving = true;
+        try
+        {
+            if (_runtime.Settings.PersistEncryptedHistory && !_persistHistoryToggle.IsOn)
+            {
+                var confirmed = await ConfirmDialogAsync(
+                    _runtime.Translate("ConfirmDisablePersistHistoryTitle"),
+                    _runtime.Translate("ConfirmDisablePersistHistoryMessage"),
+                    _runtime.Translate("DisablePersistHistory"),
+                    _runtime.Translate("Cancel"));
+                if (!confirmed)
+                {
+                    _loading = true;
+                    try
+                    {
+                        _persistHistoryToggle.IsOn = true;
+                    }
+                    finally
+                    {
+                        _loading = false;
+                    }
+
+                    return;
+                }
+            }
+
+            if (_runtime.Settings.PauseCapture != _pauseCaptureToggle.IsOn)
+            {
+                _runtime.SetPauseCapture(_pauseCaptureToggle.IsOn);
+            }
+
+            if (_runtime.Settings.PersistEncryptedHistory != _persistHistoryToggle.IsOn)
+            {
+                _runtime.SetPersistEncryptedHistory(_persistHistoryToggle.IsOn);
+            }
+
+            if (_runtime.Settings.MaskSensitiveContent != _maskSensitiveContentToggle.IsOn)
+            {
+                _runtime.SetMaskSensitiveContent(_maskSensitiveContentToggle.IsOn);
+            }
+
+            RefreshItems();
+        }
+        finally
+        {
+            _historyOptionsSaving = false;
+        }
     }
 
     private void ChangeQuickMenuTopLevelHistoryItems()
@@ -1552,7 +1637,94 @@ public sealed class MainWindow : Window
         _runtime.ClearHistory();
     }
 
-    private void ChangeMaxHistoryItems()
+    private async Task ConfirmAndClearLogsAsync()
+    {
+        var confirmed = await ConfirmDialogAsync(
+            _runtime.Translate("ConfirmClearLogsTitle"),
+            _runtime.Translate("ConfirmClearLogsMessage"),
+            _runtime.Translate("ClearLogs"),
+            _runtime.Translate("Cancel"));
+        if (!confirmed)
+        {
+            return;
+        }
+
+        _runtime.ClearDiagnosticLogs();
+    }
+
+    private async Task ConfirmAndDeleteSelectedSnippetAsync()
+    {
+        if (_selectedSnippet is null || _snippetDeleteInProgress)
+        {
+            return;
+        }
+
+        _snippetDeleteInProgress = true;
+        try
+        {
+            var selected = _selectedSnippet;
+            var confirmed = await ConfirmDialogAsync(
+                _runtime.Translate("ConfirmDeleteSnippetTitle"),
+                string.Format(_runtime.Translate("ConfirmDeleteSnippetMessage"), selected.DisplayName),
+                _runtime.Translate("Delete"),
+                _runtime.Translate("Cancel"));
+            if (!confirmed)
+            {
+                return;
+            }
+
+            _runtime.RemoveSnippet(selected.Folder, selected.Name);
+            if (_selectedSnippet is not null
+                && string.Equals(_selectedSnippet.Folder, selected.Folder, StringComparison.Ordinal)
+                && string.Equals(_selectedSnippet.Name, selected.Name, StringComparison.Ordinal))
+            {
+                _selectedSnippet = null;
+            }
+
+            UpdateSelectedSnippetText();
+            RefreshItems();
+        }
+        finally
+        {
+            _snippetDeleteInProgress = false;
+        }
+    }
+
+    private async Task ConfirmAndDeleteHistoryItemAsync(string id)
+    {
+        if (_historyItemDeleteInProgress)
+        {
+            return;
+        }
+
+        _historyItemDeleteInProgress = true;
+        try
+        {
+            var confirmed = await ConfirmDialogAsync(
+                _runtime.Translate("ConfirmDeleteHistoryItemTitle"),
+                _runtime.Translate("ConfirmDeleteHistoryItemMessage"),
+                _runtime.Translate("Delete"),
+                _runtime.Translate("Cancel"));
+            if (!confirmed)
+            {
+                return;
+            }
+
+            _runtime.RemoveHistoryItem(id);
+            if (string.Equals(_selectedHistoryId, id, StringComparison.Ordinal))
+            {
+                _selectedHistoryId = null;
+            }
+
+            RefreshItems();
+        }
+        finally
+        {
+            _historyItemDeleteInProgress = false;
+        }
+    }
+
+    private async Task ChangeMaxHistoryItemsAsync()
     {
         if (_loading || _maxHistoryItemsBox.SelectedItem is not ComboBoxItem selected || selected.Tag is not string tag)
         {
@@ -1563,6 +1735,30 @@ public sealed class MainWindow : Window
         if (_runtime.Settings.MaxHistoryItems == count)
         {
             return;
+        }
+
+        var currentHistoryCount = _runtime.History.Items.Count;
+        if (count < currentHistoryCount)
+        {
+            var confirmed = await ConfirmDialogAsync(
+                _runtime.Translate("ConfirmReduceHistoryLimitTitle"),
+                string.Format(_runtime.Translate("ConfirmReduceHistoryLimitMessage"), currentHistoryCount - count, count),
+                _runtime.Translate("Apply"),
+                _runtime.Translate("Cancel"));
+            if (!confirmed)
+            {
+                _loading = true;
+                try
+                {
+                    SetComboSelection(_maxHistoryItemsBox, _runtime.Settings.MaxHistoryItems.ToString());
+                }
+                finally
+                {
+                    _loading = false;
+                }
+
+                return;
+            }
         }
 
         _runtime.SetMaxHistoryItems(count);
@@ -1641,6 +1837,35 @@ public sealed class MainWindow : Window
             return;
         }
 
+        HistoryImportPreview preview;
+        try
+        {
+            preview = _runtime.PreviewImportHistory(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException)
+        {
+            await ShowMessageDialogAsync(
+                _runtime.Translate("ImportHistory"),
+                string.Format(_runtime.Translate("ImportExportFailed"), ex.Message),
+                _runtime.Translate("Close"));
+            return;
+        }
+
+        if (!await ConfirmDialogAsync(
+                _runtime.Translate("ConfirmImportHistoryTitle"),
+                string.Format(
+                    _runtime.Translate("ConfirmImportHistoryPreviewMessage"),
+                    preview.SourceItems,
+                    preview.UniqueItems,
+                    preview.ReplacementItems,
+                    preview.RemovedByCapacityItems,
+                    preview.Capacity),
+                _runtime.Translate("ImportHistory"),
+                _runtime.Translate("Cancel")))
+        {
+            return;
+        }
+
         await RunImportExportActionAsync(
             "ImportHistory",
             () =>
@@ -1668,6 +1893,33 @@ public sealed class MainWindow : Window
     {
         var path = await SelectImportPathAsync();
         if (path is null)
+        {
+            return;
+        }
+
+        SnippetImportPreview preview;
+        try
+        {
+            preview = _runtime.PreviewImportSnippets(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException)
+        {
+            await ShowMessageDialogAsync(
+                _runtime.Translate("ImportSnippets"),
+                string.Format(_runtime.Translate("ImportExportFailed"), ex.Message),
+                _runtime.Translate("Close"));
+            return;
+        }
+
+        if (!await ConfirmDialogAsync(
+                _runtime.Translate("ConfirmImportSnippetsTitle"),
+                string.Format(
+                    _runtime.Translate("ConfirmImportSnippetsPreviewMessage"),
+                    preview.SourceItems,
+                    preview.ValidItems,
+                    preview.ReplacementItems),
+                _runtime.Translate("ImportSnippets"),
+                _runtime.Translate("Cancel")))
         {
             return;
         }
@@ -1728,6 +1980,19 @@ public sealed class MainWindow : Window
         }
     }
 
+    private async Task<ContentDialogResult> ShowContentDialogAsync(ContentDialog dialog)
+    {
+        await _dialogGate.WaitAsync();
+        try
+        {
+            return await dialog.ShowAsync();
+        }
+        finally
+        {
+            _dialogGate.Release();
+        }
+    }
+
     private async Task ShowMessageDialogAsync(string title, string message, string closeText)
     {
         if (_root.XamlRoot is null)
@@ -1748,7 +2013,7 @@ public sealed class MainWindow : Window
             XamlRoot = _root.XamlRoot,
             RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
         };
-        await dialog.ShowAsync();
+        await ShowContentDialogAsync(dialog);
     }
 
     private async Task ShowOnboardingDialogAsync()
@@ -1803,7 +2068,7 @@ public sealed class MainWindow : Window
             RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
         };
 
-        var result = await dialog.ShowAsync();
+        var result = await ShowContentDialogAsync(dialog);
         if (result == ContentDialogResult.Primary)
         {
             _runtime.CompleteOnboarding();
@@ -1834,7 +2099,7 @@ public sealed class MainWindow : Window
             XamlRoot = _root.XamlRoot,
             RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
         };
-        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        return await ShowContentDialogAsync(dialog) == ContentDialogResult.Primary;
     }
 
     private async Task ShowHistoryImagePreviewAsync(HistoryItemViewModel item)
@@ -1881,7 +2146,7 @@ public sealed class MainWindow : Window
             RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
         };
 
-        await dialog.ShowAsync();
+        await ShowContentDialogAsync(dialog);
     }
 
     private void SelectSnippet(SnippetItemViewModel selected)
@@ -2149,7 +2414,7 @@ public sealed class MainWindow : Window
         nameBox.TextChanged += (_, _) => dialog.IsPrimaryButtonEnabled = CanSaveSnippet(nameBox.Text, textBox.Text);
         textBox.TextChanged += (_, _) => dialog.IsPrimaryButtonEnabled = CanSaveSnippet(nameBox.Text, textBox.Text);
 
-        var result = await dialog.ShowAsync();
+        var result = await ShowContentDialogAsync(dialog);
         if (result != ContentDialogResult.Primary)
         {
             return;
@@ -2164,6 +2429,23 @@ public sealed class MainWindow : Window
         }
 
         var newFolder = parsed.Folder;
+        var overwritesDifferentSnippet = _runtime.Snippets.Find(newFolder, newName) is not null
+            && (existing is null
+                || !string.Equals(existing.Name, newName, StringComparison.Ordinal)
+                || !string.Equals(existing.Folder, newFolder, StringComparison.Ordinal));
+        if (overwritesDifferentSnippet)
+        {
+            var confirmed = await ConfirmDialogAsync(
+                _runtime.Translate("ConfirmOverwriteSnippetTitle"),
+                string.Format(_runtime.Translate("ConfirmOverwriteSnippetMessage"), new Snippet(newName, newText, newFolder).DisplayName),
+                _runtime.Translate("Save"),
+                _runtime.Translate("Cancel"));
+            if (!confirmed)
+            {
+                return;
+            }
+        }
+
         if (existing is not null
             && (!string.Equals(existing.Name, newName, StringComparison.Ordinal)
                 || !string.Equals(existing.Folder, newFolder, StringComparison.Ordinal)))
@@ -2372,7 +2654,7 @@ public sealed class MainWindow : Window
 
         try
         {
-            return await dialog.ShowAsync() == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(captured)
+            return await ShowContentDialogAsync(dialog) == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(captured)
                 ? captured
                 : null;
         }
@@ -2547,6 +2829,7 @@ public sealed class MainWindow : Window
         _root.Background = Brush(dark ? "#202020" : "#F5F5F5");
         ApplyTitleBarTheme();
         ApplyWindowIcon();
+        RefreshAppLogoImage();
         foreach (var card in _cards)
         {
             card.Background = CardBackground();
@@ -2817,19 +3100,21 @@ public sealed class MainWindow : Window
             flyout.Items.Add(new MenuFlyoutSeparator());
         }
 
-        flyout.Items.Add(CreateHistoryContextMenuItem(new QuickMenuPasteOption(
-            _runtime.Translate("Delete"),
-            "\uE74D",
-            () =>
-            {
-                _runtime.RemoveHistoryItem(item.Id);
-                if (string.Equals(_selectedHistoryId, item.Id, StringComparison.Ordinal))
-                {
-                    _selectedHistoryId = null;
-                }
-            })));
+        flyout.Items.Add(CreateHistoryDeleteContextMenuItem(item.Id));
 
         return flyout;
+    }
+
+    private MenuFlyoutItem CreateHistoryDeleteContextMenuItem(string id)
+    {
+        var option = new QuickMenuPasteOption(_runtime.Translate("Delete"), "\uE74D", () => { });
+        var menuItem = new MenuFlyoutItem
+        {
+            Text = option.Text,
+            Icon = CreateHistoryContextIcon(option)
+        };
+        menuItem.Click += async (_, _) => await ConfirmAndDeleteHistoryItemAsync(id);
+        return menuItem;
     }
 
     private static MenuFlyoutItem CreateHistoryContextMenuItem(QuickMenuPasteOption option)
@@ -2950,7 +3235,7 @@ public sealed class MainWindow : Window
             Height = 42,
             CornerRadius = new CornerRadius(9),
             Background = AccentBrush(24),
-            Child = CreateAppLogoImage(32)
+            Child = _appLogoImage
         });
         Grid.SetColumn(_titleText, 1);
         _titleText.VerticalAlignment = VerticalAlignment.Center;
@@ -3164,14 +3449,12 @@ public sealed class MainWindow : Window
         OffContent = string.Empty
     };
 
-    private Image CreateAppLogoImage(double size) => new()
+    private void RefreshAppLogoImage()
     {
-        Width = size,
-        Height = size,
-        Source = File.Exists(AppAssets.GetAppImagePath(_runtime.EffectiveTheme))
+        _appLogoImage.Source = File.Exists(AppAssets.GetAppImagePath(_runtime.EffectiveTheme))
             ? new BitmapImage(new Uri(AppAssets.GetAppImagePath(_runtime.EffectiveTheme)))
-            : null
-    };
+            : null;
+    }
 
     private static void SetComboSelection(ComboBox comboBox, string tag)
     {

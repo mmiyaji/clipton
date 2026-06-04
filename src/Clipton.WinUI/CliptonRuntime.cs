@@ -40,15 +40,21 @@ public sealed class CliptonRuntime : IDisposable
     private uint _lastCapturedClipboardSequence;
     private CancellationTokenSource? _clipboardCaptureDelay;
 
-    public CliptonRuntime()
+    public CliptonRuntime(string? dataDirectory = null)
     {
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
-        var appData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Clipton");
+        var appData = string.IsNullOrWhiteSpace(dataDirectory)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Clipton")
+            : dataDirectory;
         _settingsStore = new JsonSettingsStore(Path.Combine(appData, "settings.json"));
         _historyStore = new EncryptedHistoryStore(Path.Combine(appData, "history.dat"));
         _snippetPath = Path.Combine(appData, "snippets.json");
         _thumbnailPath = Path.Combine(appData, "thumbs");
-        _tempPastePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Clipton", "TempPaste");
+        _tempPastePath = string.IsNullOrWhiteSpace(dataDirectory)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Clipton", "TempPaste")
+            : Path.Combine(dataDirectory, "TempPaste");
+        DataDirectory = appData;
+        IsSafeMode = !string.IsNullOrWhiteSpace(dataDirectory);
         Settings = _settingsStore.Load();
         AppDiagnostics.Configure(Settings.DiagnosticLoggingEnabled || AppProfiler.Enabled);
         AppProfiler.Mark("Settings loaded.");
@@ -68,6 +74,10 @@ public sealed class CliptonRuntime : IDisposable
     }
 
     public CliptonSettings Settings { get; }
+
+    public string DataDirectory { get; }
+
+    public bool IsSafeMode { get; }
 
     public ClipboardHistory History { get; }
 
@@ -246,6 +256,13 @@ public sealed class CliptonRuntime : IDisposable
 
     public async Task SetStartWithWindowsAsync(bool enabled)
     {
+        if (IsSafeMode)
+        {
+            Settings.StartWithWindows = false;
+            SaveSettings();
+            return;
+        }
+
         var previous = Settings.StartWithWindows;
         Settings.StartWithWindows = enabled;
         var result = await StartupRegistration.SetEnabledAsync(enabled);
@@ -488,6 +505,30 @@ public sealed class CliptonRuntime : IDisposable
         return Math.Max(0, History.Items.Count - before);
     }
 
+    public HistoryImportPreview PreviewImportHistory(string path)
+    {
+        var dto = ReadExportFile<HistoryExportDto>(path);
+        var items = dto.Items ?? throw new InvalidOperationException("The selected file does not contain history items.");
+        var importedFingerprints = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in items)
+        {
+            importedFingerprints.Add(ClipboardHistory.CreateFingerprint(item.ToSnapshot()));
+        }
+
+        var currentFingerprints = History.Items
+            .Select(ClipboardHistory.CreateFingerprint)
+            .ToHashSet(StringComparer.Ordinal);
+        var replacements = importedFingerprints.Count(currentFingerprints.Contains);
+        var resultingDistinctItems = currentFingerprints.Count + importedFingerprints.Count - replacements;
+        var removedByCapacity = Math.Max(0, resultingDistinctItems - Settings.MaxHistoryItems);
+        return new HistoryImportPreview(
+            items.Length,
+            importedFingerprints.Count,
+            replacements,
+            removedByCapacity,
+            Settings.MaxHistoryItems);
+    }
+
     public int ExportSnippets(string path)
     {
         var items = Snippets.Snippets.ToArray();
@@ -514,6 +555,21 @@ public sealed class CliptonRuntime : IDisposable
         SaveSnippets(_snippetPath, Snippets);
         _mainWindow?.RefreshItems();
         return imported;
+    }
+
+    public SnippetImportPreview PreviewImportSnippets(string path)
+    {
+        var dto = ReadExportFile<SnippetExportDto>(path);
+        var items = dto.Items ?? throw new InvalidOperationException("The selected file does not contain snippet items.");
+        var validItems = items
+            .Where(snippet => !string.IsNullOrWhiteSpace(snippet.Name))
+            .ToArray();
+        var replacementKeys = validItems
+            .Where(snippet => Snippets.Find(snippet.Folder, snippet.Name) is not null)
+            .Select(snippet => $"{snippet.Folder.Trim()}\u001F{snippet.Name.Trim()}")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+        return new SnippetImportPreview(items.Length, validItems.Length, replacementKeys);
     }
 
     public void ClearHistory()
@@ -1906,3 +1962,15 @@ public enum ImagePasteMode
     Jpeg,
     File
 }
+
+public sealed record HistoryImportPreview(
+    int SourceItems,
+    int UniqueItems,
+    int ReplacementItems,
+    int RemovedByCapacityItems,
+    int Capacity);
+
+public sealed record SnippetImportPreview(
+    int SourceItems,
+    int ValidItems,
+    int ReplacementItems);
