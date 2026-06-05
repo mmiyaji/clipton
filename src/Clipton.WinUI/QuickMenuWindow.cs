@@ -49,6 +49,7 @@ public sealed class QuickMenuWindow : Window
     private readonly Dictionary<MenuFlyoutItemBase, List<MenuFlyoutItemBase>> _childFocusableItems = [];
     private readonly Dictionary<MenuFlyoutItemBase, MenuFlyoutItemBase> _parentItem = [];
     private readonly Dictionary<MenuFlyoutItemBase, MenuFlyout> _pasteOptionsFlyouts = [];
+    private readonly HashSet<MenuFlyoutSubItem> _materializedFolderItems = [];
     private IReadOnlyList<MenuFlyoutItemBase> _activeFocusableItems = [];
     private MenuFlyoutItemBase? _activeParent;
     private int _focusedIndex = -1;
@@ -173,6 +174,7 @@ public sealed class QuickMenuWindow : Window
         _childFocusableItems.Clear();
         _parentItem.Clear();
         _pasteOptionsFlyouts.Clear();
+        _materializedFolderItems.Clear();
         _activeFocusableItems = [];
         _activeParent = null;
         _hoveredPasteOptionsItem = null;
@@ -319,15 +321,14 @@ public sealed class QuickMenuWindow : Window
 
         var focusedElement = FocusManager.GetFocusedElement(_host.XamlRoot);
         var targetItem = _hoveredPasteOptionsItem ?? focusedElement as MenuFlyoutItemBase;
-        if (targetItem is not { } flyoutItem
-            || flyoutItem.ContextFlyout is not MenuFlyout pasteOptionsFlyout)
+        if (targetItem is not { Tag: QuickMenuItem { PasteOptions.Count: > 0 } item } flyoutItem)
         {
             return NativeMethods.CallNextHookEx(s_mouseHook, nCode, wParam, lParam);
         }
 
         if (message == NativeMethods.WmRbuttonup)
         {
-            DispatcherQueue.TryEnqueue(() => ShowPasteOptionsForItem(flyoutItem, pasteOptionsFlyout, focusOptions: false));
+            DispatcherQueue.TryEnqueue(() => ShowPasteOptionsForItem(flyoutItem, EnsurePasteOptionsFlyout(flyoutItem, item), focusOptions: false));
         }
 
         return 1;
@@ -514,6 +515,7 @@ public sealed class QuickMenuWindow : Window
         _childFocusableItems.Clear();
         _parentItem.Clear();
         _pasteOptionsFlyouts.Clear();
+        _materializedFolderItems.Clear();
         _activeFocusableItems = _rootFocusableItems;
         _activeParent = null;
         _focusedIndex = -1;
@@ -800,7 +802,8 @@ public sealed class QuickMenuWindow : Window
                 }
 
                 _childFocusableItems[subItem] = [];
-                AddItems(subItem.Items, item.GetChildren(), subItem);
+                AddFolderPlaceholder(subItem);
+                subItem.PointerEntered += (_, _) => EnsureFolderItems(subItem);
                 target.Add(subItem);
                 continue;
             }
@@ -844,16 +847,7 @@ public sealed class QuickMenuWindow : Window
             };
             if (item.PasteOptions is { Count: > 0 })
             {
-                var pasteOptionsFlyout = CreatePasteOptionsFlyout(item);
-                flyoutItem.ContextFlyout = pasteOptionsFlyout;
-                _pasteOptionsFlyouts[flyoutItem] = pasteOptionsFlyout;
                 _childFocusableItems[flyoutItem] = [];
-                foreach (var optionItem in pasteOptionsFlyout.Items.OfType<MenuFlyoutItemBase>())
-                {
-                    _parentItem[optionItem] = flyoutItem;
-                    _childFocusableItems[flyoutItem].Add(optionItem);
-                }
-
                 flyoutItem.PointerEntered += (_, _) => _hoveredPasteOptionsItem = flyoutItem;
                 flyoutItem.PointerExited += (_, _) =>
                 {
@@ -865,7 +859,7 @@ public sealed class QuickMenuWindow : Window
                 flyoutItem.ContextRequested += (_, args) =>
                 {
                     args.Handled = true;
-                    ShowPasteOptionsForItem(flyoutItem, pasteOptionsFlyout, focusOptions: false);
+                    ShowPasteOptionsForItem(flyoutItem, EnsurePasteOptionsFlyout(flyoutItem, item), focusOptions: false);
                 };
                 flyoutItem.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, args) =>
                 {
@@ -884,12 +878,12 @@ public sealed class QuickMenuWindow : Window
                     }
 
                     args.Handled = true;
-                    DispatcherQueue.TryEnqueue(() => ShowPasteOptionsForItem(flyoutItem, pasteOptionsFlyout, focusOptions: false));
+                    DispatcherQueue.TryEnqueue(() => ShowPasteOptionsForItem(flyoutItem, EnsurePasteOptionsFlyout(flyoutItem, item), focusOptions: false));
                 }), handledEventsToo: true);
                 flyoutItem.RightTapped += (_, args) =>
                 {
                     args.Handled = true;
-                    ShowPasteOptionsForItem(flyoutItem, pasteOptionsFlyout, focusOptions: false);
+                    ShowPasteOptionsForItem(flyoutItem, EnsurePasteOptionsFlyout(flyoutItem, item), focusOptions: false);
                 };
             }
 
@@ -909,6 +903,56 @@ public sealed class QuickMenuWindow : Window
             flyoutItem.Click += (_, _) => Invoke(item, asPlainText: false);
             target.Add(flyoutItem);
         }
+    }
+
+    private static void AddFolderPlaceholder(MenuFlyoutSubItem folderItem)
+    {
+        folderItem.Items.Add(new MenuFlyoutItem
+        {
+            Text = " ",
+            IsEnabled = false,
+            Visibility = Visibility.Collapsed
+        });
+    }
+
+    private void EnsureFolderItems(MenuFlyoutSubItem folderItem)
+    {
+        if (!_materializedFolderItems.Add(folderItem)
+            || folderItem.Tag is not QuickMenuItem item)
+        {
+            return;
+        }
+
+        folderItem.Items.Clear();
+        _childFocusableItems[folderItem] = [];
+        AddItems(folderItem.Items, item.GetChildren(), folderItem);
+    }
+
+    private MenuFlyout EnsurePasteOptionsFlyout(MenuFlyoutItemBase flyoutItem, QuickMenuItem item)
+    {
+        if (_pasteOptionsFlyouts.TryGetValue(flyoutItem, out var existing))
+        {
+            return existing;
+        }
+
+        var pasteOptionsFlyout = CreatePasteOptionsFlyout(item);
+        flyoutItem.ContextFlyout = pasteOptionsFlyout;
+        _pasteOptionsFlyouts[flyoutItem] = pasteOptionsFlyout;
+        var optionItems = _childFocusableItems.GetValueOrDefault(flyoutItem);
+        if (optionItems is null)
+        {
+            optionItems = [];
+            _childFocusableItems[flyoutItem] = optionItems;
+        }
+
+        optionItems.Clear();
+        foreach (var optionItem in pasteOptionsFlyout.Items.OfType<MenuFlyoutItemBase>())
+        {
+            _parentItem[optionItem] = flyoutItem;
+            optionItems.Add(optionItem);
+        }
+
+        return pasteOptionsFlyout;
     }
 
     private MenuFlyout CreatePasteOptionsFlyout(QuickMenuItem item)
@@ -1124,16 +1168,29 @@ public sealed class QuickMenuWindow : Window
         }
 
         if (GetFocusedMenuItemBase() is not { } focusedItem
-            || !_childFocusableItems.TryGetValue(focusedItem, out var childItems)
-            || childItems.Count == 0)
+            || focusedItem.Tag is not QuickMenuItem focusedQuickMenuItem
+            || !_childFocusableItems.TryGetValue(focusedItem, out var childItems))
         {
             SyncFocusedIndex();
             return;
         }
 
-        if (_pasteOptionsFlyouts.TryGetValue(focusedItem, out var pasteOptionsFlyout))
+        if (focusedItem is MenuFlyoutSubItem folderItem && focusedQuickMenuItem.IsFolder)
         {
+            EnsureFolderItems(folderItem);
+            childItems = _childFocusableItems.GetValueOrDefault(focusedItem) ?? [];
+        }
+
+        if (focusedQuickMenuItem.PasteOptions is { Count: > 0 })
+        {
+            var pasteOptionsFlyout = EnsurePasteOptionsFlyout(focusedItem, focusedQuickMenuItem);
             ShowPasteOptionsForItem(focusedItem, pasteOptionsFlyout, focusOptions: true);
+            return;
+        }
+
+        if (childItems.Count == 0)
+        {
+            SyncFocusedIndex();
             return;
         }
 
