@@ -1,12 +1,16 @@
 using System.Text.Json;
 using System.Reflection;
+using System.Runtime;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Clipton.Core;
 using Microsoft.UI;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.Win32;
+using Windows.Graphics;
+using WinRT.Interop;
 using Drawing = System.Drawing;
 using Drawing2D = System.Drawing.Drawing2D;
 using Imaging = System.Drawing.Imaging;
@@ -16,7 +20,11 @@ namespace Clipton.WinUI;
 public sealed class CliptonRuntime : IDisposable
 {
     private const int HistorySaveDebounceMilliseconds = 500;
-    private const int InitialPersistedHistoryLoadCount = 200;
+    private const int InitialPersistedHistoryLoadCount = 10;
+    private const int ResidentHistoryFlushOverflowCount = 2;
+    private const int ImmediateHistorySaveMinIntervalMilliseconds = 1000;
+    private const int MaxCachedHistoryImages = 64;
+    private const int ResidentHistoryGcMinIntervalMilliseconds = 5000;
     private const int QuickMenuHotkeyDebounceMilliseconds = 160;
     private const int TempPasteMaxFiles = 100;
     private static readonly TimeSpan TempPasteMaxAge = TimeSpan.FromHours(24);
@@ -31,12 +39,16 @@ public sealed class CliptonRuntime : IDisposable
     private readonly object _historySaveGate = new();
     private readonly object _historyImageCacheGate = new();
     private readonly Dictionary<string, byte[]> _historyImageBytesByKey = new(StringComparer.Ordinal);
+    private readonly Queue<string> _historyImageCacheKeys = new();
     private CancellationTokenSource? _historySaveDebounce;
     private long _historySaveVersion;
+    private long _lastImmediateHistorySaveTick;
+    private long _lastResidentHistoryGcTick;
     private int _persistedHistoryCount;
     private int _loadedPersistedHistoryCount;
     private HotkeyMessageWindow? _messageWindow;
     private NativeTrayIcon? _notifyIcon;
+    private Window? _lifetimeWindow;
     private MainWindow? _mainWindow;
     private QuickMenuWindow? _quickMenuWindow;
     private IntPtr _pasteTargetWindow;
@@ -116,6 +128,8 @@ public sealed class CliptonRuntime : IDisposable
         AppProfiler.Mark("Temporary paste files cleaned.");
         CreateTrayIcon();
         AppProfiler.Mark("Tray icon created.");
+        CreateLifetimeWindow();
+        AppProfiler.Mark("Lifetime window created.");
         AppDiagnostics.Info("Runtime", "Clipton runtime started.");
         if (Settings.InitialLaunchCompleted)
         {
@@ -668,6 +682,7 @@ public sealed class CliptonRuntime : IDisposable
         _messageWindow?.Dispose();
         _notifyIcon?.Dispose();
         _quickMenuWindow?.Dismiss();
+        _lifetimeWindow?.Close();
     }
 
     public void ExitApplication()
@@ -778,7 +793,15 @@ public sealed class CliptonRuntime : IDisposable
         if (History.Add(snapshot))
         {
             AppDiagnostics.Info("Clipboard", $"Captured clipboard item with {snapshot.Formats.Count} format(s).");
-            QueueHistorySave();
+            if (ShouldFlushResidentHistory())
+            {
+                SaveHistory();
+            }
+            else
+            {
+                QueueHistorySave();
+            }
+
             _mainWindow?.RefreshItems();
         }
     }
@@ -809,6 +832,26 @@ public sealed class CliptonRuntime : IDisposable
             () => _dispatcherQueue.TryEnqueue(ShowMainWindow),
             () => _dispatcherQueue.TryEnqueue(ExitApplication));
         RefreshTrayText();
+    }
+
+    private void CreateLifetimeWindow()
+    {
+        if (_lifetimeWindow is not null)
+        {
+            return;
+        }
+
+        _lifetimeWindow = new Window
+        {
+            Title = "Clipton"
+        };
+        _lifetimeWindow.Activate();
+
+        var hwnd = WindowNative.GetWindowHandle(_lifetimeWindow);
+        var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
+        var appWindow = AppWindow.GetFromWindowId(windowId);
+        appWindow.Resize(new SizeInt32(1, 1));
+        appWindow.Hide();
     }
 
     private void RefreshTrayIcon()
@@ -1231,6 +1274,7 @@ public sealed class CliptonRuntime : IDisposable
 
             PruneHistoryImageFiles(snapshots.Select(item => item.Id).ToHashSet(StringComparer.Ordinal));
             _persistedHistoryCount = Math.Min(Settings.MaxHistoryItems, Math.Max(_persistedHistoryCount, snapshots.Length + UnloadedPersistedHistoryCount));
+            TrimLoadedHistoryAfterPersist();
         }
         else
         {
@@ -1245,10 +1289,6 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        var snapshots = History.Items.ToArray();
-        var unloadedPersistedHistoryCount = UnloadedPersistedHistoryCount;
-        var loadedPersistedHistoryCount = _loadedPersistedHistoryCount;
-        var maxHistoryItems = Settings.MaxHistoryItems;
         var version = Interlocked.Increment(ref _historySaveVersion);
         var cts = new CancellationTokenSource();
         CancellationTokenSource? previous;
@@ -1267,16 +1307,7 @@ public sealed class CliptonRuntime : IDisposable
                 await Task.Delay(HistorySaveDebounceMilliseconds, cts.Token);
                 if (version == Volatile.Read(ref _historySaveVersion))
                 {
-                    if (unloadedPersistedHistoryCount > 0)
-                    {
-                        _historyStore.SavePreservingOlder(snapshots, loadedPersistedHistoryCount, maxHistoryItems);
-                    }
-                    else
-                    {
-                        _historyStore.Save(snapshots);
-                    }
-
-                    PruneHistoryImageFiles(snapshots.Select(item => item.Id).ToHashSet(StringComparer.Ordinal));
+                    _dispatcherQueue.TryEnqueue(SaveHistory);
                 }
             }
             catch (OperationCanceledException)
@@ -1295,6 +1326,56 @@ public sealed class CliptonRuntime : IDisposable
                 cts.Dispose();
             }
         });
+    }
+
+    private void TrimLoadedHistoryAfterPersist()
+    {
+        if (!Settings.PersistEncryptedHistory || History.Items.Count <= InitialPersistedHistoryLoadCount)
+        {
+            return;
+        }
+
+        History.UnloadOlderBeyond(InitialPersistedHistoryLoadCount);
+        _persistedHistoryCount = Math.Max(_persistedHistoryCount, _historyStore.Count());
+        _loadedPersistedHistoryCount = Math.Min(History.Items.Count, _persistedHistoryCount);
+        PruneHistoryImageFiles(History.Items.Select(item => item.Id).ToHashSet(StringComparer.Ordinal));
+        RequestResidentHistoryCollection();
+        _mainWindow?.RefreshItems();
+    }
+
+    private bool ShouldFlushResidentHistory()
+    {
+        if (!Settings.PersistEncryptedHistory
+            || History.Items.Count <= InitialPersistedHistoryLoadCount + ResidentHistoryFlushOverflowCount)
+        {
+            return false;
+        }
+
+        var now = Environment.TickCount64;
+        var last = Volatile.Read(ref _lastImmediateHistorySaveTick);
+        if (now - last < ImmediateHistorySaveMinIntervalMilliseconds)
+        {
+            return false;
+        }
+
+        Interlocked.Exchange(ref _lastImmediateHistorySaveTick, now);
+        return true;
+    }
+
+    private void RequestResidentHistoryCollection()
+    {
+        var now = Environment.TickCount64;
+        var last = Volatile.Read(ref _lastResidentHistoryGcTick);
+        if (now - last < ResidentHistoryGcMinIntervalMilliseconds)
+        {
+            return;
+        }
+
+        Interlocked.Exchange(ref _lastResidentHistoryGcTick, now);
+        GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
     }
 
     private void EnsureDefaultSnippets()
@@ -1777,7 +1858,17 @@ public sealed class CliptonRuntime : IDisposable
     {
         lock (_historyImageCacheGate)
         {
+            if (!_historyImageBytesByKey.ContainsKey(key))
+            {
+                _historyImageCacheKeys.Enqueue(key);
+            }
+
             _historyImageBytesByKey[key] = bytes;
+            while (_historyImageBytesByKey.Count > MaxCachedHistoryImages && _historyImageCacheKeys.Count > 0)
+            {
+                var evictedKey = _historyImageCacheKeys.Dequeue();
+                _historyImageBytesByKey.Remove(evictedKey);
+            }
         }
     }
 

@@ -95,6 +95,32 @@ public sealed class ClipboardHistory
         return removed;
     }
 
+    public IReadOnlyList<ClipboardSnapshot> UnloadOlderBeyond(int count)
+    {
+        if (count < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(count), "Count must not be negative.");
+        }
+
+        if (_items.Count <= count)
+        {
+            return [];
+        }
+
+        var removed = _items.Skip(count).ToArray();
+        foreach (var item in removed)
+        {
+            RemoveTracked(item);
+        }
+
+        if (_items.Count == 0)
+        {
+            _lastFingerprint = null;
+        }
+
+        return removed;
+    }
+
     public ClipboardSnapshot? Find(string id) => _itemsById.GetValueOrDefault(id);
 
     public void SetCapacity(int capacity)

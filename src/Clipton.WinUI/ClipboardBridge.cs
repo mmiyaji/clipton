@@ -130,7 +130,7 @@ public static class ClipboardBridge
             if (data.Contains(StandardDataFormats.Bitmap))
             {
                 var bitmap = Wait(data.GetBitmapAsync);
-                image = ReadAllBytes(bitmap);
+                image = EncodePng(ReadAllBytes(bitmap));
                 if (image.Length > 0) formats.Add(ClipboardFormatKind.Image);
             }
 
@@ -303,6 +303,22 @@ public static class ClipboardBridge
         }
 
         return output.ToArray();
+    }
+
+    private static byte[] EncodePng(byte[] imageBytes)
+    {
+        try
+        {
+            using var input = new MemoryStream(imageBytes);
+            using var source = System.Drawing.Image.FromStream(input);
+            using var output = new MemoryStream();
+            source.Save(output, ImageFormat.Png);
+            return output.ToArray();
+        }
+        catch (Exception exception) when (exception is ArgumentException or ExternalException)
+        {
+            return imageBytes;
+        }
     }
 
     private static T Wait<T>(Func<IAsyncOperation<T>> action)

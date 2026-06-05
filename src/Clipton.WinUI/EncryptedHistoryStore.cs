@@ -6,7 +6,8 @@ namespace Clipton.WinUI;
 
 public sealed class EncryptedHistoryStore
 {
-    private const int FormatVersion = 4;
+    private const int FormatVersion = 5;
+    private const int ChunkedFormatVersion = 4;
     private const int LegacySegmentedFormatVersion = 3;
     private const int ChunkSize = 50;
     private const int CompactDeltaThreshold = 50;
@@ -17,6 +18,7 @@ public sealed class EncryptedHistoryStore
     private readonly string _deltaPath;
     private readonly string _headPath;
     private readonly string _chunksDirectory;
+    private readonly string _itemsDirectory;
     private readonly object _syncRoot = new();
 
     public EncryptedHistoryStore(string path)
@@ -29,6 +31,7 @@ public sealed class EncryptedHistoryStore
         _deltaPath = Path.Combine(_directory, "delta.dat");
         _headPath = Path.Combine(_directory, "head.dat");
         _chunksDirectory = Path.Combine(_directory, "chunks");
+        _itemsDirectory = Path.Combine(_directory, "items");
     }
 
     public IReadOnlyList<ClipboardSnapshot> Load()
@@ -82,7 +85,12 @@ public sealed class EncryptedHistoryStore
             {
                 if (TryReadManifest() is { Version: FormatVersion } manifest)
                 {
-                    return LoadRangeFromChunks(manifest, offset, count);
+                    return LoadRangeFromItems(manifest, offset, count);
+                }
+
+                if (TryReadManifest() is { Version: ChunkedFormatVersion } chunkedManifest)
+                {
+                    return LoadRangeFromChunks(chunkedManifest, offset, count);
                 }
 
                 return LoadOrderedDtos()
@@ -117,19 +125,7 @@ public sealed class EncryptedHistoryStore
         {
             var items = snapshots.Select(ClipboardSnapshotDto.FromSnapshot).ToArray();
             var ids = items.Select(item => item.Id).ToArray();
-            var manifest = TryReadManifest();
-            if (manifest is null || manifest.Version != FormatVersion || !Directory.Exists(_chunksDirectory))
-            {
-                SaveCompacted(items);
-                return;
-            }
-
-            if (TrySaveHeadDelta(items, ids, manifest))
-            {
-                return;
-            }
-
-            SaveCompacted(items);
+            SaveItemized(items, ids);
         }
     }
 
@@ -140,12 +136,15 @@ public sealed class EncryptedHistoryStore
             var currentItems = snapshots.Select(ClipboardSnapshotDto.FromSnapshot).ToArray();
             var currentIds = currentItems.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
             var manifest = TryReadManifest();
-            if (manifest is { Version: FormatVersion } && Directory.Exists(_chunksDirectory))
+            if (manifest is { Version: FormatVersion })
             {
-                if (TrySavePreservingOlderHeadDelta(currentItems, currentIds, loadedPersistedCount, capacity, manifest))
-                {
-                    return;
-                }
+                var ids = currentItems
+                    .Select(item => item.Id)
+                    .Concat(manifest.OrderedIds.Where(id => !currentIds.Contains(id)))
+                    .Take(capacity)
+                    .ToArray();
+                SaveItemized(currentItems, ids);
+                return;
             }
 
             var remainingCapacity = Math.Max(0, capacity - currentItems.Length);
@@ -156,7 +155,8 @@ public sealed class EncryptedHistoryStore
                     .Where(item => !currentIds.Contains(item.Id))
                     .Take(remainingCapacity)
                     .ToArray();
-            Save(currentItems.Concat(olderItems).Take(capacity).Select(item => item.ToSnapshot()));
+            var items = currentItems.Concat(olderItems).Take(capacity).ToArray();
+            SaveItemized(items, items.Select(item => item.Id).ToArray());
         }
     }
 
@@ -209,6 +209,11 @@ public sealed class EncryptedHistoryStore
             }
 
             if (manifest.Version == FormatVersion)
+            {
+                return LoadDtosFromItems(manifest, 0, manifest.OrderedIds.Length);
+            }
+
+            if (manifest.Version == ChunkedFormatVersion)
             {
                 return LoadDtosFromChunks(manifest, 0, manifest.OrderedIds.Length);
             }
@@ -288,7 +293,72 @@ public sealed class EncryptedHistoryStore
         var chunkIds = Enumerable.Range(0, (items.Length + ChunkSize - 1) / ChunkSize)
             .Select(index => ChunkFileName(index))
             .ToArray();
-        WriteManifest(new HistoryManifestDto(FormatVersion, ids, ids, [], chunkIds));
+        WriteManifest(new HistoryManifestDto(ChunkedFormatVersion, ids, ids, [], chunkIds));
+    }
+
+    private void SaveItemized(IReadOnlyList<ClipboardSnapshotDto> items, string[] ids)
+    {
+        Directory.CreateDirectory(_itemsDirectory);
+        var idsToKeep = ids.ToHashSet(StringComparer.Ordinal);
+        foreach (var item in items)
+        {
+            if (!idsToKeep.Contains(item.Id))
+            {
+                continue;
+            }
+
+            var path = ItemPath(item.Id);
+            if (!File.Exists(path))
+            {
+                WriteProtected(path, item);
+            }
+        }
+
+        if (Directory.Exists(_itemsDirectory))
+        {
+            foreach (var file in Directory.EnumerateFiles(_itemsDirectory, "*.dat"))
+            {
+                var id = Path.GetFileNameWithoutExtension(file);
+                if (!idsToKeep.Contains(id))
+                {
+                    TryDeleteFile(file);
+                }
+            }
+        }
+
+        TryDeleteFile(_deltaPath);
+        TryDeleteFile(_headPath);
+        TryDeleteFile(_basePath);
+        if (Directory.Exists(_chunksDirectory))
+        {
+            TryDeleteDirectory(_chunksDirectory);
+        }
+
+        WriteManifest(new HistoryManifestDto(FormatVersion, ids, ids, []));
+        CleanupStaleChunkDirectories();
+    }
+
+    private IReadOnlyList<ClipboardSnapshot> LoadRangeFromItems(HistoryManifestDto manifest, int offset, int count)
+    {
+        return LoadDtosFromItems(manifest, offset, count)
+            .Select(item => item.ToSnapshot())
+            .ToArray();
+    }
+
+    private IReadOnlyList<ClipboardSnapshotDto> LoadDtosFromItems(HistoryManifestDto manifest, int offset, int count)
+    {
+        if (manifest.OrderedIds.Length == 0 || offset >= manifest.OrderedIds.Length)
+        {
+            return [];
+        }
+
+        return manifest.OrderedIds
+            .Skip(offset)
+            .Take(count)
+            .Select(id => TryReadProtected<ClipboardSnapshotDto>(ItemPath(id)))
+            .Where(item => item is not null)
+            .Select(item => item!)
+            .ToArray();
     }
 
     private bool TrySaveHeadDelta(ClipboardSnapshotDto[] items, string[] ids, HistoryManifestDto manifest)
@@ -525,6 +595,45 @@ public sealed class EncryptedHistoryStore
         return Path.Combine(_chunksDirectory, ChunkFileName(index));
     }
 
+    private string ItemPath(string id)
+    {
+        return Path.Combine(_itemsDirectory, $"{id}.dat");
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
     private static string ChunkFileName(int index)
     {
         return $"chunk-{index:0000}.dat";
@@ -532,7 +641,7 @@ public sealed class EncryptedHistoryStore
 
     private static bool IsSupportedManifestVersion(int version)
     {
-        return version is FormatVersion or LegacySegmentedFormatVersion;
+        return version is FormatVersion or ChunkedFormatVersion or LegacySegmentedFormatVersion;
     }
 
     private void TryMoveLegacyAside()

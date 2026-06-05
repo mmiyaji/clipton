@@ -98,6 +98,23 @@ public sealed class ClipboardHistoryTests
         Assert.Equal(["2", "1"], history.Items.Select(item => item.Id));
     }
 
+    [Fact]
+    public void UnloadOlderBeyond_RemovesOlderItemsWithoutBreakingLookups()
+    {
+        var history = new ClipboardHistory(capacity: 10);
+
+        history.Add(TextSnapshot("1", "one"));
+        history.Add(TextSnapshot("2", "two"));
+        history.Add(TextSnapshot("3", "three"));
+
+        var removed = history.UnloadOlderBeyond(2);
+
+        Assert.Equal(["1"], removed.Select(item => item.Id));
+        Assert.Equal(["3", "2"], history.Items.Select(item => item.Id));
+        Assert.Null(history.Find("1"));
+        Assert.Equal("two", history.Find("2")?.Text);
+    }
+
     private static ClipboardSnapshot TextSnapshot(string id, string text)
     {
         return new ClipboardSnapshot(id, DateTimeOffset.UtcNow, [ClipboardFormatKind.Text], text: text);

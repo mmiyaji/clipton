@@ -22,8 +22,8 @@ public sealed class QuickMenuWindow : Window
     private const int HostWindowSize = 1;
     private const int ScreenEdgePadding = 8;
     private const int EstimatedRootFlyoutHeight = 420;
-    private readonly QuickMenuNavigator _navigator;
-    private readonly IReadOnlyList<QuickMenuItem> _rootItems;
+    private QuickMenuNavigator? _navigator;
+    private IReadOnlyList<QuickMenuItem> _rootItems = [];
     private readonly Grid _host = new();
     private readonly MenuFlyout _flyout = new();
     private readonly string _theme;
@@ -136,7 +136,31 @@ public sealed class QuickMenuWindow : Window
             _flyout.Hide();
             _appWindow?.Hide();
             Dismissed?.Invoke(this, EventArgs.Empty);
+            ReleaseMenuReferences();
+            Close();
         });
+    }
+
+    private void ReleaseMenuReferences()
+    {
+        _flyout.Items.Clear();
+        foreach (var flyout in _pasteOptionsFlyouts.Values)
+        {
+            flyout.Items.Clear();
+        }
+
+        _rootFocusableItems.Clear();
+        _childFocusableItems.Clear();
+        _parentItem.Clear();
+        _pasteOptionsFlyouts.Clear();
+        _activeFocusableItems = [];
+        _activeParent = null;
+        _hoveredPasteOptionsItem = null;
+        _currentItems = [];
+        _rootItems = [];
+        _navigator = null;
+        _replacementWindow = null;
+        Content = null;
     }
 
     private void BuildHost()
@@ -940,14 +964,14 @@ public sealed class QuickMenuWindow : Window
 
         if (_host.XamlRoot is null)
         {
-            return _navigator.SelectedItem;
+            return _navigator?.SelectedItem;
         }
 
         return FocusManager.GetFocusedElement(_host.XamlRoot) switch
         {
             MenuFlyoutItem { Tag: QuickMenuItem item } => item,
             MenuFlyoutSubItem { Tag: QuickMenuItem item } => item,
-            _ => GetTrackedFocusedMenuItemBase() is { Tag: QuickMenuItem item } ? item : _navigator.SelectedItem
+            _ => GetTrackedFocusedMenuItemBase() is { Tag: QuickMenuItem item } ? item : _navigator?.SelectedItem
         };
     }
 
@@ -1104,7 +1128,7 @@ public sealed class QuickMenuWindow : Window
         var index = IndexOf(_currentItems, item);
         if (index >= 0)
         {
-            _navigator.Select(index);
+            _navigator?.Select(index);
         }
     }
 
