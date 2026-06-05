@@ -22,8 +22,16 @@ public sealed class QuickMenuWindow : Window
     private const int HostWindowSize = 1;
     private const int ScreenEdgePadding = 8;
     private const int EstimatedRootFlyoutHeight = 420;
+    private const int NativeResourceCollectionMinIntervalMilliseconds = 5000;
+    private static readonly NativeMethods.LowLevelKeyboardProc s_keyboardProc = OnStaticKeyboardHook;
+    private static readonly NativeMethods.LowLevelMouseProc s_mouseProc = OnStaticMouseHook;
+    private static QuickMenuWindow? s_activeWindow;
+    private static IntPtr s_keyboardHook;
+    private static IntPtr s_mouseHook;
+    private static long s_lastNativeResourceCollectionTick;
     private QuickMenuNavigator? _navigator;
     private IReadOnlyList<QuickMenuItem> _rootItems = [];
+    private readonly string _title;
     private readonly Grid _host = new();
     private readonly MenuFlyout _flyout = new();
     private readonly string _theme;
@@ -37,8 +45,6 @@ public sealed class QuickMenuWindow : Window
     private readonly Action _openDetailedSearch;
     private readonly QuickMenuShortcutSettings _shortcuts;
     private readonly bool _showShortcutHints;
-    private readonly NativeMethods.LowLevelKeyboardProc _keyboardProc;
-    private readonly NativeMethods.LowLevelMouseProc _mouseProc;
     private readonly List<MenuFlyoutItemBase> _rootFocusableItems = [];
     private readonly Dictionary<MenuFlyoutItemBase, List<MenuFlyoutItemBase>> _childFocusableItems = [];
     private readonly Dictionary<MenuFlyoutItemBase, MenuFlyoutItemBase> _parentItem = [];
@@ -48,8 +54,6 @@ public sealed class QuickMenuWindow : Window
     private int _focusedIndex = -1;
     private AppWindow? _appWindow;
     private IntPtr _hwnd;
-    private IntPtr _keyboardHook;
-    private IntPtr _mouseHook;
     private bool _dismissed;
     private bool _opened;
     private int _lastNavigationKey;
@@ -78,6 +82,7 @@ public sealed class QuickMenuWindow : Window
         string cancelButtonText,
         string noSearchResultsText)
     {
+        _title = title;
         _navigator = new QuickMenuNavigator(title, items);
         _rootItems = items;
         _currentItems = items;
@@ -93,8 +98,6 @@ public sealed class QuickMenuWindow : Window
         _advancedSearchButtonText = advancedSearchButtonText;
         _cancelButtonText = cancelButtonText;
         _noSearchResultsText = noSearchResultsText;
-        _keyboardProc = OnKeyboardHook;
-        _mouseProc = OnMouseHook;
         Title = "Clipton";
         BuildHost();
         BuildFlyout();
@@ -121,6 +124,23 @@ public sealed class QuickMenuWindow : Window
         });
     }
 
+    public void Reopen(IReadOnlyList<QuickMenuItem> items)
+    {
+        UninstallKeyboardHook();
+        UninstallMouseHook();
+        _flyout.Hide();
+        _appWindow?.Hide();
+        ReleaseMenuReferences();
+        _dismissed = false;
+        _opened = false;
+        _rootItems = items;
+        _currentItems = items;
+        _navigator = new QuickMenuNavigator(_title, items);
+        BuildFlyout();
+        PositionNearCursor();
+        FocusMenu();
+    }
+
     public void Dismiss()
     {
         if (_dismissed)
@@ -137,7 +157,7 @@ public sealed class QuickMenuWindow : Window
             _appWindow?.Hide();
             Dismissed?.Invoke(this, EventArgs.Empty);
             ReleaseMenuReferences();
-            Close();
+            RequestNativeResourceCollection();
         });
     }
 
@@ -160,7 +180,21 @@ public sealed class QuickMenuWindow : Window
         _rootItems = [];
         _navigator = null;
         _replacementWindow = null;
-        Content = null;
+    }
+
+    private static void RequestNativeResourceCollection()
+    {
+        var now = Environment.TickCount64;
+        var last = Volatile.Read(ref s_lastNativeResourceCollectionTick);
+        if (now - last < NativeResourceCollectionMinIntervalMilliseconds)
+        {
+            return;
+        }
+
+        Interlocked.Exchange(ref s_lastNativeResourceCollectionTick, now);
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
     }
 
     private void BuildHost()
@@ -216,11 +250,12 @@ public sealed class QuickMenuWindow : Window
 
     private void InstallKeyboardHook()
     {
-        if (_keyboardHook == IntPtr.Zero)
+        s_activeWindow = this;
+        if (s_keyboardHook == IntPtr.Zero)
         {
-            _keyboardHook = NativeMethods.SetWindowsHookEx(
+            s_keyboardHook = NativeMethods.SetWindowsHookEx(
                 NativeMethods.WhKeyboardLl,
-                _keyboardProc,
+                s_keyboardProc,
                 NativeMethods.GetModuleHandle(null),
                 0);
         }
@@ -228,20 +263,20 @@ public sealed class QuickMenuWindow : Window
 
     private void UninstallKeyboardHook()
     {
-        if (_keyboardHook != IntPtr.Zero)
+        if (ReferenceEquals(s_activeWindow, this))
         {
-            NativeMethods.UnhookWindowsHookEx(_keyboardHook);
-            _keyboardHook = IntPtr.Zero;
+            s_activeWindow = null;
         }
     }
 
     private void InstallMouseHook()
     {
-        if (_mouseHook == IntPtr.Zero)
+        s_activeWindow = this;
+        if (s_mouseHook == IntPtr.Zero)
         {
-            _mouseHook = NativeMethods.SetWindowsHookEx(
+            s_mouseHook = NativeMethods.SetWindowsHookEx(
                 NativeMethods.WhMouseLl,
-                _mouseProc,
+                s_mouseProc,
                 NativeMethods.GetModuleHandle(null),
                 0);
         }
@@ -249,24 +284,37 @@ public sealed class QuickMenuWindow : Window
 
     private void UninstallMouseHook()
     {
-        if (_mouseHook != IntPtr.Zero)
+        if (ReferenceEquals(s_activeWindow, this))
         {
-            NativeMethods.UnhookWindowsHookEx(_mouseHook);
-            _mouseHook = IntPtr.Zero;
+            s_activeWindow = null;
         }
+    }
+
+    private static IntPtr OnStaticMouseHook(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        return s_activeWindow is { } active
+            ? active.OnMouseHook(nCode, wParam, lParam)
+            : NativeMethods.CallNextHookEx(s_mouseHook, nCode, wParam, lParam);
+    }
+
+    private static IntPtr OnStaticKeyboardHook(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        return s_activeWindow is { } active
+            ? active.OnKeyboardHook(nCode, wParam, lParam)
+            : NativeMethods.CallNextHookEx(s_keyboardHook, nCode, wParam, lParam);
     }
 
     private IntPtr OnMouseHook(int nCode, IntPtr wParam, IntPtr lParam)
     {
         if (nCode < 0 || _host.XamlRoot is null)
         {
-            return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
+            return NativeMethods.CallNextHookEx(s_mouseHook, nCode, wParam, lParam);
         }
 
         var message = wParam.ToInt32();
         if (message is not NativeMethods.WmRbuttondown and not NativeMethods.WmRbuttonup)
         {
-            return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
+            return NativeMethods.CallNextHookEx(s_mouseHook, nCode, wParam, lParam);
         }
 
         var focusedElement = FocusManager.GetFocusedElement(_host.XamlRoot);
@@ -274,7 +322,7 @@ public sealed class QuickMenuWindow : Window
         if (targetItem is not { } flyoutItem
             || flyoutItem.ContextFlyout is not MenuFlyout pasteOptionsFlyout)
         {
-            return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
+            return NativeMethods.CallNextHookEx(s_mouseHook, nCode, wParam, lParam);
         }
 
         if (message == NativeMethods.WmRbuttonup)
@@ -289,7 +337,7 @@ public sealed class QuickMenuWindow : Window
     {
         if (nCode < 0 || (wParam.ToInt32() != NativeMethods.WmKeydown && wParam.ToInt32() != NativeMethods.WmSyskeydown))
         {
-            return NativeMethods.CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
+            return NativeMethods.CallNextHookEx(s_keyboardHook, nCode, wParam, lParam);
         }
 
         var handled = true;
@@ -382,7 +430,7 @@ public sealed class QuickMenuWindow : Window
 
         return handled
             ? 1
-            : NativeMethods.CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
+            : NativeMethods.CallNextHookEx(s_keyboardHook, nCode, wParam, lParam);
     }
 
     private static bool MatchesShortcut(int key, bool controlDown, string shortcut)

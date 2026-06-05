@@ -946,7 +946,12 @@ public sealed class CliptonRuntime : IDisposable
                 IconFontFamily: "Segoe Fluent Icons"));
         }
 
-        _quickMenuWindow?.Dismiss();
+        if (_quickMenuWindow is { } existingQuickMenuWindow)
+        {
+            existingQuickMenuWindow.Reopen(menuItems);
+            return;
+        }
+
         var quickMenuWindow = new QuickMenuWindow(
             Translate("History"),
             menuItems,
@@ -963,13 +968,6 @@ public sealed class CliptonRuntime : IDisposable
             Translate("Cancel"),
             Translate("NoSearchResults"));
         _quickMenuWindow = quickMenuWindow;
-        quickMenuWindow.Dismissed += (_, _) =>
-        {
-            if (ReferenceEquals(_quickMenuWindow, quickMenuWindow))
-            {
-                _quickMenuWindow = null;
-            }
-        };
         quickMenuWindow.FocusMenu();
     }
 
