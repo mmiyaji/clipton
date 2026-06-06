@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 
 namespace Clipton.Core;
@@ -5,55 +6,145 @@ namespace Clipton.Core;
 public static class SensitiveContentDetector
 {
     private const int DefaultVisiblePrefixLength = 3;
+    public const int DefaultPreviewScanLength = 1000;
     private const int MaskGlyphCount = 8;
+    private static readonly TimeSpan CustomPatternTimeout = TimeSpan.FromMilliseconds(120);
+    private static readonly ConcurrentDictionary<string, Regex> RegexCache = new(StringComparer.Ordinal);
 
-    private static readonly Regex EmailPattern = new(
-        @"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    public static bool ShouldMask(string? text, IEnumerable<string>? customPatterns = null, MaskRuleSettings? rules = null)
+    {
+        rules ??= new MaskRuleSettings();
+        return ShouldMask(
+            text,
+            MaskRuleDefinitionDefaults.CreateDefaultRules(rules),
+            customPatterns,
+            rules.CustomPattern);
+    }
 
-    private static readonly Regex CreditCardPattern = new(
-        @"\b(?:\d[ -]*?){13,19}\b",
-        RegexOptions.Compiled);
-
-    private static readonly Regex SecretKeywordPattern = new(
-        @"\b(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|bearer)\b",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static readonly Regex SecretAssignmentPattern = new(
-        @"\b(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)\b(\s*[:=]\s*)([^\s,;]+)",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static readonly Regex BearerTokenPattern = new(
-        @"\bbearer(\s+)([A-Za-z0-9._\-]{8,})\b",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static readonly Regex LongTokenPattern = new(
-        @"\b[A-Za-z0-9_\-]{32,}\b",
-        RegexOptions.Compiled);
-
-    private static readonly Regex PhonePattern = new(
-        @"(?<!\d)(?:\+?\d{1,3}[-. ]?)?(?:\(?\d{2,4}\)?[-. ]?){2,4}\d{3,4}(?!\d)",
-        RegexOptions.Compiled);
-
-    public static bool ShouldMask(string? text, IEnumerable<string>? customPatterns = null)
+    public static bool ShouldMask(
+        string? text,
+        IEnumerable<MaskRuleDefinition>? maskRuleDefinitions,
+        IEnumerable<string>? customPatterns = null,
+        bool customPatternsEnabled = true)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
             return false;
         }
 
-        return EmailPattern.IsMatch(text)
-            || SecretKeywordPattern.IsMatch(text)
-            || LongTokenPattern.IsMatch(text)
-            || PhonePattern.IsMatch(text)
-            || LooksLikeCreditCard(text)
-            || MatchesCustomPattern(text, customPatterns);
+        foreach (var rule in MaskRuleDefinitionDefaults.Normalize(maskRuleDefinitions))
+        {
+            if (!rule.Enabled || string.IsNullOrWhiteSpace(rule.Pattern))
+            {
+                continue;
+            }
+
+            if (rule.Id == MaskRuleIds.CreditCard)
+            {
+                if (LooksLikeCreditCard(text, rule.Pattern))
+                {
+                    return true;
+                }
+
+                continue;
+            }
+
+            if (TryGetRegex(rule.Pattern, out var regex) && regex.IsMatch(text))
+            {
+                return true;
+            }
+        }
+
+        return customPatternsEnabled && MatchesCustomPattern(text, customPatterns);
+    }
+
+    public static MaskRuleMatch[] FindMatchedRules(
+        string? text,
+        IEnumerable<MaskRuleDefinition>? maskRuleDefinitions,
+        IEnumerable<string>? customPatterns = null,
+        bool customPatternsEnabled = true)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return [];
+        }
+
+        var matches = new List<MaskRuleMatch>();
+        foreach (var rule in MaskRuleDefinitionDefaults.Normalize(maskRuleDefinitions))
+        {
+            if (!rule.Enabled || string.IsNullOrWhiteSpace(rule.Pattern))
+            {
+                continue;
+            }
+
+            var matched = rule.Id == MaskRuleIds.CreditCard
+                ? LooksLikeCreditCard(text, rule.Pattern)
+                : TryGetRegex(rule.Pattern, out var regex) && regex.IsMatch(text);
+            if (matched)
+            {
+                matches.Add(new MaskRuleMatch(rule.Id, rule.NameKey, rule.Pattern, IsCustomPattern: false));
+            }
+        }
+
+        if (customPatternsEnabled)
+        {
+            foreach (var pattern in ValidateCustomPatterns(customPatterns))
+            {
+                if (TryGetRegex(pattern, out var regex) && regex.IsMatch(text))
+                {
+                    matches.Add(new MaskRuleMatch("custom", "MaskRuleCustomPattern", pattern, IsCustomPattern: true));
+                }
+            }
+        }
+
+        return matches
+            .DistinctBy(match => (match.RuleId, match.Pattern))
+            .ToArray();
     }
 
     public static string? CreateMaskedPreview(
         string? text,
         int visiblePrefixLength = DefaultVisiblePrefixLength,
-        IEnumerable<string>? customPatterns = null)
+        IEnumerable<string>? customPatterns = null,
+        MaskRuleSettings? rules = null)
+    {
+        rules ??= new MaskRuleSettings();
+        return CreateMaskedPreview(
+            text,
+            visiblePrefixLength,
+            MaskRuleDefinitionDefaults.CreateDefaultRules(rules),
+            customPatterns,
+            rules.CustomPattern);
+    }
+
+    public static string? CreatePreviewScanText(string? text, int maxLength = DefaultPreviewScanLength)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var normalized = text.ReplaceLineEndings(" ").Trim();
+        if (normalized.Length <= maxLength)
+        {
+            return normalized;
+        }
+
+        var splitAt = normalized.LastIndexOf(' ', maxLength - 1, maxLength);
+        if (splitAt < maxLength / 2)
+        {
+            splitAt = maxLength;
+        }
+
+        return normalized[..splitAt].TrimEnd();
+    }
+
+    public static string? CreateMaskedPreview(
+        string? text,
+        int visiblePrefixLength,
+        IEnumerable<MaskRuleDefinition>? maskRuleDefinitions,
+        IEnumerable<string>? customPatterns = null,
+        bool customPatternsEnabled = true)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -61,26 +152,41 @@ public static class SensitiveContentDetector
         }
 
         var result = text;
-        result = SecretAssignmentPattern.Replace(
-            result,
-            match => $"{match.Groups[1].Value}{match.Groups[2].Value}{MaskValue(match.Groups[3].Value, visiblePrefixLength)}");
-        result = BearerTokenPattern.Replace(
-            result,
-            match => $"bearer{match.Groups[1].Value}{MaskValue(match.Groups[2].Value, visiblePrefixLength)}");
-        result = ReplaceSensitiveMatches(result, EmailPattern, visiblePrefixLength, _ => true);
-        result = ReplaceSensitiveMatches(result, CreditCardPattern, visiblePrefixLength, IsCreditCardMatch);
-        result = ReplaceSensitiveMatches(result, LongTokenPattern, visiblePrefixLength, _ => true);
-        result = ReplaceSensitiveMatches(result, PhonePattern, visiblePrefixLength, _ => true);
-        result = ReplaceCustomMatches(result, customPatterns, visiblePrefixLength);
+        foreach (var rule in MaskRuleDefinitionDefaults.Normalize(maskRuleDefinitions))
+        {
+            if (!rule.Enabled || !TryGetRegex(rule.Pattern, out var regex))
+            {
+                continue;
+            }
+
+            result = rule.Id switch
+            {
+                MaskRuleIds.SecretKeyword => regex.Replace(
+                    result,
+                    match => match.Groups.Count >= 4
+                        ? $"{match.Groups[1].Value}{match.Groups[2].Value}{MaskValue(match.Groups[3].Value, visiblePrefixLength)}"
+                        : MaskValue(match.Value, visiblePrefixLength)),
+                MaskRuleIds.BearerToken => regex.Replace(
+                    result,
+                    match => match.Groups.Count >= 3
+                        ? $"bearer{match.Groups[1].Value}{MaskValue(match.Groups[2].Value, visiblePrefixLength)}"
+                        : MaskValue(match.Value, visiblePrefixLength)),
+                MaskRuleIds.CreditCard => ReplaceSensitiveMatches(result, regex, visiblePrefixLength, IsCreditCardMatch),
+                _ => ReplaceSensitiveMatches(result, regex, visiblePrefixLength, _ => true)
+            };
+        }
+
+        if (customPatternsEnabled)
+        {
+            result = ReplaceCustomMatches(result, customPatterns, visiblePrefixLength);
+        }
 
         if (!string.Equals(result, text, StringComparison.Ordinal))
         {
             return result;
         }
 
-        return SecretKeywordPattern.IsMatch(text)
-            ? MaskValue(text, visiblePrefixLength)
-            : null;
+        return null;
     }
 
     public static string[] ValidateCustomPatterns(IEnumerable<string>? customPatterns)
@@ -102,7 +208,7 @@ public static class SensitiveContentDetector
             {
                 try
                 {
-                    _ = new Regex(pattern, RegexOptions.IgnoreCase);
+                    _ = CreateRegex(pattern);
                     return false;
                 }
                 catch (ArgumentException)
@@ -128,7 +234,7 @@ public static class SensitiveContentDetector
             {
                 try
                 {
-                    _ = new Regex(pattern, RegexOptions.IgnoreCase);
+                    _ = CreateRegex(pattern);
                     return true;
                 }
                 catch (ArgumentException)
@@ -161,7 +267,7 @@ public static class SensitiveContentDetector
     {
         foreach (var pattern in ValidateCustomPatterns(customPatterns))
         {
-            if (Regex.IsMatch(text, pattern, RegexOptions.IgnoreCase))
+            if (TryGetRegex(pattern, out var regex) && regex.IsMatch(text))
             {
                 return true;
             }
@@ -175,11 +281,12 @@ public static class SensitiveContentDetector
         var result = text;
         foreach (var pattern in ValidateCustomPatterns(customPatterns))
         {
-            result = Regex.Replace(
-                result,
-                pattern,
-                match => MaskValue(match.Value, visiblePrefixLength),
-                RegexOptions.IgnoreCase);
+            if (TryGetRegex(pattern, out var regex))
+            {
+                result = regex.Replace(
+                    result,
+                    match => MaskValue(match.Value, visiblePrefixLength));
+            }
         }
 
         return result;
@@ -191,9 +298,14 @@ public static class SensitiveContentDetector
         return digits.Length is >= 13 and <= 19 && PassesLuhn(digits);
     }
 
-    private static bool LooksLikeCreditCard(string text)
+    private static bool LooksLikeCreditCard(string text, string pattern)
     {
-        foreach (Match match in CreditCardPattern.Matches(text))
+        if (!TryGetRegex(pattern, out var regex))
+        {
+            return false;
+        }
+
+        foreach (Match match in regex.Matches(text))
         {
             if (IsCreditCardMatch(match))
             {
@@ -202,6 +314,28 @@ public static class SensitiveContentDetector
         }
 
         return false;
+    }
+
+    private static bool TryGetRegex(string pattern, out Regex regex)
+    {
+        try
+        {
+            regex = RegexCache.GetOrAdd(pattern, static key => CreateRegex(key));
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            regex = null!;
+            return false;
+        }
+    }
+
+    private static Regex CreateRegex(string pattern)
+    {
+        return new Regex(
+            pattern,
+            RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant,
+            CustomPatternTimeout);
     }
 
     private static bool PassesLuhn(string digits)
@@ -227,3 +361,5 @@ public static class SensitiveContentDetector
         return sum % 10 == 0;
     }
 }
+
+public sealed record MaskRuleMatch(string RuleId, string NameKey, string Pattern, bool IsCustomPattern);

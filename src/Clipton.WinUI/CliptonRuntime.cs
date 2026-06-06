@@ -339,9 +339,16 @@ public sealed class CliptonRuntime : IDisposable
         SaveSettings();
     }
 
-    public void SetMaskDefinitionOptions(int visiblePrefixLength, string[] customPatterns)
+    public void SetMaskDefinitionOptions(
+        int visiblePrefixLength,
+        string[] customPatterns,
+        MaskRuleSettings? rules = null,
+        MaskRuleDefinition[]? ruleDefinitions = null)
     {
         Settings.MaskVisiblePrefixLength = Math.Clamp(visiblePrefixLength, 0, 12);
+        Settings.MaskRuleDefinitions = MaskRuleDefinitionDefaults.Normalize(ruleDefinitions, rules);
+        Settings.MaskRules = MaskRuleDefinitionDefaults.ToSettings(Settings.MaskRuleDefinitions);
+        Settings.MaskRules.CustomPattern = rules?.CustomPattern ?? Settings.MaskRules.CustomPattern;
         Settings.CustomMaskPatterns = SensitiveContentDetector.ValidateCustomPatterns(customPatterns);
         SaveSettings();
     }
@@ -1969,10 +1976,13 @@ public sealed class CliptonRuntime : IDisposable
 
     private string? CreateMaskedPreview(string? plainText)
     {
+        var previewScanText = SensitiveContentDetector.CreatePreviewScanText(plainText);
         return SensitiveContentDetector.CreateMaskedPreview(
-            plainText,
+            previewScanText,
             Settings.MaskVisiblePrefixLength,
-            Settings.CustomMaskPatterns);
+            Settings.MaskRuleDefinitions,
+            Settings.CustomMaskPatterns,
+            Settings.MaskRules.CustomPattern);
     }
 
     private string CreatePreviewText(ClipboardSnapshot snapshot, string? plainText)

@@ -22,11 +22,13 @@ public sealed class JsonSettingsStore
         var json = File.ReadAllText(_path);
         CliptonSettings settings;
         bool historyPersistenceConfigured;
+        bool maskRuleDefinitionsConfigured;
         try
         {
             settings = JsonSerializer.Deserialize<CliptonSettings>(json, Options) ?? new CliptonSettings();
             using var document = JsonDocument.Parse(json);
             historyPersistenceConfigured = document.RootElement.TryGetProperty(nameof(CliptonSettings.HistoryPersistenceConfigured), out _);
+            maskRuleDefinitionsConfigured = document.RootElement.TryGetProperty(nameof(CliptonSettings.MaskRuleDefinitions), out _);
         }
         catch (JsonException)
         {
@@ -48,12 +50,14 @@ public sealed class JsonSettingsStore
         settings.Theme = NormalizeTheme(settings.Theme);
         settings.QuickMenuImagePreviewSize = NormalizeQuickMenuImagePreviewSize(settings.QuickMenuImagePreviewSize);
         settings.QuickMenuTopLevelHistoryItems = QuickMenuHistoryBuckets.NormalizeTopLevelHistoryItems(settings.QuickMenuTopLevelHistoryItems);
+        NormalizeMaskRuleSettings(settings, maskRuleDefinitionsConfigured);
         NormalizeQuickMenuShortcuts(settings);
         return settings;
     }
 
     public void Save(CliptonSettings settings)
     {
+        NormalizeMaskRuleSettings(settings, preferConfiguredDefinitions: true);
         var directory = Path.GetDirectoryName(_path);
         if (!string.IsNullOrWhiteSpace(directory))
         {
@@ -61,6 +65,29 @@ public sealed class JsonSettingsStore
         }
 
         File.WriteAllText(_path, JsonSerializer.Serialize(settings, Options));
+    }
+
+    private static void NormalizeMaskRuleSettings(CliptonSettings settings, bool preferConfiguredDefinitions)
+    {
+        settings.MaskRules ??= new MaskRuleSettings();
+        var customPatternEnabled = settings.MaskRules.CustomPattern;
+        var definitionsLookDefault = DefinitionsMatchDefaults(settings.MaskRuleDefinitions);
+        settings.MaskRuleDefinitions = preferConfiguredDefinitions && !definitionsLookDefault
+            ? MaskRuleDefinitionDefaults.Normalize(settings.MaskRuleDefinitions, settings.MaskRules)
+            : MaskRuleDefinitionDefaults.CreateDefaultRules(settings.MaskRules);
+        settings.MaskRules = MaskRuleDefinitionDefaults.ToSettings(settings.MaskRuleDefinitions);
+        settings.MaskRules.CustomPattern = customPatternEnabled;
+    }
+
+    private static bool DefinitionsMatchDefaults(IEnumerable<MaskRuleDefinition>? definitions)
+    {
+        var normalized = MaskRuleDefinitionDefaults.Normalize(definitions);
+        var defaults = MaskRuleDefinitionDefaults.CreateDefaultRules();
+        return normalized.Length == defaults.Length
+            && normalized.Zip(defaults).All(pair =>
+                string.Equals(pair.First.Id, pair.Second.Id, StringComparison.Ordinal)
+                && pair.First.Enabled == pair.Second.Enabled
+                && string.Equals(pair.First.Pattern, pair.Second.Pattern, StringComparison.Ordinal));
     }
 
     private static string NormalizeLocale(string? locale)

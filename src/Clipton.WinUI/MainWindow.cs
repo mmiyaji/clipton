@@ -98,8 +98,18 @@ public sealed class MainWindow : Window
     private readonly Button _maskDefinitionsButton = new();
     private readonly StackPanel _maskDefinitionsPanel = new() { Spacing = 12 };
     private readonly ComboBox _maskPrefixBox = new();
+    private readonly ToggleSwitch _maskEmailToggle = CompactToggle();
+    private readonly ToggleSwitch _maskCreditCardToggle = CompactToggle();
+    private readonly ToggleSwitch _maskSecretKeywordToggle = CompactToggle();
+    private readonly ToggleSwitch _maskBearerTokenToggle = CompactToggle();
+    private readonly ToggleSwitch _maskLongTokenToggle = CompactToggle();
+    private readonly ToggleSwitch _maskShortAlphanumericCodeToggle = CompactToggle();
+    private readonly ToggleSwitch _maskPhoneNumberToggle = CompactToggle();
+    private readonly ToggleSwitch _maskCustomPatternToggle = CompactToggle();
+    private readonly Dictionary<string, TextBox> _maskRulePatternBoxes = [];
     private readonly TextBox _maskPatternsBox = new();
     private readonly TextBox _maskTestBox = new();
+    private readonly Button _maskDefinitionsResetButton = new();
     private readonly Button _maskDefinitionsSaveButton = new();
     private readonly TextBlock _maskDefinitionsErrorText = Description();
     private readonly TextBlock _maskTestResultText = Description();
@@ -361,6 +371,8 @@ public sealed class MainWindow : Window
         SetCommandButton(_clearLogsButton, "\uE74D", t("ClearLogs"));
         _maskPatternsBox.PlaceholderText = t("MaskPatternDefinitions");
         _maskTestBox.PlaceholderText = t("MaskTestText");
+        _maskDefinitionsResetButton.Content = t("ResetToDefaults");
+        AutomationProperties.SetName(_maskDefinitionsResetButton, t("ResetToDefaults"));
         _maskDefinitionsSaveButton.Content = t("Save");
         AutomationProperties.SetName(_maskDefinitionsSaveButton, t("Save"));
         _captureHotkeyButton.Content = t("CaptureHotkey");
@@ -392,6 +404,8 @@ public sealed class MainWindow : Window
         _diagnosticLoggingToggle.IsOn = _runtime.Settings.DiagnosticLoggingEnabled;
         _persistHistoryToggle.IsOn = _runtime.Settings.PersistEncryptedHistory;
         _maskSensitiveContentToggle.IsOn = _runtime.Settings.MaskSensitiveContent;
+        ApplyMaskRuleDefinitionsToUi();
+        _maskCustomPatternToggle.IsOn = _runtime.Settings.MaskRules.CustomPattern;
         EnsureHistoryLimitComboItem(_runtime.Settings.MaxHistoryItems);
         SetComboSelection(_maxHistoryItemsBox, _runtime.Settings.MaxHistoryItems.ToString());
         SetComboSelection(_clipboardCaptureDelayBox, _runtime.Settings.ClipboardCaptureDelayMilliseconds.ToString());
@@ -887,6 +901,21 @@ public sealed class MainWindow : Window
         Grid.SetColumn(_maskPrefixBox, 1);
         prefixRow.Children.Add(_maskPrefixBox);
 
+        foreach (var toggle in new[]
+        {
+            _maskEmailToggle,
+            _maskCreditCardToggle,
+            _maskSecretKeywordToggle,
+            _maskBearerTokenToggle,
+            _maskLongTokenToggle,
+            _maskShortAlphanumericCodeToggle,
+            _maskPhoneNumberToggle,
+            _maskCustomPatternToggle
+        })
+        {
+            toggle.Toggled += (_, _) => UpdateMaskTestPreview();
+        }
+
         _maskPatternsBox.MinHeight = 120;
         _maskPatternsBox.HorizontalAlignment = HorizontalAlignment.Stretch;
         _maskPatternsBox.AcceptsReturn = true;
@@ -907,13 +936,29 @@ public sealed class MainWindow : Window
         _maskTestResultText.Margin = new Thickness(2, 0, 0, 0);
 
         _maskDefinitionsErrorText.Visibility = Visibility.Collapsed;
+        _maskDefinitionsResetButton.MinWidth = 128;
+        _maskDefinitionsResetButton.Height = 32;
+        _maskDefinitionsResetButton.HorizontalAlignment = HorizontalAlignment.Right;
+        _maskDefinitionsResetButton.Margin = new Thickness(0, 2, 0, 0);
+        _maskDefinitionsResetButton.Click += (_, _) => ResetMaskDefinitionsToDefaults();
         _maskDefinitionsSaveButton.MinWidth = 96;
         _maskDefinitionsSaveButton.Height = 32;
         _maskDefinitionsSaveButton.HorizontalAlignment = HorizontalAlignment.Right;
         _maskDefinitionsSaveButton.Margin = new Thickness(0, 2, 0, 0);
         _maskDefinitionsSaveButton.Click += (_, _) => SaveMaskDefinitions();
+        var actionRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 8
+        };
+        actionRow.Children.Add(_maskDefinitionsResetButton);
+        actionRow.Children.Add(_maskDefinitionsSaveButton);
 
         _maskDefinitionsPanel.Children.Add(prefixRow);
+        _maskDefinitionsPanel.Children.Add(LocalizedText("MaskRuleOptions", fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
+        _maskDefinitionsPanel.Children.Add(DescriptionText("MaskRuleOptionsDescription", fontSize: 12, wrapping: TextWrapping.Wrap));
+        _maskDefinitionsPanel.Children.Add(BuildMaskRuleOptions());
         _maskDefinitionsPanel.Children.Add(LocalizedText("MaskPatternDefinitions", fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
         _maskDefinitionsPanel.Children.Add(DescriptionText("MaskDefinitionsDescription", fontSize: 12, wrapping: TextWrapping.Wrap));
         _maskDefinitionsPanel.Children.Add(_maskPatternsBox);
@@ -922,10 +967,103 @@ public sealed class MainWindow : Window
         _maskDefinitionsPanel.Children.Add(_maskTestBox);
         _maskDefinitionsPanel.Children.Add(_maskTestResultText);
         _maskDefinitionsPanel.Children.Add(_maskDefinitionsErrorText);
-        _maskDefinitionsPanel.Children.Add(_maskDefinitionsSaveButton);
+        _maskDefinitionsPanel.Children.Add(actionRow);
         _maskDefinitionsCard = Card(_maskDefinitionsPanel);
         _maskDefinitionsCard.Visibility = Visibility.Collapsed;
         return _maskDefinitionsCard;
+    }
+
+    private FrameworkElement BuildMaskRuleOptions()
+    {
+        var grid = new Grid
+        {
+            ColumnSpacing = 12,
+            RowSpacing = 8
+        };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+
+        var rules = new (string Id, string Key, ToggleSwitch Toggle)[]
+        {
+            (MaskRuleIds.Email, "MaskRuleEmail", _maskEmailToggle),
+            (MaskRuleIds.CreditCard, "MaskRuleCreditCard", _maskCreditCardToggle),
+            (MaskRuleIds.SecretKeyword, "MaskRuleSecretKeyword", _maskSecretKeywordToggle),
+            (MaskRuleIds.BearerToken, "MaskRuleBearerToken", _maskBearerTokenToggle),
+            (MaskRuleIds.LongToken, "MaskRuleLongToken", _maskLongTokenToggle),
+            (MaskRuleIds.ShortAlphanumericCode, "MaskRuleShortAlphanumericCode", _maskShortAlphanumericCodeToggle),
+            (MaskRuleIds.PhoneNumber, "MaskRulePhoneNumber", _maskPhoneNumberToggle)
+        };
+
+        for (var i = 0; i < rules.Length; i++)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            var row = MaskRuleRow(rules[i].Id, rules[i].Key, rules[i].Toggle);
+            Grid.SetRow(row, i);
+            grid.Children.Add(row);
+        }
+
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        var customPatternRow = MaskCustomPatternRow();
+        Grid.SetRow(customPatternRow, rules.Length);
+        grid.Children.Add(customPatternRow);
+
+        return grid;
+    }
+
+    private FrameworkElement MaskRuleRow(string ruleId, string labelKey, ToggleSwitch toggle)
+    {
+        var row = new Grid { ColumnSpacing = 10, RowSpacing = 4 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(190) });
+        row.ColumnDefinitions.Add(new ColumnDefinition());
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var label = _runtime.Translate(labelKey);
+        var labelBlock = LocalizedText(labelKey, fontSize: 12, fontWeight: Microsoft.UI.Text.FontWeights.SemiBold);
+        labelBlock.VerticalAlignment = VerticalAlignment.Center;
+        row.Children.Add(labelBlock);
+
+        var patternBox = new TextBox
+        {
+            Height = SettingControlHeight,
+            Text = GetConfiguredMaskRule(ruleId).Pattern,
+            TextWrapping = TextWrapping.NoWrap,
+            FontFamily = new FontFamily("Cascadia Mono, Consolas"),
+            FontSize = 12,
+            Padding = new Thickness(10, 6, 10, 6),
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        patternBox.TextChanged += (_, _) => UpdateMaskTestPreview();
+        AutomationProperties.SetName(patternBox, string.Format(_runtime.Translate("MaskRulePatternAutomationName"), label));
+        _maskRulePatternBoxes[ruleId] = patternBox;
+        Grid.SetColumn(patternBox, 1);
+        row.Children.Add(patternBox);
+
+        AutomationProperties.SetName(toggle, label);
+        ToolTipService.SetToolTip(toggle, label);
+        Grid.SetColumn(toggle, 2);
+        row.Children.Add(toggle);
+        return row;
+    }
+
+    private FrameworkElement MaskCustomPatternRow()
+    {
+        var row = new Grid { ColumnSpacing = 10, RowSpacing = 4 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(190) });
+        row.ColumnDefinitions.Add(new ColumnDefinition());
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var label = _runtime.Translate("MaskRuleCustomPattern");
+        var labelBlock = LocalizedText("MaskRuleCustomPattern", fontSize: 12, fontWeight: Microsoft.UI.Text.FontWeights.SemiBold);
+        labelBlock.VerticalAlignment = VerticalAlignment.Center;
+        row.Children.Add(labelBlock);
+
+        var description = DescriptionText("MaskDefinitionsDescription", fontSize: 12, wrapping: TextWrapping.Wrap);
+        Grid.SetColumn(description, 1);
+        row.Children.Add(description);
+
+        AutomationProperties.SetName(_maskCustomPatternToggle, label);
+        ToolTipService.SetToolTip(_maskCustomPatternToggle, label);
+        Grid.SetColumn(_maskCustomPatternToggle, 2);
+        row.Children.Add(_maskCustomPatternToggle);
+        return row;
     }
 
     private void ToggleMaskDefinitionsPanel()
@@ -951,8 +1089,7 @@ public sealed class MainWindow : Window
                 return;
             }
 
-            FrameworkElement target = _maskPatternsBox.ActualHeight > 0 ? _maskPatternsBox : _maskDefinitionsCard;
-            var point = target.TransformToVisual(_contentScroller).TransformPoint(new Windows.Foundation.Point(0, 0));
+            var point = _maskDefinitionsCard.TransformToVisual(_contentScroller).TransformPoint(new Windows.Foundation.Point(0, 0));
             var targetOffset = Math.Max(0, _contentScroller.VerticalOffset + point.Y - 28);
             _contentScroller.ChangeView(null, targetOffset, null, true);
         });
@@ -960,14 +1097,29 @@ public sealed class MainWindow : Window
         await Task.Delay(180);
         DispatcherQueue.TryEnqueue(() =>
         {
-            _maskPatternsBox.Focus(FocusState.Programmatic);
+            _maskEmailToggle.Focus(FocusState.Programmatic);
         });
     }
 
     private void SaveMaskDefinitions()
     {
         var patterns = GetCurrentMaskPatterns();
-        var invalidPatterns = SensitiveContentDetector.GetInvalidCustomPatterns(patterns);
+        var rules = GetCurrentMaskRules();
+        var ruleDefinitions = GetCurrentMaskRuleDefinitions();
+        var invalidRule = GetInvalidMaskRuleDefinition(ruleDefinitions);
+        if (invalidRule is not null)
+        {
+            _maskDefinitionsErrorText.Text = string.Format(
+                _runtime.Translate("MaskRuleDefinitionInvalid"),
+                _runtime.Translate(invalidRule.NameKey),
+                invalidRule.Pattern);
+            _maskDefinitionsErrorText.Visibility = Visibility.Visible;
+            return;
+        }
+
+        var invalidPatterns = rules.CustomPattern
+            ? SensitiveContentDetector.GetInvalidCustomPatterns(patterns)
+            : [];
         if (invalidPatterns.Length > 0)
         {
             _maskDefinitionsErrorText.Text = string.Format(_runtime.Translate("MaskDefinitionInvalid"), invalidPatterns[0]);
@@ -976,8 +1128,18 @@ public sealed class MainWindow : Window
         }
 
         _maskDefinitionsErrorText.Visibility = Visibility.Collapsed;
-        _runtime.SetMaskDefinitionOptions(GetSelectedMaskPrefixLength(), patterns);
+        _runtime.SetMaskDefinitionOptions(GetSelectedMaskPrefixLength(), patterns, rules, ruleDefinitions);
         RefreshItems();
+    }
+
+    private void ResetMaskDefinitionsToDefaults()
+    {
+        SetComboSelection(_maskPrefixBox, "3");
+        ApplyMaskRuleDefinitionsToUi(MaskRuleDefinitionDefaults.CreateDefaultRules());
+        _maskCustomPatternToggle.IsOn = true;
+        _maskPatternsBox.Text = string.Empty;
+        _maskDefinitionsErrorText.Visibility = Visibility.Collapsed;
+        UpdateMaskTestPreview();
     }
 
     private string[] GetCurrentMaskPatterns()
@@ -992,6 +1154,84 @@ public sealed class MainWindow : Window
         return _maskPrefixBox.SelectedItem is ComboBoxItem { Tag: string tag } && int.TryParse(tag, out var parsed)
             ? Math.Clamp(parsed, 0, 12)
             : 0;
+    }
+
+    private MaskRuleSettings GetCurrentMaskRules()
+    {
+        var rules = MaskRuleDefinitionDefaults.ToSettings(GetCurrentMaskRuleDefinitions());
+        rules.CustomPattern = _maskCustomPatternToggle.IsOn;
+        return rules;
+    }
+
+    private MaskRuleDefinition[] GetCurrentMaskRuleDefinitions()
+    {
+        return
+        [
+            CurrentRule(MaskRuleIds.Email, "MaskRuleEmail", 10, _maskEmailToggle),
+            CurrentRule(MaskRuleIds.CreditCard, "MaskRuleCreditCard", 20, _maskCreditCardToggle),
+            CurrentRule(MaskRuleIds.SecretKeyword, "MaskRuleSecretKeyword", 30, _maskSecretKeywordToggle),
+            CurrentRule(MaskRuleIds.BearerToken, "MaskRuleBearerToken", 40, _maskBearerTokenToggle),
+            CurrentRule(MaskRuleIds.LongToken, "MaskRuleLongToken", 50, _maskLongTokenToggle),
+            CurrentRule(MaskRuleIds.ShortAlphanumericCode, "MaskRuleShortAlphanumericCode", 60, _maskShortAlphanumericCodeToggle),
+            CurrentRule(MaskRuleIds.PhoneNumber, "MaskRulePhoneNumber", 70, _maskPhoneNumberToggle)
+        ];
+    }
+
+    private MaskRuleDefinition CurrentRule(string id, string nameKey, int order, ToggleSwitch toggle)
+    {
+        var fallback = GetConfiguredMaskRule(id);
+        return new MaskRuleDefinition
+        {
+            Id = id,
+            NameKey = nameKey,
+            Pattern = _maskRulePatternBoxes.TryGetValue(id, out var box) ? box.Text.Trim() : fallback.Pattern,
+            Enabled = toggle.IsOn,
+            BuiltIn = true,
+            Order = order
+        };
+    }
+
+    private MaskRuleDefinition GetConfiguredMaskRule(string id)
+    {
+        return MaskRuleDefinitionDefaults.Normalize(_runtime.Settings.MaskRuleDefinitions, _runtime.Settings.MaskRules)
+            .First(rule => string.Equals(rule.Id, id, StringComparison.Ordinal));
+    }
+
+    private void ApplyMaskRuleDefinitionsToUi()
+    {
+        ApplyMaskRuleDefinitionsToUi(MaskRuleDefinitionDefaults.Normalize(_runtime.Settings.MaskRuleDefinitions, _runtime.Settings.MaskRules));
+        _maskCustomPatternToggle.IsOn = _runtime.Settings.MaskRules.CustomPattern;
+    }
+
+    private void ApplyMaskRuleDefinitionsToUi(IEnumerable<MaskRuleDefinition> ruleDefinitions)
+    {
+        var rules = MaskRuleDefinitionDefaults.Normalize(ruleDefinitions)
+            .ToDictionary(rule => rule.Id, StringComparer.Ordinal);
+        _maskEmailToggle.IsOn = rules[MaskRuleIds.Email].Enabled;
+        _maskCreditCardToggle.IsOn = rules[MaskRuleIds.CreditCard].Enabled;
+        _maskSecretKeywordToggle.IsOn = rules[MaskRuleIds.SecretKeyword].Enabled;
+        _maskBearerTokenToggle.IsOn = rules[MaskRuleIds.BearerToken].Enabled;
+        _maskLongTokenToggle.IsOn = rules[MaskRuleIds.LongToken].Enabled;
+        _maskShortAlphanumericCodeToggle.IsOn = rules[MaskRuleIds.ShortAlphanumericCode].Enabled;
+        _maskPhoneNumberToggle.IsOn = rules[MaskRuleIds.PhoneNumber].Enabled;
+
+        foreach (var (id, box) in _maskRulePatternBoxes)
+        {
+            box.Text = rules[id].Pattern;
+        }
+    }
+
+    private static MaskRuleDefinition? GetInvalidMaskRuleDefinition(IEnumerable<MaskRuleDefinition> rules)
+    {
+        foreach (var rule in rules.Where(rule => rule.Enabled))
+        {
+            if (SensitiveContentDetector.GetInvalidCustomPatterns([rule.Pattern]).Length > 0)
+            {
+                return rule;
+            }
+        }
+
+        return null;
     }
 
     private void UpdateMaskTestPreview()
@@ -1009,8 +1249,23 @@ public sealed class MainWindow : Window
             return;
         }
 
+        var rules = GetCurrentMaskRules();
+        var ruleDefinitions = GetCurrentMaskRuleDefinitions();
+        var invalidRule = GetInvalidMaskRuleDefinition(ruleDefinitions);
+        if (invalidRule is not null)
+        {
+            _maskTestResultText.Text = string.Format(
+                _runtime.Translate("MaskRuleDefinitionInvalid"),
+                _runtime.Translate(invalidRule.NameKey),
+                invalidRule.Pattern);
+            _maskTestResultText.Foreground = Brush(IsDark ? "#FFB4AB" : "#B42318");
+            return;
+        }
+
         var patterns = GetCurrentMaskPatterns();
-        var invalidPatterns = SensitiveContentDetector.GetInvalidCustomPatterns(patterns);
+        var invalidPatterns = rules.CustomPattern
+            ? SensitiveContentDetector.GetInvalidCustomPatterns(patterns)
+            : [];
         if (invalidPatterns.Length > 0)
         {
             _maskTestResultText.Text = string.Format(_runtime.Translate("MaskDefinitionInvalid"), invalidPatterns[0]);
@@ -1020,9 +1275,22 @@ public sealed class MainWindow : Window
 
         try
         {
-            var (preview, count) = CreateCustomMaskTestPreview(testText, patterns, GetSelectedMaskPrefixLength());
-            var result = count > 0
-                ? string.Format(_runtime.Translate("MaskTestResult"), count, preview)
+            var preview = SensitiveContentDetector.CreateMaskedPreview(
+                testText,
+                GetSelectedMaskPrefixLength(),
+                ruleDefinitions,
+                patterns,
+                rules.CustomPattern);
+            var matchedRules = SensitiveContentDetector.FindMatchedRules(
+                testText,
+                ruleDefinitions,
+                patterns,
+                rules.CustomPattern);
+            var result = preview is not null
+                ? string.Format(
+                    _runtime.Translate("MaskTestResult"),
+                    string.Join(", ", matchedRules.Select(match => _runtime.Translate(match.NameKey)).Distinct(StringComparer.Ordinal)),
+                    preview)
                 : _runtime.Translate("MaskTestNoMatch");
             _maskTestResultText.Text = result;
             _maskTestResultText.Foreground = DescriptionBrush();
@@ -1032,33 +1300,6 @@ public sealed class MainWindow : Window
             _maskTestResultText.Text = _runtime.Translate("MaskTestTimeout");
             _maskTestResultText.Foreground = Brush(IsDark ? "#FFD86B" : "#9A6700");
         }
-    }
-
-    private static (string Preview, int MatchCount) CreateCustomMaskTestPreview(
-        string text,
-        IEnumerable<string> patterns,
-        int visiblePrefixLength)
-    {
-        const int maskGlyphCount = 8;
-        var result = text;
-        var count = 0;
-        var timeout = TimeSpan.FromMilliseconds(120);
-        foreach (var pattern in SensitiveContentDetector.ValidateCustomPatterns(patterns))
-        {
-            result = Regex.Replace(
-                result,
-                pattern,
-                match =>
-                {
-                    count++;
-                    var visible = match.Value[..Math.Min(Math.Max(visiblePrefixLength, 0), match.Value.Length)];
-                    return $"{visible}{new string('\u2022', maskGlyphCount)}";
-                },
-                RegexOptions.IgnoreCase,
-                timeout);
-        }
-
-        return (result, count);
     }
 
     private bool HistoryMatchesSearch(ClipboardSnapshot item)

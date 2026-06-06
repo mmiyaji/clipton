@@ -29,6 +29,8 @@ public sealed class SettingsStoreTests
         Assert.False(loaded.InitialLaunchCompleted);
         Assert.Equal("system", loaded.Locale);
         Assert.True(loaded.MaskSensitiveContent);
+        Assert.True(loaded.MaskRules.ShortAlphanumericCode);
+        Assert.Contains(loaded.MaskRuleDefinitions, rule => rule.Id == MaskRuleIds.ShortAlphanumericCode);
         Assert.Equal("system", loaded.Theme);
     }
 
@@ -105,6 +107,11 @@ public sealed class SettingsStoreTests
                 ToggleCapturedAt = "D"
             },
             StartWithWindows = true,
+            MaskRules = new MaskRuleSettings
+            {
+                Email = false,
+                ShortAlphanumericCode = false
+            },
             Theme = "dark"
         });
 
@@ -132,6 +139,64 @@ public sealed class SettingsStoreTests
         Assert.Equal("Ctrl+M", loaded.QuickMenuShortcuts.ToggleMaskReveal);
         Assert.Equal("D", loaded.QuickMenuShortcuts.ToggleCapturedAt);
         Assert.True(loaded.StartWithWindows);
+        Assert.False(loaded.MaskRules.Email);
+        Assert.False(loaded.MaskRules.ShortAlphanumericCode);
+        Assert.True(loaded.MaskRules.CreditCard);
+        Assert.False(loaded.MaskRuleDefinitions.First(rule => rule.Id == MaskRuleIds.Email).Enabled);
+        Assert.False(loaded.MaskRuleDefinitions.First(rule => rule.Id == MaskRuleIds.ShortAlphanumericCode).Enabled);
+    }
+
+    [Fact]
+    public void Load_BackfillsMissingMaskRules()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"MaskSensitiveContent":true,"CustomMaskPatterns":["alpha-\\d+"]}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.True(loaded.MaskRules.Email);
+        Assert.True(loaded.MaskRules.ShortAlphanumericCode);
+        Assert.True(loaded.MaskRules.CustomPattern);
+        Assert.Contains(loaded.MaskRuleDefinitions, rule => rule.Id == MaskRuleIds.Email && rule.Enabled);
+    }
+
+    [Fact]
+    public void Load_PreservesPartialMaskRuleOverrides()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"MaskRules":{"Email":false,"ShortAlphanumericCode":false}}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.False(loaded.MaskRules.Email);
+        Assert.False(loaded.MaskRules.ShortAlphanumericCode);
+        Assert.True(loaded.MaskRules.CreditCard);
+        Assert.False(loaded.MaskRuleDefinitions.First(rule => rule.Id == MaskRuleIds.Email).Enabled);
+        Assert.False(loaded.MaskRuleDefinitions.First(rule => rule.Id == MaskRuleIds.ShortAlphanumericCode).Enabled);
+    }
+
+    [Fact]
+    public void SaveAndLoad_RoundTripsEditedMaskRuleDefinitions()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        var store = new JsonSettingsStore(path);
+        var settings = new CliptonSettings();
+        settings.MaskRuleDefinitions = MaskRuleDefinitionDefaults.CreateDefaultRules();
+        var shortCodeRule = settings.MaskRuleDefinitions.First(rule => rule.Id == MaskRuleIds.ShortAlphanumericCode);
+        shortCodeRule.Enabled = false;
+        shortCodeRule.Pattern = @"\bSTORE-[A-Z0-9]{4}\b";
+
+        store.Save(settings);
+        var loaded = store.Load();
+
+        var loadedRule = loaded.MaskRuleDefinitions.First(rule => rule.Id == MaskRuleIds.ShortAlphanumericCode);
+        Assert.False(loadedRule.Enabled);
+        Assert.Equal(@"\bSTORE-[A-Z0-9]{4}\b", loadedRule.Pattern);
+        Assert.False(loaded.MaskRules.ShortAlphanumericCode);
     }
 
     [Fact]

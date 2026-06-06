@@ -482,7 +482,8 @@ public sealed class CliptonRuntime : IDisposable
             return new HistoryItemViewModel(snapshot.Id, snippet.DisplayName, $"{Translate("RegisteredSnippetMasked")} - {formats}");
         }
 
-        if (Settings.MaskSensitiveContent && SensitiveContentDetector.CreateMaskedPreview(plainText) is { } maskedPreview)
+        var previewScanText = SensitiveContentDetector.CreatePreviewScanText(plainText);
+        if (Settings.MaskSensitiveContent && SensitiveContentDetector.CreateMaskedPreview(previewScanText) is { } maskedPreview)
         {
             return new HistoryItemViewModel(snapshot.Id, NormalizePreviewText(maskedPreview), $"{Translate("MaskedSensitive")} - {formats}");
         }

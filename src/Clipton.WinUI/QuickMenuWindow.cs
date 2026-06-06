@@ -389,23 +389,34 @@ public sealed class QuickMenuWindow : Window
                 }
                 break;
             case NativeMethods.VkLeft:
-                if (_activeParent is not null)
+                if (_activeParent is MenuFlyoutSubItem)
                 {
-                    DispatcherQueue.TryEnqueue(ReturnToParentFocusContext);
+                    DispatcherQueue.TryEnqueue(() => EnqueueAfterDelay(80, ReturnToParentFocusContext));
+                    handled = false;
+                }
+                else if (_activeParent is not null)
+                {
+                    DispatcherQueue.TryEnqueue(HandleLeftNavigation);
+                }
+                else if (GetLeftNavigationTarget() is MenuFlyoutSubItem)
+                {
+                    handled = false;
+                }
+                else
+                {
                     handled = false;
                 }
                 break;
             case NativeMethods.VkRight:
-                if (GetFocusedMenuItemBase() is MenuFlyoutSubItem)
+                if (GetFocusedMenuItemBase() is MenuFlyoutSubItem folderItem)
                 {
-                    DispatcherQueue.TryEnqueue(EnterChildFocusContext);
+                    DispatcherQueue.TryEnqueue(() => PrepareFolderSubmenuForNativeOpen(folderItem));
                     handled = false;
                 }
                 else if (GetFocusedMenuItemBase() is { } focusedMenuItem
-                    && _pasteOptionsFlyouts.ContainsKey(focusedMenuItem))
+                    && focusedMenuItem.Tag is QuickMenuItem { PasteOptions.Count: > 0 })
                 {
                     DispatcherQueue.TryEnqueue(EnterChildFocusContext);
-                    handled = false;
                 }
                 break;
             case NativeMethods.VkReturn:
@@ -1177,8 +1188,8 @@ public sealed class QuickMenuWindow : Window
 
         if (focusedItem is MenuFlyoutSubItem folderItem && focusedQuickMenuItem.IsFolder)
         {
-            EnsureFolderItems(folderItem);
-            childItems = _childFocusableItems.GetValueOrDefault(focusedItem) ?? [];
+            PrepareFolderSubmenuForNativeOpen(folderItem);
+            return;
         }
 
         if (focusedQuickMenuItem.PasteOptions is { Count: > 0 })
@@ -1208,6 +1219,11 @@ public sealed class QuickMenuWindow : Window
         }
 
         var parent = _activeParent;
+        if (_pasteOptionsFlyouts.TryGetValue(parent, out var pasteOptionsFlyout))
+        {
+            pasteOptionsFlyout.Hide();
+        }
+
         if (_parentItem.TryGetValue(parent, out var grandParent))
         {
             _activeFocusableItems = _childFocusableItems[grandParent];
@@ -1220,6 +1236,42 @@ public sealed class QuickMenuWindow : Window
         }
 
         FocusMenuItem(IndexOf(_activeFocusableItems, parent));
+    }
+
+    private void PrepareFolderSubmenuForNativeOpen(MenuFlyoutSubItem folderItem)
+    {
+        if (folderItem.Tag is not QuickMenuItem { IsFolder: true })
+        {
+            SyncFocusedIndex();
+            return;
+        }
+
+        EnsureFolderItems(folderItem);
+        if (!_childFocusableItems.TryGetValue(folderItem, out var childItems)
+            || childItems.Count == 0)
+        {
+            SyncFocusedIndex();
+            return;
+        }
+
+        _activeFocusableItems = childItems;
+        _activeParent = folderItem;
+        _focusedIndex = 0;
+    }
+
+    private void HandleLeftNavigation()
+    {
+        ReturnToParentFocusContext();
+    }
+
+    private MenuFlyoutItemBase? GetLeftNavigationTarget()
+    {
+        if (GetTrackedFocusedMenuItemBase() is { } trackedItem)
+        {
+            return trackedItem;
+        }
+
+        return GetFocusedMenuItemBase();
     }
 
     private void SyncNavigatorSelectionFromTrackedFocus()
