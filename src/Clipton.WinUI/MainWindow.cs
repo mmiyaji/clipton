@@ -556,7 +556,7 @@ public sealed class MainWindow : Window
         };
         _generalPage.Children.Add(SettingCard("\uE8C1", "Language", "LanguageDescription", _localeBox));
 
-        _startupToggle.Toggled += async (_, _) => await SetStartupAsync();
+        _startupToggle.Toggled += (_, _) => _ = SetStartupAsyncSafely();
         _generalPage.Children.Add(SettingCard("\uE7C3", "Startup", "StartupDescription", _startupToggle));
         _hideSettingsWindowOnStartupToggle.Toggled += (_, _) => SaveStartupWindowOptions();
         _generalPage.Children.Add(SettingCard("\uE8BB", "HideSettingsWindowOnStartup", "HideSettingsWindowOnStartupDescription", _hideSettingsWindowOnStartupToggle));
@@ -1730,29 +1730,136 @@ public sealed class MainWindow : Window
 
     private async Task SetStartupAsync()
     {
+        if (!DispatcherQueue.HasThreadAccess)
+        {
+            await RunOnUiThreadAsync(SetStartupAsync);
+            return;
+        }
+
         if (_loading || _startupRegistrationSaving) return;
         _startupRegistrationSaving = true;
         _startupToggle.IsEnabled = false;
         var requested = _startupToggle.IsOn;
+        var previous = _runtime.Settings.StartWithWindows;
+        Exception? startupException = null;
         try
         {
-            await _runtime.SetStartWithWindowsAsync(requested);
+            await _runtime.SetStartWithWindowsAsync(requested).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            startupException = exception;
+            AppDiagnostics.Log(exception, "Startup registration");
+            _runtime.Settings.StartWithWindows = previous;
         }
         finally
         {
-            _loading = true;
+            await RunOnUiThreadAsync(() =>
+            {
+                _loading = true;
+                try
+                {
+                    _startupToggle.IsOn = startupException is null
+                        ? _runtime.Settings.StartWithWindows
+                        : previous;
+                }
+                finally
+                {
+                    _loading = false;
+                    _startupToggle.IsEnabled = !_runtime.IsSafeMode;
+                    _startupRegistrationSaving = false;
+                    RefreshTexts();
+                }
+            });
+        }
+    }
+
+    private async Task SetStartupAsyncSafely()
+    {
+        try
+        {
+            await SetStartupAsync();
+        }
+        catch (Exception exception)
+        {
+            AppDiagnostics.Log(exception, "Startup toggle");
             try
             {
-                _startupToggle.IsOn = _runtime.Settings.StartWithWindows;
+                await RunOnUiThreadAsync(() =>
+                {
+                    _loading = true;
+                    try
+                    {
+                        _startupToggle.IsOn = _runtime.Settings.StartWithWindows;
+                    }
+                    finally
+                    {
+                        _loading = false;
+                        _startupToggle.IsEnabled = !_runtime.IsSafeMode;
+                        _startupRegistrationSaving = false;
+                    }
+                });
             }
-            finally
+            catch (Exception recoveryException)
             {
-                _loading = false;
-                _startupToggle.IsEnabled = !_runtime.IsSafeMode;
-                _startupRegistrationSaving = false;
-                RefreshTexts();
+                AppDiagnostics.Log(recoveryException, "Startup toggle recovery");
             }
         }
+    }
+
+    private Task RunOnUiThreadAsync(Action action)
+    {
+        if (DispatcherQueue.HasThreadAccess)
+        {
+            action();
+            return Task.CompletedTask;
+        }
+
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!DispatcherQueue.TryEnqueue(() =>
+        {
+            try
+            {
+                action();
+                completion.SetResult();
+            }
+            catch (Exception exception)
+            {
+                completion.SetException(exception);
+            }
+        }))
+        {
+            completion.SetException(new InvalidOperationException("Unable to enqueue UI work."));
+        }
+
+        return completion.Task;
+    }
+
+    private Task RunOnUiThreadAsync(Func<Task> action)
+    {
+        if (DispatcherQueue.HasThreadAccess)
+        {
+            return action();
+        }
+
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!DispatcherQueue.TryEnqueue(async () =>
+        {
+            try
+            {
+                await action();
+                completion.SetResult();
+            }
+            catch (Exception exception)
+            {
+                completion.SetException(exception);
+            }
+        }))
+        {
+            completion.SetException(new InvalidOperationException("Unable to enqueue UI work."));
+        }
+
+        return completion.Task;
     }
 
     private void SaveStartupWindowOptions()
@@ -2438,6 +2545,11 @@ public sealed class MainWindow : Window
                 ? _runtime.Translate("SnippetEditorEmpty")
                 : string.Format(_runtime.Translate("SnippetFolderSelected"), _selectedSnippetFolder)
             : $"{_selectedSnippet.DisplayName}\n{_selectedSnippet.Folder}";
+
+        var hasSnippetSelection = _selectedSnippet is not null;
+        _saveSnippetButton.IsEnabled = hasSnippetSelection;
+        _pasteSnippetButton.IsEnabled = hasSnippetSelection;
+        _deleteSnippetButton.IsEnabled = hasSnippetSelection;
     }
 
     private void RefreshSnippetTree()

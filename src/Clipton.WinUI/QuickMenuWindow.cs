@@ -420,6 +420,13 @@ public sealed class QuickMenuWindow : Window
                 }
                 break;
             case NativeMethods.VkReturn:
+                if (GetFocusedMenuItemBase() is MenuFlyoutSubItem returnFolderItem)
+                {
+                    DispatcherQueue.TryEnqueue(() => PrepareFolderSubmenuForNativeOpen(returnFolderItem));
+                    handled = false;
+                    break;
+                }
+
                 DispatcherQueue.TryEnqueue(() =>
                 {
                     if (GetFocusedPasteOption() is { } option)
