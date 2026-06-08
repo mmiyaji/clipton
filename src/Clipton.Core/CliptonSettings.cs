@@ -187,7 +187,7 @@ public sealed class QuickMenuShortcutSettings
 {
     public const string DefaultSearch = "Ctrl+F";
     public const string DefaultPastePlainText = "T";
-    public const string DefaultToggleMaskReveal = "M";
+    public const string DefaultToggleMaskReveal = "Ctrl+M";
     public const string DefaultToggleCapturedAt = "Ctrl+D";
 
     public string Search { get; set; } = DefaultSearch;

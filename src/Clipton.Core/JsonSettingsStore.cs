@@ -142,7 +142,7 @@ public sealed class JsonSettingsStore
         shortcuts.ToggleMaskReveal = NormalizeShortcut(
             shortcuts.ToggleMaskReveal,
             QuickMenuShortcutSettings.DefaultToggleMaskReveal,
-            ["M", "Ctrl+M"]);
+            ["Ctrl+M"]);
         shortcuts.ToggleCapturedAt = NormalizeShortcut(
             shortcuts.ToggleCapturedAt,
             QuickMenuShortcutSettings.DefaultToggleCapturedAt,

@@ -17,7 +17,7 @@ public sealed class SettingsStoreTests
         Assert.Equal("medium", loaded.QuickMenuImagePreviewSize);
         Assert.Equal("Ctrl+F", loaded.QuickMenuShortcuts.Search);
         Assert.Equal("T", loaded.QuickMenuShortcuts.PastePlainText);
-        Assert.Equal("M", loaded.QuickMenuShortcuts.ToggleMaskReveal);
+        Assert.Equal("Ctrl+M", loaded.QuickMenuShortcuts.ToggleMaskReveal);
         Assert.Equal("Ctrl+D", loaded.QuickMenuShortcuts.ToggleCapturedAt);
         Assert.False(loaded.QuickMenuShowCapturedAt);
         Assert.True(loaded.QuickMenuShowShortcutHints);

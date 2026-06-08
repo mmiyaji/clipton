@@ -15,6 +15,10 @@ internal static class NativeMethods
     internal const uint ModShift = 0x0004;
     internal const uint ModWin = 0x0008;
     internal const byte VkControl = 0x11;
+    internal const byte VkShift = 0x10;
+    internal const byte VkMenu = 0x12;
+    internal const byte VkLWin = 0x5B;
+    internal const byte VkRWin = 0x5C;
     internal const byte VkD = 0x44;
     internal const byte VkM = 0x4D;
     internal const byte VkS = 0x53;

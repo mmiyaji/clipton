@@ -357,31 +357,31 @@ public sealed class QuickMenuWindow : Window
 
         var handled = true;
         var key = Marshal.ReadInt32(lParam);
-        var controlDown = (NativeMethods.GetAsyncKeyState(NativeMethods.VkControl) & 0x8000) != 0;
+        var modifiers = GetCurrentModifierState();
         if (!IsInteractionForeground())
         {
             return NativeMethods.CallNextHookEx(s_keyboardHook, nCode, wParam, lParam);
         }
 
-        if (MatchesShortcut(key, controlDown, _shortcuts.Search))
+        if (MatchesShortcut(key, modifiers, _shortcuts.Search))
         {
             DispatcherQueue.TryEnqueue(SearchMenu);
             return 1;
         }
 
-        if (MatchesShortcut(key, controlDown, _shortcuts.ToggleMaskReveal))
+        if (MatchesShortcut(key, modifiers, _shortcuts.ToggleMaskReveal))
         {
             DispatcherQueue.TryEnqueue(() => ToggleDisplayMode(revealMaskedItems: !_revealMaskedItems));
             return 1;
         }
 
-        if (MatchesShortcut(key, controlDown, _shortcuts.ToggleCapturedAt))
+        if (MatchesShortcut(key, modifiers, _shortcuts.ToggleCapturedAt))
         {
             DispatcherQueue.TryEnqueue(() => ToggleDisplayMode(showCapturedAt: !_showCapturedAt));
             return 1;
         }
 
-        if (MatchesShortcut(key, controlDown, _shortcuts.PastePlainText))
+        if (MatchesShortcut(key, modifiers, _shortcuts.PastePlainText))
         {
             DispatcherQueue.TryEnqueue(() =>
             {
@@ -471,7 +471,14 @@ public sealed class QuickMenuWindow : Window
                 });
                 break;
             case NativeMethods.VkSpace:
-                DispatcherQueue.TryEnqueue(ToggleFocusedImagePreview);
+                if (GetFocusedMenuItem() is { } previewItem && HasImagePreview(previewItem))
+                {
+                    DispatcherQueue.TryEnqueue(() => ToggleImagePreview(previewItem));
+                }
+                else
+                {
+                    handled = false;
+                }
                 break;
             case NativeMethods.VkEscape:
                 if (_imagePreviewWindow is not null)
@@ -493,7 +500,18 @@ public sealed class QuickMenuWindow : Window
             : NativeMethods.CallNextHookEx(s_keyboardHook, nCode, wParam, lParam);
     }
 
-    private static bool MatchesShortcut(int key, bool controlDown, string shortcut)
+    private static KeyModifierState GetCurrentModifierState()
+    {
+        static bool IsDown(int key) => (NativeMethods.GetAsyncKeyState(key) & 0x8000) != 0;
+
+        return new KeyModifierState(
+            IsDown(NativeMethods.VkControl),
+            IsDown(NativeMethods.VkShift),
+            IsDown(NativeMethods.VkMenu),
+            IsDown(NativeMethods.VkLWin) || IsDown(NativeMethods.VkRWin));
+    }
+
+    private static bool MatchesShortcut(int key, KeyModifierState modifiers, string shortcut)
     {
         if (string.IsNullOrWhiteSpace(shortcut))
         {
@@ -506,9 +524,34 @@ public sealed class QuickMenuWindow : Window
             return false;
         }
 
-        var requiresControl = parts.Take(parts.Length - 1).Any(part => part.Equals("Ctrl", StringComparison.OrdinalIgnoreCase)
-            || part.Equals("Control", StringComparison.OrdinalIgnoreCase));
-        if (requiresControl != controlDown)
+        var shortcutModifiers = KeyModifierState.None;
+        foreach (var part in parts.Take(parts.Length - 1))
+        {
+            if (part.Equals("Ctrl", StringComparison.OrdinalIgnoreCase)
+                || part.Equals("Control", StringComparison.OrdinalIgnoreCase))
+            {
+                shortcutModifiers = shortcutModifiers with { Control = true };
+            }
+            else if (part.Equals("Shift", StringComparison.OrdinalIgnoreCase))
+            {
+                shortcutModifiers = shortcutModifiers with { Shift = true };
+            }
+            else if (part.Equals("Alt", StringComparison.OrdinalIgnoreCase))
+            {
+                shortcutModifiers = shortcutModifiers with { Alt = true };
+            }
+            else if (part.Equals("Win", StringComparison.OrdinalIgnoreCase)
+                || part.Equals("Windows", StringComparison.OrdinalIgnoreCase))
+            {
+                shortcutModifiers = shortcutModifiers with { Win = true };
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        if (shortcutModifiers != modifiers)
         {
             return false;
         }
@@ -595,13 +638,26 @@ public sealed class QuickMenuWindow : Window
 
     private void ToggleFocusedImagePreview()
     {
+        if (GetFocusedMenuItem() is { } item)
+        {
+            ToggleImagePreview(item);
+        }
+    }
+
+    private void ToggleImagePreview(QuickMenuItem item)
+    {
         if (_imagePreviewWindow is not null)
         {
             HideImagePreview();
             return;
         }
 
-        ShowImagePreview(GetFocusedMenuItem());
+        ShowImagePreview(item);
+    }
+
+    private static bool HasImagePreview(QuickMenuItem item)
+    {
+        return item.PreviewImageBytesProvider is not null || item.IconImageBytes is { Length: > 0 };
     }
 
     private async void ShowImagePreview(QuickMenuItem? item)
@@ -1152,13 +1208,13 @@ public sealed class QuickMenuWindow : Window
             }
 
             args.Handled = true;
-            ShowImagePreview(item);
+            ToggleImagePreview(item);
         };
         var accelerator = new KeyboardAccelerator { Key = VirtualKey.Space };
         accelerator.Invoked += (_, args) =>
         {
             args.Handled = true;
-            ShowImagePreview(item);
+            ToggleImagePreview(item);
         };
         flyoutItem.KeyboardAccelerators.Add(accelerator);
     }
@@ -1874,6 +1930,11 @@ public sealed record QuickMenuPasteOption(
     string IconGlyph,
     Action Invoke,
     string? IconFontFamily = null);
+
+internal readonly record struct KeyModifierState(bool Control, bool Shift, bool Alt, bool Win)
+{
+    public static KeyModifierState None { get; } = new(false, false, false, false);
+}
 
 internal sealed record RootFlyoutPlacement(
     System.Drawing.Point Anchor,

@@ -613,7 +613,7 @@ public sealed class MainWindow : Window
         ConfigureShortcutCombo(
             _quickMenuMaskShortcutBox,
             nameof(QuickMenuShortcutSettings.ToggleMaskReveal),
-            ["M", "Ctrl+M"]);
+            ["Ctrl+M"]);
         ConfigureShortcutCombo(
             _quickMenuCapturedAtShortcutBox,
             nameof(QuickMenuShortcutSettings.ToggleCapturedAt),
@@ -1747,6 +1747,13 @@ public sealed class MainWindow : Window
             Height = 60,
             Stretch = Stretch.Uniform
         };
+        var fallbackText = new TextBlock
+        {
+            Text = _runtime.Translate("BuyMeACoffee"),
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Padding = new Thickness(18, 12, 18, 12)
+        };
+        bannerImage.ImageFailed += (_, _) => _donationButton.Content = fallbackText;
 
         _donationButton.Padding = new Thickness(0);
         _donationButton.BorderThickness = new Thickness(0);
@@ -1758,7 +1765,34 @@ public sealed class MainWindow : Window
         ToolTipService.SetToolTip(_donationButton, DonationUrl);
         content.Children.Add(_donationButton);
 
-        content.Children.Add(InfoLinkRow("Donation", DonationUrl, DonationUrl));
+        var linkText = new HyperlinkButton
+        {
+            Content = _runtime.Translate("DonationOpenBuyMeACoffee"),
+            Padding = new Thickness(0),
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+        AutomationProperties.SetName(linkText, _runtime.Translate("DonationOpenBuyMeACoffee"));
+        ToolTipService.SetToolTip(linkText, DonationUrl);
+        linkText.Click += (_, _) => OpenExternalUrl(DonationUrl);
+
+        var urlText = new TextBlock
+        {
+            Text = DonationUrl,
+            FontSize = 12,
+            Foreground = DescriptionBrush(),
+            TextWrapping = TextWrapping.Wrap
+        };
+
+        content.Children.Add(new StackPanel
+        {
+            Spacing = 2,
+            Margin = new Thickness(1, -6, 0, 0),
+            Children =
+            {
+                linkText,
+                urlText
+            }
+        });
         _donationPage.Children.Add(Card(content));
     }
 

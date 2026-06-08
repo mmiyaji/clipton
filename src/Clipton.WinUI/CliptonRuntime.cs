@@ -437,7 +437,7 @@ public sealed class CliptonRuntime : IDisposable
                 Settings.QuickMenuShortcuts.ToggleMaskReveal = NormalizeQuickMenuShortcut(
                     shortcut,
                     QuickMenuShortcutSettings.DefaultToggleMaskReveal,
-                    ["M", "Ctrl+M"]);
+                    ["Ctrl+M"]);
                 break;
             case nameof(QuickMenuShortcutSettings.ToggleCapturedAt):
                 Settings.QuickMenuShortcuts.ToggleCapturedAt = NormalizeQuickMenuShortcut(
@@ -1633,7 +1633,7 @@ public sealed class CliptonRuntime : IDisposable
             header,
             display.FormatSummary,
             GetKindLabel(item),
-            !string.IsNullOrEmpty(plainText) ? "Enter / T" : "Enter",
+            BuildHistoryCommandHint(plainText),
             () => PasteHistoryItem(item.Id, asPlainText: false),
             !string.IsNullOrEmpty(plainText) ? () => PasteHistoryItem(item.Id, asPlainText: true) : null,
             PasteOptions: pasteOptions,
@@ -1645,6 +1645,19 @@ public sealed class CliptonRuntime : IDisposable
             CapturedAt: item.CapturedAt,
             IsPinned: IsHistoryPinned(item.Id),
             Formats: item.Formats);
+    }
+
+    private string BuildHistoryCommandHint(string? plainText)
+    {
+        if (string.IsNullOrEmpty(plainText))
+        {
+            return "Enter";
+        }
+
+        var plainTextShortcut = Settings.QuickMenuShortcuts?.PastePlainText;
+        return string.IsNullOrWhiteSpace(plainTextShortcut)
+            ? "Enter"
+            : $"Enter / {plainTextShortcut}";
     }
 
     private string GetHistoryIconGlyph(ClipboardSnapshot item)
