@@ -20,6 +20,7 @@ internal static class NativeMethods
     internal const byte VkS = 0x53;
     internal const byte VkV = 0x56;
     internal const int VkReturn = 0x0D;
+    internal const int VkSpace = 0x20;
     internal const int VkEscape = 0x1B;
     internal const int VkBack = 0x08;
     internal const int VkLeft = 0x25;

@@ -1640,6 +1640,7 @@ public sealed class CliptonRuntime : IDisposable
             IconGlyph: GetHistoryIconGlyph(item),
             IconFontFamily: GetHistoryIconFontFamily(item),
             IconImageBytes: includeImageThumbnail ? GetHistoryThumbnailBytes(item) : null,
+            PreviewImageBytesProvider: item.ImagePng is { Length: > 0 } ? () => GetHistoryImagePreviewBytes(item) : null,
             RevealedTitle: revealedHeader,
             CapturedAt: item.CapturedAt,
             IsPinned: IsHistoryPinned(item.Id),

@@ -37,6 +37,8 @@ public sealed class MainWindow : Window
     private const string TermsUrl = "https://mmiyaji.github.io/clipton/terms/";
     private const string PrivacyUrl = "https://mmiyaji.github.io/clipton/privacy/";
     private const string AuthorUrl = "https://ruhenheim.org";
+    private const string DonationUrl = "https://www.buymeacoffee.com/erumdoor";
+    private const string DonationBannerUrl = "https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png";
     private const string SnippetVariablesUrl = "https://mmiyaji.github.io/clipton/snippet-variables/";
     private readonly CliptonRuntime _runtime;
     private readonly Grid _root = new();
@@ -47,6 +49,7 @@ public sealed class MainWindow : Window
     private readonly StackPanel _historyPage = SettingsPage();
     private readonly StackPanel _historySettingsPage = SettingsPage();
     private readonly StackPanel _snippetPage = SettingsPage();
+    private readonly StackPanel _donationPage = SettingsPage();
     private readonly StackPanel _aboutPage = SettingsPage();
     private readonly StackPanel _historyListHost = new() { Spacing = 10 };
     private readonly ListView _historyListView = new();
@@ -74,6 +77,8 @@ public sealed class MainWindow : Window
     private readonly TextBlock _snippetHeaderText = Header();
     private readonly TextBlock _snippetDescriptionText = Description();
     private readonly TextBlock _snippetFormTitle = Header(18);
+    private readonly TextBlock _donationHeaderText = Header();
+    private readonly TextBlock _donationDescriptionText = Description();
     private readonly TextBlock _aboutHeaderText = Header();
     private readonly TextBlock _aboutDescriptionText = Description();
     private readonly ComboBox _hotkeyBox = new();
@@ -143,6 +148,7 @@ public sealed class MainWindow : Window
     private readonly Button _deleteSnippetButton = new();
     private readonly Button _termsButton = new();
     private readonly Button _privacyButton = new();
+    private readonly Button _donationButton = new();
     private readonly Button _exitApplicationButton = new();
     private readonly Button _openLogsButton = new();
     private readonly Button _clearLogsButton = new();
@@ -185,6 +191,7 @@ public sealed class MainWindow : Window
             _historyDescriptionText,
             _historySettingsDescriptionText,
             _snippetDescriptionText,
+            _donationDescriptionText,
             _aboutDescriptionText,
             _historySearchStatusText,
             _historyEmptyText,
@@ -340,6 +347,8 @@ public sealed class MainWindow : Window
         _snippetHeaderText.Text = t("Snippets");
         _snippetDescriptionText.Text = t("SnippetDescription");
         _snippetFormTitle.Text = t("SnippetEditor");
+        _donationHeaderText.Text = t("Donation");
+        _donationDescriptionText.Text = t("DonationDescription");
         _aboutHeaderText.Text = t("About");
         _aboutDescriptionText.Text = t("AboutDescription");
         SetCommandButton(_registerFromHistoryButton, "\uE8EC", t("RegisterFromHistory"));
@@ -366,6 +375,7 @@ public sealed class MainWindow : Window
         SetCommandButton(_deleteSnippetButton, "\uE74D", t("Delete"));
         _termsButton.Content = t("TermsOfUse");
         _privacyButton.Content = t("PrivacyPolicy");
+        AutomationProperties.SetName(_donationButton, t("BuyMeACoffee"));
         SetCommandButton(_exitApplicationButton, "\uE8BB", t("ExitApplication"));
         SetCommandButton(_openLogsButton, "\uE838", t("OpenLogs"));
         SetCommandButton(_clearLogsButton, "\uE74D", t("ClearLogs"));
@@ -465,7 +475,7 @@ public sealed class MainWindow : Window
         _hotkeyText.Margin = new Thickness(8, 0, 8, 4);
         _navigationPaneFooter.Children.Add(_brandHeader);
         _navigationView.PaneFooter = _navigationPaneFooter;
-        foreach (var index in Enumerable.Range(0, 5))
+        foreach (var index in Enumerable.Range(0, 6))
         {
             var item = CreateNavItem(index);
             _navItems.Add(item);
@@ -486,6 +496,7 @@ public sealed class MainWindow : Window
         contentHost.Children.Add(_historyPage);
         contentHost.Children.Add(_historySettingsPage);
         contentHost.Children.Add(_snippetPage);
+        contentHost.Children.Add(_donationPage);
         contentHost.Children.Add(_aboutPage);
         _navigationView.Content = _contentScroller;
         _root.Children.Add(_navigationView);
@@ -494,6 +505,7 @@ public sealed class MainWindow : Window
         BuildHistoryPage();
         BuildHistorySettingsPage();
         BuildSnippetPage();
+        BuildDonationPage();
         BuildAboutPage();
         SelectPage(0);
     }
@@ -615,6 +627,8 @@ public sealed class MainWindow : Window
         rows.Children.Add(ShortcutSettingRow("QuickMenuShortcutToggleMask", "QuickMenuShortcutToggleMaskDescription", _quickMenuMaskShortcutBox));
         rows.Children.Add(RowSeparator());
         rows.Children.Add(ShortcutSettingRow("QuickMenuShortcutToggleCapturedAt", "QuickMenuShortcutToggleCapturedAtDescription", _quickMenuCapturedAtShortcutBox));
+        rows.Children.Add(RowSeparator());
+        rows.Children.Add(ShortcutReadOnlyRow("QuickMenuShortcutImagePreview", "QuickMenuShortcutImagePreviewDescription", "Space"));
         rows.Children.Add(RowSeparator());
         rows.Children.Add(ShortcutReadOnlyRow("QuickMenuShortcutNavigate", "QuickMenuShortcutNavigateDescription", "\u2191 / \u2193 / \u2190 / \u2192"));
         rows.Children.Add(RowSeparator());
@@ -1714,6 +1728,38 @@ public sealed class MainWindow : Window
         _exitApplicationButton.HorizontalAlignment = HorizontalAlignment.Left;
         _exitApplicationButton.Click += (_, _) => _runtime.ExitApplication();
         _aboutPage.Children.Add(SettingCard("\uE8BB", "ExitApplication", "ExitApplicationDescription", _exitApplicationButton));
+    }
+
+    private void BuildDonationPage()
+    {
+        _donationPage.Children.Add(PageHeader(_donationHeaderText, _donationDescriptionText));
+
+        var content = new StackPanel { Spacing = 14 };
+        content.Children.Add(LocalizedText("DonationSupportMessage",
+            fontSize: 14,
+            foreground: DescriptionBrush(),
+            wrapping: TextWrapping.Wrap));
+
+        var bannerImage = new Image
+        {
+            Source = new BitmapImage(new Uri(DonationBannerUrl)),
+            Width = 217,
+            Height = 60,
+            Stretch = Stretch.Uniform
+        };
+
+        _donationButton.Padding = new Thickness(0);
+        _donationButton.BorderThickness = new Thickness(0);
+        _donationButton.Background = new SolidColorBrush(Colors.Transparent);
+        _donationButton.HorizontalAlignment = HorizontalAlignment.Left;
+        _donationButton.Content = bannerImage;
+        _donationButton.Click += (_, _) => OpenExternalUrl(DonationUrl);
+        AutomationProperties.SetName(_donationButton, _runtime.Translate("BuyMeACoffee"));
+        ToolTipService.SetToolTip(_donationButton, DonationUrl);
+        content.Children.Add(_donationButton);
+
+        content.Children.Add(InfoLinkRow("Donation", DonationUrl, DonationUrl));
+        _donationPage.Children.Add(Card(content));
     }
 
     private static void OpenExternalUrl(string url)
@@ -3076,7 +3122,8 @@ public sealed class MainWindow : Window
         _historyPage.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
         _historySettingsPage.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
         _snippetPage.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed;
-        _aboutPage.Visibility = index == 4 ? Visibility.Visible : Visibility.Collapsed;
+        _donationPage.Visibility = index == 4 ? Visibility.Visible : Visibility.Collapsed;
+        _aboutPage.Visibility = index == 5 ? Visibility.Visible : Visibility.Collapsed;
 
         if (index >= 0 && index < _navItems.Count && !ReferenceEquals(_navigationView.SelectedItem, _navItems[index]))
         {
@@ -3118,7 +3165,8 @@ public sealed class MainWindow : Window
         SetNavItemContent(1, "\uE81C", "History");
         SetNavItemContent(2, "\uE713", "HistorySettings");
         SetNavItemContent(3, "\uE8C8", "Snippets");
-        SetNavItemContent(4, "\uE946", "About");
+        SetNavItemContent(4, "\uE8D7", "Donation");
+        SetNavItemContent(5, "\uE946", "About");
     }
 
     private NavigationViewItem CreateNavItem(int index)
@@ -3267,7 +3315,7 @@ public sealed class MainWindow : Window
     private void UpdateSettingsPageWidth(double availableWidth)
     {
         var width = Math.Min(SettingsPageMaxWidth, availableWidth);
-        foreach (var page in new[] { _generalPage, _historyPage, _historySettingsPage, _snippetPage, _aboutPage })
+        foreach (var page in new[] { _generalPage, _historyPage, _historySettingsPage, _snippetPage, _donationPage, _aboutPage })
         {
             page.Width = width;
         }
