@@ -27,6 +27,16 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private const int WindowGap = 10;
     private const int DwmwaBorderColor = 34;
     private const int DwmwaColorNone = unchecked((int)0xFFFFFFFE);
+    private const int GwlStyle = -16;
+    private const long WsCaption = 0x00C00000L;
+    private const long WsThickFrame = 0x00040000L;
+    private const long WsBorder = 0x00800000L;
+    private const long WsDlgFrame = 0x00400000L;
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoZOrder = 0x0004;
+    private const uint SwpNoActivate = 0x0010;
+    private const uint SwpFrameChanged = 0x0020;
     private const string PasteOptionsButtonTag = "RichPasteOptionsButton";
     private readonly string _title;
     private readonly string _theme;
@@ -147,7 +157,6 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         var windowId = Win32Interop.GetWindowIdFromWindow(_hwnd);
         _appWindow = AppWindow.GetFromWindowId(windowId);
         ConfigureWindowStyle();
-        DisableDwmBorder(_hwnd);
         if (_appWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.IsResizable = false;
@@ -157,6 +166,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         _appWindow.Resize(new SizeInt32(MenuWidth, WindowHeight));
+        DisableDwmBorder(_hwnd);
     }
 
     private void BuildContent()
@@ -167,8 +177,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _menuCard.Width = MenuWidth;
         _menuCard.Height = WindowHeight;
         _menuCard.CornerRadius = new CornerRadius(9);
-        _menuCard.BorderThickness = new Thickness(1);
-        _menuCard.BorderBrush = Brush(74, 74, 74);
+        _menuCard.BorderThickness = new Thickness(0);
         _menuCard.Background = Brush(37, 37, 37);
         _menuCard.Padding = new Thickness(10);
         _menuCard.Child = BuildMenuPanel();
@@ -186,8 +195,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _previewCard.Width = PreviewWidth;
         _previewCard.Height = 338;
         _previewCard.CornerRadius = new CornerRadius(9);
-        _previewCard.BorderThickness = new Thickness(1);
-        _previewCard.BorderBrush = Brush(68, 68, 68);
+        _previewCard.BorderThickness = new Thickness(0);
         _previewCard.Background = Brush(44, 44, 44);
         _previewCard.Padding = new Thickness(10);
         _previewCard.Visibility = Visibility.Collapsed;
@@ -199,7 +207,6 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         var windowId = Win32Interop.GetWindowIdFromWindow(_previewHwnd);
         _previewAppWindow = AppWindow.GetFromWindowId(windowId);
         ConfigureToolWindowStyle(_previewHwnd);
-        DisableDwmBorder(_previewHwnd);
         if (_previewAppWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.IsResizable = false;
@@ -209,6 +216,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         _previewAppWindow.Resize(new SizeInt32(PreviewWidth, 338));
+        DisableDwmBorder(_previewHwnd);
 
         var escapeAccelerator = new KeyboardAccelerator { Key = VirtualKey.Escape };
         escapeAccelerator.Invoked += (_, args) =>
@@ -698,6 +706,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         var y = Math.Clamp(_anchorPoint.Y - 18, workArea.Top + ScreenEdgePadding, workArea.Bottom - WindowHeight - ScreenEdgePadding);
         _appWindow.Resize(new SizeInt32(MenuWidth, WindowHeight));
         _appWindow.Move(new PointInt32(menuX, y));
+        DisableDwmBorder(_hwnd);
         PositionPreviewWindow();
         BringToFront();
     }
@@ -720,6 +729,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         var previewY = Math.Clamp(menuY + 90, workArea.Top + ScreenEdgePadding, workArea.Bottom - 338 - ScreenEdgePadding);
         _previewAppWindow.Resize(new SizeInt32(PreviewWidth, 338));
         _previewAppWindow.Move(new PointInt32(previewX, previewY));
+        DisableDwmBorder(_previewHwnd);
         _previewWindow?.Activate();
         BringPreviewToFront();
         BringToFront();
@@ -746,6 +756,18 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         exStyle |= NativeMethods.WsExToolwindow;
         exStyle &= ~NativeMethods.WsExAppwindow;
         NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GwlExstyle, new IntPtr(exStyle));
+
+        var style = NativeMethods.GetWindowLongPtr(hwnd, GwlStyle).ToInt64();
+        style &= ~(WsCaption | WsThickFrame | WsBorder | WsDlgFrame);
+        NativeMethods.SetWindowLongPtr(hwnd, GwlStyle, new IntPtr(style));
+        _ = SetWindowPos(
+            hwnd,
+            IntPtr.Zero,
+            0,
+            0,
+            0,
+            0,
+            SwpNoMove | SwpNoSize | SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
     }
 
     private static void DisableDwmBorder(IntPtr hwnd)
@@ -876,6 +898,17 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int attributeValue, int attributeSize);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(
+        IntPtr hWnd,
+        IntPtr hWndInsertAfter,
+        int x,
+        int y,
+        int cx,
+        int cy,
+        uint uFlags);
 
     private static string TrimText(string text, int max)
     {
