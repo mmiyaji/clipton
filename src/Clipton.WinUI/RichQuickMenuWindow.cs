@@ -47,8 +47,6 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpFrameChanged = 0x0020;
-    private const int WmNclbuttondown = 0x00A1;
-    private const int HtCaption = 2;
     private const string PasteOptionsButtonTag = "RichPasteOptionsButton";
     private readonly string _title;
     private readonly string _theme;
@@ -79,8 +77,11 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private AppWindow? _previewAppWindow;
     private IntPtr _previewHwnd;
     private NativeMethods.Point _anchorPoint;
+    private NativeMethods.Point _dragStartCursor;
+    private PointInt32 _dragStartWindowPosition;
     private bool _hasAnchorPoint;
     private bool _dismissed;
+    private bool _dragging;
     private bool _previewVisible;
     private long _previewRequestId;
 
@@ -266,6 +267,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             Background = new SolidColorBrush(Colors.Transparent)
         };
         toolbar.PointerPressed += OnHeaderPointerPressed;
+        toolbar.PointerMoved += OnHeaderPointerMoved;
+        toolbar.PointerReleased += OnHeaderPointerReleased;
+        toolbar.PointerCanceled += OnHeaderPointerReleased;
         toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -312,21 +316,66 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
     private void OnHeaderPointerPressed(object sender, PointerRoutedEventArgs args)
     {
-        if (_appWindow is null || IsFromButton(args.OriginalSource))
+        if (_appWindow is null || sender is not UIElement element || IsFromButton(args.OriginalSource))
         {
             return;
         }
 
-        var point = args.GetCurrentPoint((UIElement)sender);
-        if (!point.Properties.IsLeftButtonPressed)
+        var point = args.GetCurrentPoint(element);
+        if (!point.Properties.IsLeftButtonPressed || !NativeMethods.GetCursorPos(out var cursor))
         {
             return;
         }
 
-        _previewAppWindow?.Hide();
-        _previewVisible = false;
-        _ = ReleaseCapture();
-        _ = SendMessage(_hwnd, WmNclbuttondown, new IntPtr(HtCaption), IntPtr.Zero);
+        _dragging = true;
+        _dragStartCursor = cursor;
+        _dragStartWindowPosition = _appWindow.Position;
+        element.CapturePointer(args.Pointer);
+        args.Handled = true;
+    }
+
+    private void OnHeaderPointerMoved(object sender, PointerRoutedEventArgs args)
+    {
+        if (!_dragging || _appWindow is null || sender is not UIElement element)
+        {
+            return;
+        }
+
+        var point = args.GetCurrentPoint(element);
+        if (!point.Properties.IsLeftButtonPressed || !NativeMethods.GetCursorPos(out var cursor))
+        {
+            EndHeaderDrag(element, args);
+            return;
+        }
+
+        var x = _dragStartWindowPosition.X + cursor.X - _dragStartCursor.X;
+        var y = _dragStartWindowPosition.Y + cursor.Y - _dragStartCursor.Y;
+        _appWindow.Move(new PointInt32(x, y));
+        ApplyWindowRegion(_hwnd, MenuWidth, WindowHeight);
+        DisableDwmBorder(_hwnd);
+        _anchorPoint = new NativeMethods.Point { X = x + 18, Y = y + 18 };
+        _hasAnchorPoint = true;
+        PositionPreviewWindow();
+        args.Handled = true;
+    }
+
+    private void OnHeaderPointerReleased(object sender, PointerRoutedEventArgs args)
+    {
+        if (sender is UIElement element)
+        {
+            EndHeaderDrag(element, args);
+        }
+    }
+
+    private void EndHeaderDrag(UIElement element, PointerRoutedEventArgs args)
+    {
+        if (!_dragging)
+        {
+            return;
+        }
+
+        _dragging = false;
+        element.ReleasePointerCapture(args.Pointer);
         args.Handled = true;
     }
 
@@ -1057,13 +1106,6 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         int cx,
         int cy,
         uint uFlags);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool ReleaseCapture();
-
-    [DllImport("user32.dll", EntryPoint = "SendMessageW", SetLastError = true)]
-    private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
     [DllImport("gdi32.dll", SetLastError = true)]
     private static extern IntPtr CreateRoundRectRgn(int left, int top, int right, int bottom, int widthEllipse, int heightEllipse);
