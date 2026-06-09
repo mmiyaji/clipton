@@ -46,6 +46,8 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private int _selectedIndex;
     private AppWindow? _appWindow;
     private IntPtr _hwnd;
+    private NativeMethods.Point _anchorPoint;
+    private bool _hasAnchorPoint;
     private bool _dismissed;
     private bool _previewVisible;
     private long _previewRequestId;
@@ -88,7 +90,8 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     public void FocusMenu()
     {
         Activate();
-        PositionNearCursor();
+        PositionNearCursor(resetAnchor: true);
+        BringToFront();
         _root.Focus(FocusState.Programmatic);
     }
 
@@ -96,8 +99,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     {
         _items = items;
         _selectedIndex = 0;
+        _hasAnchorPoint = false;
         RebuildItems();
-        PositionNearCursor();
+        PositionNearCursor(resetAnchor: true);
         FocusMenu();
     }
 
@@ -133,6 +137,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _hwnd = WindowNative.GetWindowHandle(this);
         var windowId = Win32Interop.GetWindowIdFromWindow(_hwnd);
         _appWindow = AppWindow.GetFromWindowId(windowId);
+        ConfigureWindowStyle();
         if (_appWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.IsResizable = false;
@@ -535,10 +540,10 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private void ResizeForPreview(bool showPreview)
     {
         _previewVisible = showPreview;
-        PositionNearCursor();
+        PositionNearCursor(resetAnchor: false);
     }
 
-    private void PositionNearCursor()
+    private void PositionNearCursor(bool resetAnchor)
     {
         if (_appWindow is null)
         {
@@ -547,9 +552,16 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
         var showPreview = _previewVisible && _previewCard.Visibility == Visibility.Visible;
         var width = showPreview ? MenuWidth + WindowGap + PreviewWidth : MenuWidth;
-        var cursor = NativeMethods.GetCursorPos(out var point) ? point : new NativeMethods.Point { X = 200, Y = 200 };
-        var workArea = GetWorkArea(cursor);
-        var menuX = Math.Clamp(cursor.X - 18, workArea.Left + ScreenEdgePadding, workArea.Right - MenuWidth - ScreenEdgePadding);
+        if (resetAnchor || !_hasAnchorPoint)
+        {
+            _anchorPoint = NativeMethods.GetCursorPos(out var point)
+                ? point
+                : new NativeMethods.Point { X = 200, Y = 200 };
+            _hasAnchorPoint = true;
+        }
+
+        var workArea = GetWorkArea(_anchorPoint);
+        var menuX = Math.Clamp(_anchorPoint.X - 18, workArea.Left + ScreenEdgePadding, workArea.Right - MenuWidth - ScreenEdgePadding);
         var x = menuX;
         var previewOnLeft = false;
         if (showPreview)
@@ -564,10 +576,37 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
                 : Math.Clamp(menuX, leftEdgePadding, rightEdgePadding - width);
         }
 
-        var y = Math.Clamp(cursor.Y - 18, workArea.Top + ScreenEdgePadding, workArea.Bottom - WindowHeight - ScreenEdgePadding);
+        var y = Math.Clamp(_anchorPoint.Y - 18, workArea.Top + ScreenEdgePadding, workArea.Bottom - WindowHeight - ScreenEdgePadding);
         ApplyColumnLayout(showPreview, previewOnLeft);
         _appWindow.Resize(new SizeInt32(width, WindowHeight));
         _appWindow.Move(new PointInt32(x, y));
+        BringToFront();
+    }
+
+    private void ConfigureWindowStyle()
+    {
+        if (_hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var exStyle = NativeMethods.GetWindowLongPtr(_hwnd, NativeMethods.GwlExstyle).ToInt64();
+        exStyle |= NativeMethods.WsExToolwindow;
+        exStyle &= ~NativeMethods.WsExAppwindow;
+        NativeMethods.SetWindowLongPtr(_hwnd, NativeMethods.GwlExstyle, new IntPtr(exStyle));
+    }
+
+    private void BringToFront()
+    {
+        if (_hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        NativeMethods.BringWindowToTop(_hwnd);
+        NativeMethods.SetForegroundWindow(_hwnd);
+        NativeMethods.SetActiveWindow(_hwnd);
+        NativeMethods.SetFocus(_hwnd);
     }
 
     private void ApplyColumnLayout(bool showPreview, bool previewOnLeft)
