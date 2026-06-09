@@ -20,6 +20,14 @@ namespace Clipton.WinUI;
 
 internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 {
+    private enum HeaderFilter
+    {
+        All,
+        Pinned,
+        Text,
+        Image
+    }
+
     private const int ScreenEdgePadding = 8;
     private const int MenuWidth = 392;
     private const int PreviewWidth = 320;
@@ -39,6 +47,8 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpFrameChanged = 0x0020;
+    private const int WmNclbuttondown = 0x00A1;
+    private const int HtCaption = 2;
     private const string PasteOptionsButtonTag = "RichPasteOptionsButton";
     private readonly string _title;
     private readonly string _theme;
@@ -51,6 +61,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private readonly Grid _root = new();
     private readonly Border _menuCard = new();
     private readonly StackPanel _itemHost = new() { Spacing = 6 };
+    private readonly Dictionary<HeaderFilter, Button> _filterButtons = [];
     private readonly Border _previewCard = new();
     private readonly Image _previewImage = new() { Stretch = Stretch.UniformToFill };
     private readonly TextBlock _previewMetaText = Text(12, 0.76);
@@ -61,17 +72,15 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private readonly List<QuickMenuItem> _visibleItems = [];
     private readonly List<Border> _itemCards = [];
     private int _selectedIndex;
+    private HeaderFilter _activeFilter = HeaderFilter.All;
     private AppWindow? _appWindow;
     private IntPtr _hwnd;
     private Window? _previewWindow;
     private AppWindow? _previewAppWindow;
     private IntPtr _previewHwnd;
     private NativeMethods.Point _anchorPoint;
-    private NativeMethods.Point _dragStartCursor;
-    private PointInt32 _dragStartWindowPosition;
     private bool _hasAnchorPoint;
     private bool _dismissed;
-    private bool _dragging;
     private bool _previewVisible;
     private long _previewRequestId;
 
@@ -250,11 +259,13 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        var toolbar = new Grid { Height = 42, Margin = new Thickness(0, 0, 0, 8) };
+        var toolbar = new Grid
+        {
+            Height = 42,
+            Margin = new Thickness(0, 0, 0, 8),
+            Background = new SolidColorBrush(Colors.Transparent)
+        };
         toolbar.PointerPressed += OnHeaderPointerPressed;
-        toolbar.PointerMoved += OnHeaderPointerMoved;
-        toolbar.PointerReleased += OnHeaderPointerReleased;
-        toolbar.PointerCanceled += OnHeaderPointerReleased;
         toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -262,10 +273,10 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        AddToolbarButton(toolbar, 0, "\uE8C8", _title, selected: true, null);
-        AddToolbarButton(toolbar, 1, "\uE718", "Pinned", selected: false, null);
-        AddToolbarButton(toolbar, 2, "\uE8D2", "Text", selected: false, null);
-        AddToolbarButton(toolbar, 3, "\uEB9F", _previewImageText, selected: false, null);
+        AddToolbarButton(toolbar, 0, "\uE8C8", _title, HeaderFilter.All);
+        AddToolbarButton(toolbar, 1, "\uE718", "Pinned", HeaderFilter.Pinned);
+        AddToolbarButton(toolbar, 2, "\uE8D2", "Text", HeaderFilter.Text);
+        AddToolbarButton(toolbar, 3, "\uEB9F", _previewImageText, HeaderFilter.Image);
         AddToolbarButton(toolbar, 5, "\uE711", "Close", selected: false, Dismiss);
         panel.Children.Add(toolbar);
 
@@ -301,64 +312,21 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
     private void OnHeaderPointerPressed(object sender, PointerRoutedEventArgs args)
     {
-        if (_appWindow is null || sender is not UIElement element || IsFromButton(args.OriginalSource))
+        if (_appWindow is null || IsFromButton(args.OriginalSource))
         {
             return;
         }
 
-        var point = args.GetCurrentPoint(element);
-        if (!point.Properties.IsLeftButtonPressed || !NativeMethods.GetCursorPos(out var cursor))
+        var point = args.GetCurrentPoint((UIElement)sender);
+        if (!point.Properties.IsLeftButtonPressed)
         {
             return;
         }
 
-        _dragging = true;
-        _dragStartCursor = cursor;
-        _dragStartWindowPosition = _appWindow.Position;
-        element.CapturePointer(args.Pointer);
-        args.Handled = true;
-    }
-
-    private void OnHeaderPointerMoved(object sender, PointerRoutedEventArgs args)
-    {
-        if (!_dragging || _appWindow is null || sender is not UIElement element)
-        {
-            return;
-        }
-
-        var point = args.GetCurrentPoint(element);
-        if (!point.Properties.IsLeftButtonPressed || !NativeMethods.GetCursorPos(out var cursor))
-        {
-            EndHeaderDrag(element, args);
-            return;
-        }
-
-        var x = _dragStartWindowPosition.X + cursor.X - _dragStartCursor.X;
-        var y = _dragStartWindowPosition.Y + cursor.Y - _dragStartCursor.Y;
-        _appWindow.Move(new PointInt32(x, y));
-        _anchorPoint = new NativeMethods.Point { X = x + 18, Y = y + 18 };
-        _hasAnchorPoint = true;
-        PositionPreviewWindow();
-        args.Handled = true;
-    }
-
-    private void OnHeaderPointerReleased(object sender, PointerRoutedEventArgs args)
-    {
-        if (sender is UIElement element)
-        {
-            EndHeaderDrag(element, args);
-        }
-    }
-
-    private void EndHeaderDrag(UIElement element, PointerRoutedEventArgs args)
-    {
-        if (!_dragging)
-        {
-            return;
-        }
-
-        _dragging = false;
-        element.ReleasePointerCapture(args.Pointer);
+        _previewAppWindow?.Hide();
+        _previewVisible = false;
+        _ = ReleaseCapture();
+        _ = SendMessage(_hwnd, WmNclbuttondown, new IntPtr(HtCaption), IntPtr.Zero);
         args.Handled = true;
     }
 
@@ -417,7 +385,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _visibleItems.Clear();
         _itemCards.Clear();
 
-        foreach (var item in _items.Where(item => !item.IsSeparator).Take(12))
+        foreach (var item in _items.Where(item => !item.IsSeparator && MatchesFilter(item)).Take(12))
         {
             _visibleItems.Add(item);
             var card = BuildItemCard(item, _visibleItems.Count - 1);
@@ -427,11 +395,41 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
         if (_visibleItems.Count == 0)
         {
+            _selectedIndex = 0;
+            _ = UpdatePreviewAsync(null);
+            UpdateToolbarSelection();
             return;
         }
 
         _selectedIndex = Math.Clamp(_selectedIndex, 0, _visibleItems.Count - 1);
+        UpdateToolbarSelection();
         UpdateSelection();
+    }
+
+    private bool MatchesFilter(QuickMenuItem item)
+    {
+        return _activeFilter switch
+        {
+            HeaderFilter.Pinned => item.IsPinned,
+            HeaderFilter.Text => item.KindLabel.Equals("Text", StringComparison.OrdinalIgnoreCase)
+                || item.KindLabel.Equals("Code", StringComparison.OrdinalIgnoreCase)
+                || item.KindLabel.Equals("Link", StringComparison.OrdinalIgnoreCase),
+            HeaderFilter.Image => IsImageItem(item),
+            _ => true
+        };
+    }
+
+    private void SetFilter(HeaderFilter filter)
+    {
+        if (_activeFilter == filter)
+        {
+            return;
+        }
+
+        _activeFilter = filter;
+        _selectedIndex = 0;
+        RebuildItems();
+        _root.Focus(FocusState.Programmatic);
     }
 
     private Border BuildItemCard(QuickMenuItem item, int index)
@@ -957,6 +955,31 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         toolbar.Children.Add(button);
     }
 
+    private void AddToolbarButton(Grid toolbar, int column, string glyph, string tooltip, HeaderFilter filter)
+    {
+        var button = IconButton(glyph, tooltip);
+        button.Margin = new Thickness(2, 0, 8, 0);
+        button.Click += (_, _) => SetFilter(filter);
+        _filterButtons[filter] = button;
+        Grid.SetColumn(button, column);
+        toolbar.Children.Add(button);
+        UpdateToolbarButton(button, filter == _activeFilter);
+    }
+
+    private void UpdateToolbarSelection()
+    {
+        foreach (var (filter, button) in _filterButtons)
+        {
+            UpdateToolbarButton(button, filter == _activeFilter);
+        }
+    }
+
+    private static void UpdateToolbarButton(Button button, bool selected)
+    {
+        button.Background = selected ? Brush(36, 79, 102) : Brush(37, 37, 37);
+        button.BorderBrush = selected ? Brush(23, 150, 214) : Brush(37, 37, 37);
+    }
+
     private void AddPreviewAction(Grid actions, int column, string glyph, string tooltip, Action action)
     {
         var button = IconButton(glyph, tooltip);
@@ -1035,6 +1058,13 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         int cy,
         uint uFlags);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll", EntryPoint = "SendMessageW", SetLastError = true)]
+    private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
     [DllImport("gdi32.dll", SetLastError = true)]
     private static extern IntPtr CreateRoundRectRgn(int left, int top, int right, int bottom, int widthEllipse, int heightEllipse);
 
@@ -1105,6 +1135,12 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
                 : item.KindLabel.Equals("Code", StringComparison.OrdinalIgnoreCase)
                     ? "\uE943"
                     : "\uE8A5";
+    }
+
+    private static bool IsImageItem(QuickMenuItem item)
+    {
+        return item.KindLabel.Equals("Image", StringComparison.OrdinalIgnoreCase)
+            || item.IconImageBytes is { Length: > 0 };
     }
 
     private static bool MatchesShortcut(string shortcut, VirtualKey key, bool ctrl)
