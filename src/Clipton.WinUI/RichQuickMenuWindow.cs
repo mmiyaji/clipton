@@ -84,6 +84,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private bool _dragging;
     private bool _previewVisible;
     private long _previewRequestId;
+    private long _focusRequestId;
 
     public RichQuickMenuWindow(
         string title,
@@ -122,10 +123,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
     public void FocusMenu()
     {
-        Activate();
         PositionNearCursor(resetAnchor: true);
-        BringToFront();
-        _root.Focus(FocusState.Programmatic);
+        FocusMenuNow();
+        QueueFocusRetry();
     }
 
     public void Reopen(IReadOnlyList<QuickMenuItem> items)
@@ -159,7 +159,13 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     {
         ExtendsContentIntoTitleBar = true;
         Content = _root;
+        _root.IsTabStop = true;
         _root.KeyDown += OnKeyDown;
+        _root.Loaded += (_, _) =>
+        {
+            FocusMenuNow();
+            QueueFocusRetry();
+        };
         var escapeAccelerator = new KeyboardAccelerator { Key = VirtualKey.Escape };
         escapeAccelerator.Invoked += (_, args) =>
         {
@@ -225,6 +231,8 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _previewCard.Padding = new Thickness(10);
         _previewCard.Visibility = Visibility.Collapsed;
         _previewCard.VerticalAlignment = VerticalAlignment.Center;
+        _previewCard.IsTabStop = true;
+        _previewCard.KeyDown += OnKeyDown;
         _previewCard.Child = BuildPreviewPanel();
         _previewWindow.Content = _previewCard;
 
@@ -880,8 +888,32 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _previewAppWindow.Show();
         DisableDwmBorder(_previewHwnd);
         BringPreviewToFront();
+        FocusMenuNow();
+        QueueFocusRetry();
+    }
+
+    private void FocusMenuNow()
+    {
+        Activate();
         BringToFront();
         _root.Focus(FocusState.Programmatic);
+    }
+
+    private void QueueFocusRetry()
+    {
+        var requestId = Interlocked.Increment(ref _focusRequestId);
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            _ = Task.Delay(60).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
+            {
+                if (_dismissed || requestId != _focusRequestId)
+                {
+                    return;
+                }
+
+                FocusMenuNow();
+            }));
+        });
     }
 
     private void ConfigureWindowStyle()
