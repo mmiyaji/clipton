@@ -24,8 +24,22 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private const int ScreenEdgePadding = 8;
     private const int EstimatedRootFlyoutHeight = 420;
     private const int NativeResourceCollectionMinIntervalMilliseconds = 5000;
+    private const int DwmwaNcRenderingPolicy = 2;
+    private const int DwmwaBorderColor = 34;
+    private const int DwmncrpDisabled = 1;
+    private const int DwmwaColorNone = unchecked((int)0xFFFFFFFE);
+    private const int GwlStyle = -16;
+    private const long WsCaption = 0x00C00000L;
+    private const long WsThickFrame = 0x00040000L;
+    private const long WsBorder = 0x00800000L;
+    private const long WsDlgFrame = 0x00400000L;
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoZOrder = 0x0004;
+    private const uint SwpNoActivate = 0x0010;
+    private const uint SwpFrameChanged = 0x0020;
     private const double ImagePreviewBaseImageWidth = 520;
-    private const double ImagePreviewBaseImageHeight = 380;
+    private const double ImagePreviewBaseImageHeight = 300;
     private const double ImagePreviewBaseWindowWidth = 560;
     private const double ImagePreviewBaseWindowHeight = 420;
     private const double ImagePreviewMinZoom = 0.5;
@@ -776,9 +790,15 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             return;
         }
 
+        var bitmap = await CreateBitmapImageAsync(imageBytes);
+        var previewBackground = new SolidColorBrush(Color.FromArgb(255, 28, 28, 28));
+        var panelBackground = new SolidColorBrush(Color.FromArgb(255, 33, 33, 33));
+        var imageBackground = new SolidColorBrush(Color.FromArgb(255, 16, 16, 16));
+        var foreground = new SolidColorBrush(Color.FromArgb(245, 255, 255, 255));
+        var secondaryForeground = new SolidColorBrush(Color.FromArgb(190, 255, 255, 255));
         var image = new Image
         {
-            Source = await CreateBitmapImageAsync(imageBytes, decodePixelWidth: 900),
+            Source = bitmap,
             Stretch = Stretch.Uniform,
             MaxWidth = ImagePreviewBaseImageWidth,
             MaxHeight = ImagePreviewBaseImageHeight
@@ -792,12 +812,67 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         {
             MaxWidth = ImagePreviewBaseWindowWidth,
             MaxHeight = ImagePreviewBaseWindowHeight,
-            Padding = new Thickness(0),
+            Padding = new Thickness(12),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(0),
-            Background = new SolidColorBrush(Colors.Transparent),
+            Background = panelBackground
+        };
+        var panel = new Grid();
+        panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var imageFrame = new Border
+        {
+            Background = imageBackground,
+            CornerRadius = new CornerRadius(6),
             Child = image
         };
+        panel.Children.Add(imageFrame);
+
+        var metaText = new TextBlock
+        {
+            Text = CreateImagePreviewMetaText(bitmap, item, imageBytes.Length),
+            Foreground = secondaryForeground,
+            FontSize = 13,
+            Margin = new Thickness(0, 10, 0, 10),
+            TextWrapping = TextWrapping.NoWrap
+        };
+        Grid.SetRow(metaText, 1);
+        panel.Children.Add(metaText);
+
+        var separator = new Border
+        {
+            Height = 1,
+            Background = new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)),
+            Margin = new Thickness(0, 0, 0, 10)
+        };
+        Grid.SetRow(separator, 2);
+        panel.Children.Add(separator);
+
+        var actions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+        actions.Children.Add(CreateImagePreviewActionButton("\uE8A7", "Open with default app", () => OpenImagePreviewInDefaultApp(imageBytes)));
+        actions.Children.Add(CreateImagePreviewActionButton("\uE77F", "Paste", () =>
+        {
+            if (_imagePreviewItem is { } previewItem)
+            {
+                Invoke(previewItem, asPlainText: false);
+            }
+        }));
+        actions.Children.Add(CreateImagePreviewActionButton("\uE8C8", "Copy", () => InvokeImagePreviewCopy(cut: false), item?.CopyInvoke is not null));
+        actions.Children.Add(CreateImagePreviewActionButton("\uE74D", "Copy and remove", () => InvokeImagePreviewCopy(cut: true), item?.CutInvoke is not null));
+        actions.Children.Add(CreateImagePreviewActionButton("-", "Zoom out", () => AdjustImagePreviewZoom(-ImagePreviewZoomStep, "ImagePreviewFeedbackZoomOut"), fontFamily: "Segoe UI", fontSize: 22));
+        actions.Children.Add(CreateImagePreviewActionButton("100%", "Reset zoom", () => SetImagePreviewZoom(1.0, "ImagePreviewFeedbackZoomReset"), fontFamily: "Segoe UI", fontSize: 12));
+        actions.Children.Add(CreateImagePreviewActionButton("+", "Zoom in", () => AdjustImagePreviewZoom(ImagePreviewZoomStep, "ImagePreviewFeedbackZoomIn"), fontFamily: "Segoe UI", fontSize: 22));
+        Grid.SetRow(actions, 3);
+        panel.Children.Add(actions);
+        frame.Child = panel;
         var feedbackText = new TextBlock
         {
             Visibility = Visibility.Collapsed,
@@ -818,7 +893,10 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             Margin = new Thickness(0, 0, 14, 14),
             IsHitTestVisible = false
         };
-        var previewRoot = new Grid();
+        var previewRoot = new Grid
+        {
+            Background = previewBackground
+        };
         previewRoot.Children.Add(frame);
         previewRoot.Children.Add(feedbackPill);
         AutomationProperties.SetName(frame, _previewImageText);
@@ -865,9 +943,9 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             frame.ReleasePointerCaptures();
             args.Handled = true;
         };
-        frame.Tapped += (_, _) =>
+        frame.Tapped += (_, args) =>
         {
-            if (!_imagePreviewDragged && item is not null)
+            if (!_imagePreviewDragged && item is not null && !IsFromButton(args.OriginalSource))
             {
                 Invoke(item, asPlainText: false);
             }
@@ -903,9 +981,91 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         _openingImagePreview = true;
         window.Activate();
         _imagePreviewHwnd = WindowNative.GetWindowHandle(window);
+        ConfigureBorderlessToolWindow(_imagePreviewHwnd);
         _imagePreviewAppWindow = PositionImagePreviewWindow(window);
         ApplyImagePreviewZoom();
         EnqueueAfterDelay(250, () => _openingImagePreview = false);
+    }
+
+    private void OpenImagePreviewInDefaultApp(byte[] imageBytes)
+    {
+        try
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "Clipton", "ImagePreview");
+            Directory.CreateDirectory(directory);
+            var path = Path.Combine(directory, $"preview-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}.png");
+            File.WriteAllBytes(path, imageBytes);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path)
+            {
+                UseShellExecute = true
+            });
+        }
+        catch
+        {
+        }
+    }
+
+    private static Button CreateImagePreviewActionButton(
+        string glyph,
+        string tooltip,
+        Action action,
+        bool isEnabled = true,
+        string fontFamily = "Segoe Fluent Icons",
+        double fontSize = 17)
+    {
+        var button = new Button
+        {
+            Width = 42,
+            Height = 38,
+            Padding = new Thickness(0),
+            IsEnabled = isEnabled,
+            Background = new SolidColorBrush(Color.FromArgb(255, 43, 43, 43)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(255, 68, 68, 68)),
+            Foreground = new SolidColorBrush(Color.FromArgb(245, 255, 255, 255)),
+            Content = new FontIcon
+            {
+                Glyph = glyph,
+                FontFamily = new FontFamily(fontFamily),
+                FontSize = fontSize
+            }
+        };
+        button.Click += (_, _) => action();
+        ToolTipService.SetToolTip(button, tooltip);
+        AutomationProperties.SetName(button, tooltip);
+        return button;
+    }
+
+    private static string CreateImagePreviewMetaText(BitmapImage bitmap, QuickMenuItem? item, int byteLength)
+    {
+        var dimensions = bitmap.PixelWidth > 0 && bitmap.PixelHeight > 0
+            ? $"{bitmap.PixelWidth} x {bitmap.PixelHeight}"
+            : item?.Subtitle;
+        return string.IsNullOrWhiteSpace(dimensions)
+            ? FormatByteSize(byteLength)
+            : $"{dimensions}    {FormatByteSize(byteLength)}";
+    }
+
+    private static string FormatByteSize(int byteLength)
+    {
+        return byteLength >= 1024 * 1024
+            ? $"{byteLength / 1024d / 1024d:0.0} MB"
+            : $"{Math.Max(1, byteLength / 1024)} KB";
+    }
+
+    private static bool IsFromButton(object? source)
+    {
+        var current = source as DependencyObject;
+        while (current is not null)
+        {
+            if (current is Button)
+            {
+                return true;
+            }
+
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return false;
     }
 
     private void InvokeImagePreviewCopy(bool cut)
@@ -988,6 +1148,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         var width = Math.Min(requestedWidth, maxWidth);
         var height = Math.Min(requestedHeight, maxHeight);
         _imagePreviewAppWindow.Resize(new SizeInt32(width, height));
+        ConfigureBorderlessToolWindow(_imagePreviewHwnd);
         MovePreviewWindowInsideWorkingArea(width, height);
     }
 
@@ -1071,6 +1232,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             presenter.IsMinimizable = false;
         }
 
+        ConfigureBorderlessToolWindow(hwnd);
         return appWindow;
     }
 
@@ -2192,6 +2354,51 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         NativeMethods.SetWindowLongPtr(_hwnd, NativeMethods.GwlExstyle, new IntPtr(exStyle));
         NativeMethods.SetLayeredWindowAttributes(_hwnd, 0, 1, NativeMethods.LwaAlpha);
     }
+
+    private static void ConfigureBorderlessToolWindow(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var exStyle = NativeMethods.GetWindowLongPtr(hwnd, NativeMethods.GwlExstyle).ToInt64();
+        exStyle |= NativeMethods.WsExLayered | NativeMethods.WsExToolwindow;
+        exStyle &= ~NativeMethods.WsExAppwindow;
+        NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GwlExstyle, new IntPtr(exStyle));
+        NativeMethods.SetLayeredWindowAttributes(hwnd, 0, 255, NativeMethods.LwaAlpha);
+
+        var style = NativeMethods.GetWindowLongPtr(hwnd, GwlStyle).ToInt64();
+        style &= ~(WsCaption | WsThickFrame | WsBorder | WsDlgFrame);
+        NativeMethods.SetWindowLongPtr(hwnd, GwlStyle, new IntPtr(style));
+        _ = SetWindowPos(
+            hwnd,
+            IntPtr.Zero,
+            0,
+            0,
+            0,
+            0,
+            SwpNoMove | SwpNoSize | SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
+
+        var borderColor = DwmwaColorNone;
+        _ = DwmSetWindowAttribute(hwnd, DwmwaBorderColor, ref borderColor, sizeof(int));
+
+        var ncRenderingPolicy = DwmncrpDisabled;
+        _ = DwmSetWindowAttribute(hwnd, DwmwaNcRenderingPolicy, ref ncRenderingPolicy, sizeof(int));
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(
+        IntPtr hwnd,
+        IntPtr hwndInsertAfter,
+        int x,
+        int y,
+        int cx,
+        int cy,
+        uint flags);
+
+    [DllImport("dwmapi.dll", SetLastError = true)]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int attributeValue, int attributeSize);
 }
 
 public sealed record QuickMenuItem(

@@ -904,12 +904,16 @@ public sealed class CliptonRuntime : IDisposable
 
     private void ShowQuickMenu()
     {
+        var quickMenuStartTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+        AppProfiler.Mark("Quick menu requested.");
+
         if (_pasteTargetWindow == IntPtr.Zero)
         {
             _pasteTargetWindow = NativeMethods.GetForegroundWindow();
         }
 
         CaptureClipboard();
+        AppProfiler.Mark("Quick menu clipboard captured.");
 
         var menuItems = new List<QuickMenuItem>();
         var pinnedIds = Settings.PinnedHistoryIds.ToHashSet(StringComparer.Ordinal);
@@ -926,7 +930,9 @@ public sealed class CliptonRuntime : IDisposable
             menuItems.Add(CreateHistoryMenuItem(item, includeImageThumbnails));
         }
 
+        AppProfiler.Mark($"Quick menu direct history items created. items={menuItems.Count}; historyCount={historyCount}; loaded={History.Items.Count}; persisted={_persistedHistoryCount}");
         AddHistoryRangeFolders(menuItems, historyCount, topLevelHistoryItems, pinnedIds, includeImageThumbnails);
+        AppProfiler.Mark($"Quick menu history folders created. items={menuItems.Count}");
 
         if (pinnedItems.Length > 0)
         {
@@ -942,6 +948,7 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         var snippetItems = CreateSnippetMenuItems(Snippets.Snippets);
+        AppProfiler.Mark($"Quick menu snippet items created. snippetItems={snippetItems.Count}");
         if (menuItems.Count > 0 && snippetItems.Count > 0)
         {
             menuItems.Add(QuickMenuItem.Separator());
@@ -1031,6 +1038,7 @@ public sealed class CliptonRuntime : IDisposable
             }
         };
         quickMenuWindow.FocusMenu();
+        AppProfiler.Mark($"Quick menu focused. mode={quickMenuDisplayMode}; total={(System.Diagnostics.Stopwatch.GetElapsedTime(quickMenuStartTimestamp).TotalMilliseconds):F1}ms; items={menuItems.Count}");
     }
 
     private void SaveSettings()
