@@ -122,6 +122,13 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         ExtendsContentIntoTitleBar = true;
         Content = _root;
         _root.KeyDown += OnKeyDown;
+        var escapeAccelerator = new KeyboardAccelerator { Key = VirtualKey.Escape };
+        escapeAccelerator.Invoked += (_, args) =>
+        {
+            args.Handled = true;
+            Dismiss();
+        };
+        _root.KeyboardAccelerators.Add(escapeAccelerator);
         _root.Background = Brush(14, 14, 14);
         _hwnd = WindowNative.GetWindowHandle(this);
         var windowId = Win32Interop.GetWindowIdFromWindow(_hwnd);
