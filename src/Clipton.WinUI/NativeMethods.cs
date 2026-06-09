@@ -19,10 +19,17 @@ internal static class NativeMethods
     internal const byte VkMenu = 0x12;
     internal const byte VkLWin = 0x5B;
     internal const byte VkRWin = 0x5C;
+    internal const byte VkC = 0x43;
     internal const byte VkD = 0x44;
     internal const byte VkM = 0x4D;
     internal const byte VkS = 0x53;
     internal const byte VkV = 0x56;
+    internal const byte VkX = 0x58;
+    internal const byte Vk0 = 0x30;
+    internal const byte VkOemPlus = 0xBB;
+    internal const byte VkOemMinus = 0xBD;
+    internal const byte VkAdd = 0x6B;
+    internal const byte VkSubtract = 0x6D;
     internal const int VkReturn = 0x0D;
     internal const int VkSpace = 0x20;
     internal const int VkEscape = 0x1B;

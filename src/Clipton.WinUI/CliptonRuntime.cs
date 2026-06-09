@@ -973,7 +973,16 @@ public sealed class CliptonRuntime : IDisposable
             Translate("Search"),
             Translate("AdvancedSearch"),
             Translate("Cancel"),
-            Translate("NoSearchResults"));
+            Translate("NoSearchResults"),
+            Translate("PreviewImage"),
+            new Dictionary<string, string>
+            {
+                ["ImagePreviewFeedbackCopy"] = Translate("ImagePreviewFeedbackCopy"),
+                ["ImagePreviewFeedbackCut"] = Translate("ImagePreviewFeedbackCut"),
+                ["ImagePreviewFeedbackZoomIn"] = Translate("ImagePreviewFeedbackZoomIn"),
+                ["ImagePreviewFeedbackZoomOut"] = Translate("ImagePreviewFeedbackZoomOut"),
+                ["ImagePreviewFeedbackZoomReset"] = Translate("ImagePreviewFeedbackZoomReset")
+            });
         _quickMenuWindow = quickMenuWindow;
         quickMenuWindow.FocusMenu();
     }
@@ -1641,10 +1650,18 @@ public sealed class CliptonRuntime : IDisposable
             IconFontFamily: GetHistoryIconFontFamily(item),
             IconImageBytes: includeImageThumbnail ? GetHistoryThumbnailBytes(item) : null,
             PreviewImageBytesProvider: item.ImagePng is { Length: > 0 } ? () => GetHistoryImagePreviewBytes(item) : null,
+            CopyInvoke: item.ImagePng is { Length: > 0 } ? () => PasteImage(item.Id, ImagePasteMode.Png, sendPaste: false) : null,
+            CutInvoke: item.ImagePng is { Length: > 0 } ? () => CutImageHistoryItem(item.Id) : null,
             RevealedTitle: revealedHeader,
             CapturedAt: item.CapturedAt,
             IsPinned: IsHistoryPinned(item.Id),
             Formats: item.Formats);
+    }
+
+    private void CutImageHistoryItem(string id)
+    {
+        PasteImage(id, ImagePasteMode.Png, sendPaste: false);
+        RemoveHistoryItem(id);
     }
 
     private string BuildHistoryCommandHint(string? plainText)

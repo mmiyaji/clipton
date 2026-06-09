@@ -630,6 +630,10 @@ public sealed class MainWindow : Window
         rows.Children.Add(RowSeparator());
         rows.Children.Add(ShortcutReadOnlyRow("QuickMenuShortcutImagePreview", "QuickMenuShortcutImagePreviewDescription", "Space"));
         rows.Children.Add(RowSeparator());
+        rows.Children.Add(ShortcutReadOnlyRow("QuickMenuShortcutImagePreviewCopy", "QuickMenuShortcutImagePreviewCopyDescription", "Ctrl+C / Ctrl+X"));
+        rows.Children.Add(RowSeparator());
+        rows.Children.Add(ShortcutReadOnlyRow("QuickMenuShortcutImagePreviewZoom", "QuickMenuShortcutImagePreviewZoomDescription", "Ctrl++ / Ctrl+- / Ctrl+0"));
+        rows.Children.Add(RowSeparator());
         rows.Children.Add(ShortcutReadOnlyRow("QuickMenuShortcutNavigate", "QuickMenuShortcutNavigateDescription", "\u2191 / \u2193 / \u2190 / \u2192"));
         rows.Children.Add(RowSeparator());
         rows.Children.Add(ShortcutReadOnlyRow("QuickMenuShortcutConfirm", "QuickMenuShortcutConfirmDescription", "Enter"));
@@ -667,7 +671,10 @@ public sealed class MainWindow : Window
         {
             Text = shortcut,
             VerticalAlignment = VerticalAlignment.Center,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextAlignment = TextAlignment.Right,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 230
         };
         Grid.SetColumn(keyText, 1);
         row.Children.Add(keyText);

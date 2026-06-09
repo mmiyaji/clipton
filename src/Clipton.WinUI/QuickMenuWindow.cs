@@ -3,6 +3,7 @@ using Clipton.Core;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
@@ -23,6 +24,13 @@ public sealed class QuickMenuWindow : Window
     private const int ScreenEdgePadding = 8;
     private const int EstimatedRootFlyoutHeight = 420;
     private const int NativeResourceCollectionMinIntervalMilliseconds = 5000;
+    private const double ImagePreviewBaseImageWidth = 520;
+    private const double ImagePreviewBaseImageHeight = 380;
+    private const double ImagePreviewBaseWindowWidth = 560;
+    private const double ImagePreviewBaseWindowHeight = 420;
+    private const double ImagePreviewMinZoom = 0.5;
+    private const double ImagePreviewMaxZoom = 3.0;
+    private const double ImagePreviewZoomStep = 0.15;
     private static readonly NativeMethods.LowLevelKeyboardProc s_keyboardProc = OnStaticKeyboardHook;
     private static readonly NativeMethods.LowLevelMouseProc s_mouseProc = OnStaticMouseHook;
     private static QuickMenuWindow? s_activeWindow;
@@ -41,6 +49,8 @@ public sealed class QuickMenuWindow : Window
     private readonly string _advancedSearchButtonText;
     private readonly string _cancelButtonText;
     private readonly string _noSearchResultsText;
+    private readonly string _previewImageText;
+    private readonly IReadOnlyDictionary<string, string> _previewStrings;
     private readonly string _imagePreviewSize;
     private readonly Action _openDetailedSearch;
     private readonly QuickMenuShortcutSettings _shortcuts;
@@ -74,6 +84,14 @@ public sealed class QuickMenuWindow : Window
     private System.Drawing.Point _imagePreviewDragCursorOrigin;
     private PointInt32 _imagePreviewDragWindowOrigin;
     private bool _openingImagePreview;
+    private QuickMenuItem? _imagePreviewItem;
+    private Image? _imagePreviewImage;
+    private Border? _imagePreviewFrame;
+    private Border? _imagePreviewFeedbackPill;
+    private TextBlock? _imagePreviewFeedbackText;
+    private double _imagePreviewZoom = 1.0;
+    private long _imagePreviewRequestId;
+    private long _imagePreviewFeedbackRequestId;
 
     public QuickMenuWindow(
         string title,
@@ -89,7 +107,9 @@ public sealed class QuickMenuWindow : Window
         string searchButtonText,
         string advancedSearchButtonText,
         string cancelButtonText,
-        string noSearchResultsText)
+        string noSearchResultsText,
+        string previewImageText,
+        IReadOnlyDictionary<string, string> previewStrings)
     {
         _title = title;
         _navigator = new QuickMenuNavigator(title, items);
@@ -107,6 +127,8 @@ public sealed class QuickMenuWindow : Window
         _advancedSearchButtonText = advancedSearchButtonText;
         _cancelButtonText = cancelButtonText;
         _noSearchResultsText = noSearchResultsText;
+        _previewImageText = previewImageText;
+        _previewStrings = previewStrings;
         Title = "Clipton";
         BuildHost();
         BuildFlyout();
@@ -283,6 +305,12 @@ public sealed class QuickMenuWindow : Window
         {
             s_activeWindow = null;
         }
+
+        if (s_keyboardHook != IntPtr.Zero)
+        {
+            NativeMethods.UnhookWindowsHookEx(s_keyboardHook);
+            s_keyboardHook = IntPtr.Zero;
+        }
     }
 
     private void InstallMouseHook()
@@ -303,6 +331,12 @@ public sealed class QuickMenuWindow : Window
         if (ReferenceEquals(s_activeWindow, this))
         {
             s_activeWindow = null;
+        }
+
+        if (s_mouseHook != IntPtr.Zero)
+        {
+            NativeMethods.UnhookWindowsHookEx(s_mouseHook);
+            s_mouseHook = IntPtr.Zero;
         }
     }
 
@@ -361,6 +395,11 @@ public sealed class QuickMenuWindow : Window
         if (!IsInteractionForeground())
         {
             return NativeMethods.CallNextHookEx(s_keyboardHook, nCode, wParam, lParam);
+        }
+
+        if (_imagePreviewWindow is not null && HandleImagePreviewShortcut(key, modifiers))
+        {
+            return 1;
         }
 
         if (MatchesShortcut(key, modifiers, _shortcuts.Search))
@@ -464,6 +503,10 @@ public sealed class QuickMenuWindow : Window
                     {
                         InvokePasteOption(option);
                     }
+                    else if (GetFocusedImagePreviewCommand() is { } previewCommand)
+                    {
+                        ToggleImagePreview(previewCommand.Item);
+                    }
                     else if (GetFocusedMenuItem() is { } item)
                     {
                         Invoke(item, asPlainText: false);
@@ -563,6 +606,47 @@ public sealed class QuickMenuWindow : Window
                 || keyName.Equals("Esc", StringComparison.OrdinalIgnoreCase) && key == NativeMethods.VkEscape;
     }
 
+    private bool HandleImagePreviewShortcut(int key, KeyModifierState modifiers)
+    {
+        if (!modifiers.Control || modifiers.Alt || modifiers.Win)
+        {
+            return false;
+        }
+
+        switch (key)
+        {
+            case NativeMethods.VkC:
+                if (_imagePreviewItem?.CopyInvoke is null)
+                {
+                    return false;
+                }
+
+                DispatcherQueue.TryEnqueue(() => InvokeImagePreviewCopy(cut: false));
+                return true;
+            case NativeMethods.VkX:
+                if (_imagePreviewItem?.CutInvoke is null)
+                {
+                    return false;
+                }
+
+                DispatcherQueue.TryEnqueue(() => InvokeImagePreviewCopy(cut: true));
+                return true;
+            case NativeMethods.VkOemPlus:
+            case NativeMethods.VkAdd:
+                DispatcherQueue.TryEnqueue(() => AdjustImagePreviewZoom(ImagePreviewZoomStep, "ImagePreviewFeedbackZoomIn"));
+                return true;
+            case NativeMethods.VkOemMinus:
+            case NativeMethods.VkSubtract:
+                DispatcherQueue.TryEnqueue(() => AdjustImagePreviewZoom(-ImagePreviewZoomStep, "ImagePreviewFeedbackZoomOut"));
+                return true;
+            case NativeMethods.Vk0:
+                DispatcherQueue.TryEnqueue(() => SetImagePreviewZoom(1.0, "ImagePreviewFeedbackZoomReset"));
+                return true;
+            default:
+                return false;
+        }
+    }
+
     private bool ShouldHandleNavigationKey(int key)
     {
         var now = Environment.TickCount64;
@@ -648,6 +732,13 @@ public sealed class QuickMenuWindow : Window
     {
         if (_imagePreviewWindow is not null)
         {
+            if (!ReferenceEquals(_imagePreviewItem, item))
+            {
+                HideImagePreview();
+                ShowImagePreview(item);
+                return;
+            }
+
             HideImagePreview();
             return;
         }
@@ -663,6 +754,7 @@ public sealed class QuickMenuWindow : Window
     private async void ShowImagePreview(QuickMenuItem? item)
     {
         HideImagePreview();
+        var requestId = ++_imagePreviewRequestId;
         var imageBytes = item?.PreviewImageBytesProvider?.Invoke() ?? item?.IconImageBytes;
         if (imageBytes is not { Length: > 0 } || _host.XamlRoot is null)
         {
@@ -674,14 +766,18 @@ public sealed class QuickMenuWindow : Window
         {
             Source = await CreateBitmapImageAsync(imageBytes, decodePixelWidth: 900),
             Stretch = Stretch.Uniform,
-            MaxWidth = 520,
-            MaxHeight = 380
+            MaxWidth = ImagePreviewBaseImageWidth,
+            MaxHeight = ImagePreviewBaseImageHeight
         };
+        if (_dismissed || requestId != _imagePreviewRequestId || _host.XamlRoot is null)
+        {
+            return;
+        }
 
         var frame = new Border
         {
-            MaxWidth = 560,
-            MaxHeight = 420,
+            MaxWidth = ImagePreviewBaseWindowWidth,
+            MaxHeight = ImagePreviewBaseWindowHeight,
             Padding = new Thickness(10),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
@@ -689,6 +785,32 @@ public sealed class QuickMenuWindow : Window
             Background = new SolidColorBrush(dark ? Color.FromArgb(245, 24, 24, 24) : Color.FromArgb(245, 250, 250, 250)),
             Child = image
         };
+        var feedbackText = new TextBlock
+        {
+            Visibility = Visibility.Collapsed,
+            FontSize = 13,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(Colors.White),
+            TextWrapping = TextWrapping.NoWrap
+        };
+        var feedbackPill = new Border
+        {
+            Visibility = Visibility.Collapsed,
+            Padding = new Thickness(10, 6, 10, 7),
+            CornerRadius = new CornerRadius(6),
+            Background = new SolidColorBrush(Color.FromArgb(220, 32, 32, 32)),
+            Child = feedbackText,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(0, 0, 14, 14),
+            IsHitTestVisible = false
+        };
+        var previewRoot = new Grid();
+        previewRoot.Children.Add(frame);
+        previewRoot.Children.Add(feedbackPill);
+        AutomationProperties.SetName(frame, _previewImageText);
+        AutomationProperties.SetHelpText(frame, "Esc / Ctrl+C / Ctrl+X / Ctrl++ / Ctrl+- / Ctrl+0");
+        AutomationProperties.SetName(image, _previewImageText);
         frame.PointerPressed += (_, args) =>
         {
             var point = args.GetCurrentPoint(frame);
@@ -740,11 +862,17 @@ public sealed class QuickMenuWindow : Window
 
         var window = new Window
         {
-            Title = "Clipton",
-            Content = frame,
+            Title = _previewImageText,
+            Content = previewRoot,
             SystemBackdrop = SystemBackdrop
         };
         _imagePreviewWindow = window;
+        _imagePreviewItem = item;
+        _imagePreviewImage = image;
+        _imagePreviewFrame = frame;
+        _imagePreviewFeedbackPill = feedbackPill;
+        _imagePreviewFeedbackText = feedbackText;
+        _imagePreviewZoom = 1.0;
         window.Closed += (_, _) =>
         {
             if (ReferenceEquals(_imagePreviewWindow, window))
@@ -752,22 +880,136 @@ public sealed class QuickMenuWindow : Window
                 _imagePreviewWindow = null;
                 _imagePreviewHwnd = IntPtr.Zero;
                 _imagePreviewAppWindow = null;
+                _imagePreviewItem = null;
+                _imagePreviewImage = null;
+                _imagePreviewFrame = null;
+                _imagePreviewFeedbackPill = null;
+                _imagePreviewFeedbackText = null;
             }
         };
         _openingImagePreview = true;
         window.Activate();
         _imagePreviewHwnd = WindowNative.GetWindowHandle(window);
         _imagePreviewAppWindow = PositionImagePreviewWindow(window);
+        ApplyImagePreviewZoom();
         EnqueueAfterDelay(250, () => _openingImagePreview = false);
+    }
+
+    private void InvokeImagePreviewCopy(bool cut)
+    {
+        var item = _imagePreviewItem;
+        var action = cut ? item?.CutInvoke : item?.CopyInvoke;
+        if (action is null)
+        {
+            return;
+        }
+
+        action();
+        ShowImagePreviewFeedback(cut ? "ImagePreviewFeedbackCut" : "ImagePreviewFeedbackCopy");
+        if (cut)
+        {
+            EnqueueAfterDelay(450, () =>
+            {
+                HideImagePreview();
+                Dismiss();
+            });
+        }
+    }
+
+    private void AdjustImagePreviewZoom(double delta, string feedbackKey)
+    {
+        SetImagePreviewZoom(_imagePreviewZoom + delta, feedbackKey);
+    }
+
+    private void SetImagePreviewZoom(double zoom, string? feedbackKey = null)
+    {
+        _imagePreviewZoom = Math.Clamp(zoom, ImagePreviewMinZoom, ImagePreviewMaxZoom);
+        ApplyImagePreviewZoom();
+        if (feedbackKey is not null)
+        {
+            ShowImagePreviewFeedback(feedbackKey);
+        }
+    }
+
+    private void ShowImagePreviewFeedback(string key)
+    {
+        if (_imagePreviewFeedbackPill is null || _imagePreviewFeedbackText is null)
+        {
+            return;
+        }
+
+        var requestId = ++_imagePreviewFeedbackRequestId;
+        _imagePreviewFeedbackText.Text = _previewStrings.TryGetValue(key, out var text) ? text : key;
+        _imagePreviewFeedbackText.Visibility = Visibility.Visible;
+        _imagePreviewFeedbackPill.Visibility = Visibility.Visible;
+        EnqueueAfterDelay(1200, () =>
+        {
+            if (requestId != _imagePreviewFeedbackRequestId || _imagePreviewFeedbackPill is null || _imagePreviewFeedbackText is null)
+            {
+                return;
+            }
+
+            _imagePreviewFeedbackText.Visibility = Visibility.Collapsed;
+            _imagePreviewFeedbackPill.Visibility = Visibility.Collapsed;
+        });
+    }
+
+    private void ApplyImagePreviewZoom()
+    {
+        if (_imagePreviewImage is null || _imagePreviewFrame is null || _imagePreviewAppWindow is null)
+        {
+            return;
+        }
+
+        _imagePreviewImage.MaxWidth = ImagePreviewBaseImageWidth * _imagePreviewZoom;
+        _imagePreviewImage.MaxHeight = ImagePreviewBaseImageHeight * _imagePreviewZoom;
+        _imagePreviewFrame.MaxWidth = ImagePreviewBaseWindowWidth * _imagePreviewZoom;
+        _imagePreviewFrame.MaxHeight = ImagePreviewBaseWindowHeight * _imagePreviewZoom;
+        var requestedWidth = (int)Math.Round(ImagePreviewBaseWindowWidth * _imagePreviewZoom);
+        var requestedHeight = (int)Math.Round(ImagePreviewBaseWindowHeight * _imagePreviewZoom);
+        var workingArea = GetWorkingArea(new System.Drawing.Point(
+            _imagePreviewAppWindow.Position.X,
+            _imagePreviewAppWindow.Position.Y));
+        var maxWidth = Math.Max(HostWindowSize, workingArea.Width - ScreenEdgePadding * 2);
+        var maxHeight = Math.Max(HostWindowSize, workingArea.Height - ScreenEdgePadding * 2);
+        var width = Math.Min(requestedWidth, maxWidth);
+        var height = Math.Min(requestedHeight, maxHeight);
+        _imagePreviewAppWindow.Resize(new SizeInt32(width, height));
+        MovePreviewWindowInsideWorkingArea(width, height);
+    }
+
+    private void MovePreviewWindowInsideWorkingArea(int width, int height)
+    {
+        if (_imagePreviewAppWindow is null)
+        {
+            return;
+        }
+
+        var workingArea = GetWorkingArea(new System.Drawing.Point(
+            _imagePreviewAppWindow.Position.X,
+            _imagePreviewAppWindow.Position.Y));
+        var minX = workingArea.Left + ScreenEdgePadding;
+        var minY = workingArea.Top + ScreenEdgePadding;
+        var maxX = Math.Max(minX, workingArea.Right - width - ScreenEdgePadding);
+        var maxY = Math.Max(minY, workingArea.Bottom - height - ScreenEdgePadding);
+        _imagePreviewAppWindow.Move(new PointInt32(
+            Math.Clamp(_imagePreviewAppWindow.Position.X, minX, maxX),
+            Math.Clamp(_imagePreviewAppWindow.Position.Y, minY, maxY)));
     }
 
     private void HideImagePreview()
     {
+        _imagePreviewRequestId++;
         if (_imagePreviewWindow is { } window)
         {
             _imagePreviewWindow = null;
             _imagePreviewHwnd = IntPtr.Zero;
             _imagePreviewAppWindow = null;
+            _imagePreviewItem = null;
+            _imagePreviewImage = null;
+            _imagePreviewFrame = null;
+            _imagePreviewFeedbackPill = null;
+            _imagePreviewFeedbackText = null;
             _draggingImagePreview = false;
             window.Close();
         }
@@ -887,7 +1129,9 @@ public sealed class QuickMenuWindow : Window
             _searchButtonText,
             _advancedSearchButtonText,
             _cancelButtonText,
-            _noSearchResultsText);
+            _noSearchResultsText,
+            _previewImageText,
+            _previewStrings);
         _replacementWindow.Dismissed += (_, _) => Dismiss();
         _replacementWindow.FocusMenu();
     }
@@ -1105,6 +1349,18 @@ public sealed class QuickMenuWindow : Window
                 focusableItems.Add(optionSubItem);
                 _parentItem[optionSubItem] = parent;
                 _childFocusableItems[optionSubItem] = [];
+                if (HasImagePreview(item))
+                {
+                    var previewItem = CreateImagePreviewMenuItem(item);
+                    optionSubItem.Items.Add(previewItem);
+                    _parentItem[previewItem] = optionSubItem;
+                    _childFocusableItems[optionSubItem].Add(previewItem);
+                    if (item.PasteOptions.Count > 0)
+                    {
+                        optionSubItem.Items.Add(new MenuFlyoutSeparator());
+                    }
+                }
+
                 foreach (var option in item.PasteOptions)
                 {
                     var optionItem = CreatePasteOptionMenuItem(option);
@@ -1260,7 +1516,7 @@ public sealed class QuickMenuWindow : Window
         }
 
         optionItems.Clear();
-        foreach (var optionItem in pasteOptionsFlyout.Items.OfType<MenuFlyoutItemBase>())
+        foreach (var optionItem in pasteOptionsFlyout.Items.OfType<MenuFlyoutItem>())
         {
             _parentItem[optionItem] = flyoutItem;
             optionItems.Add(optionItem);
@@ -1276,12 +1532,38 @@ public sealed class QuickMenuWindow : Window
             Placement = FlyoutPlacementMode.RightEdgeAlignedTop
         };
 
+        if (HasImagePreview(item))
+        {
+            flyout.Items.Add(CreateImagePreviewMenuItem(item));
+            if (item.PasteOptions is { Count: > 0 })
+            {
+                flyout.Items.Add(new MenuFlyoutSeparator());
+            }
+        }
+
         foreach (var option in item.PasteOptions ?? [])
         {
             flyout.Items.Add(CreatePasteOptionMenuItem(option));
         }
 
         return flyout;
+    }
+
+    private MenuFlyoutItem CreateImagePreviewMenuItem(QuickMenuItem item)
+    {
+        var previewItem = new MenuFlyoutItem
+        {
+            Text = _previewImageText,
+            Icon = new FontIcon
+            {
+                Glyph = "\uE890",
+                FontFamily = new FontFamily("Segoe Fluent Icons")
+            },
+            Tag = new QuickMenuImagePreviewCommand(item),
+            KeyboardAcceleratorTextOverride = "Space"
+        };
+        previewItem.Click += (_, _) => ToggleImagePreview(item);
+        return previewItem;
     }
 
     private MenuFlyoutItem CreatePasteOptionMenuItem(QuickMenuPasteOption option)
@@ -1392,6 +1674,22 @@ public sealed class QuickMenuWindow : Window
             && FocusManager.GetFocusedElement(_host.XamlRoot) is MenuFlyoutItem { Tag: QuickMenuPasteOption focusedOption })
         {
             return focusedOption;
+        }
+
+        return null;
+    }
+
+    private QuickMenuImagePreviewCommand? GetFocusedImagePreviewCommand()
+    {
+        if (GetTrackedFocusedMenuItemBase() is { Tag: QuickMenuImagePreviewCommand trackedCommand })
+        {
+            return trackedCommand;
+        }
+
+        if (_host.XamlRoot is not null
+            && FocusManager.GetFocusedElement(_host.XamlRoot) is MenuFlyoutItem { Tag: QuickMenuImagePreviewCommand focusedCommand })
+        {
+            return focusedCommand;
         }
 
         return null;
@@ -1894,6 +2192,8 @@ public sealed record QuickMenuItem(
     string? IconFontFamily = null,
     byte[]? IconImageBytes = null,
     Func<byte[]?>? PreviewImageBytesProvider = null,
+    Action? CopyInvoke = null,
+    Action? CutInvoke = null,
     string? RevealedTitle = null,
     DateTimeOffset? CapturedAt = null,
     bool IsPinned = false,
@@ -1930,6 +2230,8 @@ public sealed record QuickMenuPasteOption(
     string IconGlyph,
     Action Invoke,
     string? IconFontFamily = null);
+
+internal sealed record QuickMenuImagePreviewCommand(QuickMenuItem Item);
 
 internal readonly record struct KeyModifierState(bool Control, bool Shift, bool Alt, bool Win)
 {
