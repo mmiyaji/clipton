@@ -31,6 +31,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private const double ImagePreviewMinZoom = 0.5;
     private const double ImagePreviewMaxZoom = 3.0;
     private const double ImagePreviewZoomStep = 0.15;
+    private const string AppName = "Clipton";
     private static readonly NativeMethods.LowLevelKeyboardProc s_keyboardProc = OnStaticKeyboardHook;
     private static readonly NativeMethods.LowLevelMouseProc s_mouseProc = OnStaticMouseHook;
     private static QuickMenuWindow? s_activeWindow;
@@ -708,7 +709,19 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         _activeParent = null;
         _focusedIndex = -1;
         HideImagePreview();
+        AddAppTitleItem();
         AddItems(_flyout.Items, _currentItems, parent: null);
+    }
+
+    private void AddAppTitleItem()
+    {
+        _flyout.Items.Add(new MenuFlyoutItem
+        {
+            Text = AppName,
+            IsEnabled = false,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+        _flyout.Items.Add(new MenuFlyoutSeparator());
     }
 
     private void EnqueueAfterDelay(int milliseconds, Action action)
@@ -763,7 +776,6 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             return;
         }
 
-        var dark = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase);
         var image = new Image
         {
             Source = await CreateBitmapImageAsync(imageBytes, decodePixelWidth: 900),
@@ -780,11 +792,10 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         {
             MaxWidth = ImagePreviewBaseWindowWidth,
             MaxHeight = ImagePreviewBaseWindowHeight,
-            Padding = new Thickness(10),
+            Padding = new Thickness(0),
             CornerRadius = new CornerRadius(8),
-            BorderThickness = new Thickness(1),
-            BorderBrush = new SolidColorBrush(dark ? Color.FromArgb(160, 96, 96, 96) : Color.FromArgb(180, 180, 180, 180)),
-            Background = new SolidColorBrush(dark ? Color.FromArgb(245, 24, 24, 24) : Color.FromArgb(245, 250, 250, 250)),
+            BorderThickness = new Thickness(0),
+            Background = new SolidColorBrush(Colors.Transparent),
             Child = image
         };
         var feedbackText = new TextBlock
