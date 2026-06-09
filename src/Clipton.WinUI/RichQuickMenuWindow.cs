@@ -25,7 +25,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private const int PreviewWidth = 320;
     private const int WindowHeight = 526;
     private const int WindowGap = 10;
+    private const int DwmwaNcRenderingPolicy = 2;
     private const int DwmwaBorderColor = 34;
+    private const int DwmncrpDisabled = 1;
     private const int DwmwaColorNone = unchecked((int)0xFFFFFFFE);
     private const int GwlStyle = -16;
     private const long WsCaption = 0x00C00000L;
@@ -65,8 +67,11 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private AppWindow? _previewAppWindow;
     private IntPtr _previewHwnd;
     private NativeMethods.Point _anchorPoint;
+    private NativeMethods.Point _dragStartCursor;
+    private PointInt32 _dragStartWindowPosition;
     private bool _hasAnchorPoint;
     private bool _dismissed;
+    private bool _dragging;
     private bool _previewVisible;
     private long _previewRequestId;
 
@@ -152,7 +157,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             Dismiss();
         };
         _root.KeyboardAccelerators.Add(escapeAccelerator);
-        _root.Background = Brush(14, 14, 14);
+        _root.Background = Brush(37, 37, 37);
         _hwnd = WindowNative.GetWindowHandle(this);
         var windowId = Win32Interop.GetWindowIdFromWindow(_hwnd);
         _appWindow = AppWindow.GetFromWindowId(windowId);
@@ -166,6 +171,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         _appWindow.Resize(new SizeInt32(MenuWidth, WindowHeight));
+        ApplyWindowRegion(_hwnd, MenuWidth, WindowHeight);
         DisableDwmBorder(_hwnd);
     }
 
@@ -182,6 +188,15 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _menuCard.Padding = new Thickness(10);
         _menuCard.Child = BuildMenuPanel();
         _root.Children.Add(_menuCard);
+
+        _root.Children.Add(new Border
+        {
+            Height = 2,
+            Background = Brush(37, 37, 37),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Top,
+            IsHitTestVisible = false
+        });
     }
 
     private void EnsurePreviewWindow()
@@ -216,6 +231,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         _previewAppWindow.Resize(new SizeInt32(PreviewWidth, 338));
+        ApplyWindowRegion(_previewHwnd, PreviewWidth, 338);
         DisableDwmBorder(_previewHwnd);
 
         var escapeAccelerator = new KeyboardAccelerator { Key = VirtualKey.Escape };
@@ -235,6 +251,10 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var toolbar = new Grid { Height = 42, Margin = new Thickness(0, 0, 0, 8) };
+        toolbar.PointerPressed += OnHeaderPointerPressed;
+        toolbar.PointerMoved += OnHeaderPointerMoved;
+        toolbar.PointerReleased += OnHeaderPointerReleased;
+        toolbar.PointerCanceled += OnHeaderPointerReleased;
         toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -277,6 +297,69 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         panel.Children.Add(allHistoryButton);
 
         return panel;
+    }
+
+    private void OnHeaderPointerPressed(object sender, PointerRoutedEventArgs args)
+    {
+        if (_appWindow is null || sender is not UIElement element || IsFromButton(args.OriginalSource))
+        {
+            return;
+        }
+
+        var point = args.GetCurrentPoint(element);
+        if (!point.Properties.IsLeftButtonPressed || !NativeMethods.GetCursorPos(out var cursor))
+        {
+            return;
+        }
+
+        _dragging = true;
+        _dragStartCursor = cursor;
+        _dragStartWindowPosition = _appWindow.Position;
+        element.CapturePointer(args.Pointer);
+        args.Handled = true;
+    }
+
+    private void OnHeaderPointerMoved(object sender, PointerRoutedEventArgs args)
+    {
+        if (!_dragging || _appWindow is null || sender is not UIElement element)
+        {
+            return;
+        }
+
+        var point = args.GetCurrentPoint(element);
+        if (!point.Properties.IsLeftButtonPressed || !NativeMethods.GetCursorPos(out var cursor))
+        {
+            EndHeaderDrag(element, args);
+            return;
+        }
+
+        var x = _dragStartWindowPosition.X + cursor.X - _dragStartCursor.X;
+        var y = _dragStartWindowPosition.Y + cursor.Y - _dragStartCursor.Y;
+        _appWindow.Move(new PointInt32(x, y));
+        _anchorPoint = new NativeMethods.Point { X = x + 18, Y = y + 18 };
+        _hasAnchorPoint = true;
+        PositionPreviewWindow();
+        args.Handled = true;
+    }
+
+    private void OnHeaderPointerReleased(object sender, PointerRoutedEventArgs args)
+    {
+        if (sender is UIElement element)
+        {
+            EndHeaderDrag(element, args);
+        }
+    }
+
+    private void EndHeaderDrag(UIElement element, PointerRoutedEventArgs args)
+    {
+        if (!_dragging)
+        {
+            return;
+        }
+
+        _dragging = false;
+        element.ReleasePointerCapture(args.Pointer);
+        args.Handled = true;
     }
 
     private UIElement BuildPreviewPanel()
@@ -433,6 +516,22 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         while (current is not null)
         {
             if (current is Button { Tag: PasteOptionsButtonTag })
+            {
+                return true;
+            }
+
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return false;
+    }
+
+    private static bool IsFromButton(object source)
+    {
+        var current = source as DependencyObject;
+        while (current is not null)
+        {
+            if (current is Button)
             {
                 return true;
             }
@@ -706,6 +805,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         var y = Math.Clamp(_anchorPoint.Y - 18, workArea.Top + ScreenEdgePadding, workArea.Bottom - WindowHeight - ScreenEdgePadding);
         _appWindow.Resize(new SizeInt32(MenuWidth, WindowHeight));
         _appWindow.Move(new PointInt32(menuX, y));
+        ApplyWindowRegion(_hwnd, MenuWidth, WindowHeight);
         DisableDwmBorder(_hwnd);
         PositionPreviewWindow();
         BringToFront();
@@ -729,10 +829,12 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         var previewY = Math.Clamp(menuY + 90, workArea.Top + ScreenEdgePadding, workArea.Bottom - 338 - ScreenEdgePadding);
         _previewAppWindow.Resize(new SizeInt32(PreviewWidth, 338));
         _previewAppWindow.Move(new PointInt32(previewX, previewY));
+        ApplyWindowRegion(_previewHwnd, PreviewWidth, 338);
+        _previewAppWindow.Show();
         DisableDwmBorder(_previewHwnd);
-        _previewWindow?.Activate();
         BringPreviewToFront();
         BringToFront();
+        _root.Focus(FocusState.Programmatic);
     }
 
     private void ConfigureWindowStyle()
@@ -753,9 +855,10 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         var exStyle = NativeMethods.GetWindowLongPtr(hwnd, NativeMethods.GwlExstyle).ToInt64();
-        exStyle |= NativeMethods.WsExToolwindow;
+        exStyle |= NativeMethods.WsExLayered | NativeMethods.WsExToolwindow;
         exStyle &= ~NativeMethods.WsExAppwindow;
         NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GwlExstyle, new IntPtr(exStyle));
+        NativeMethods.SetLayeredWindowAttributes(hwnd, 0, 255, NativeMethods.LwaAlpha);
 
         var style = NativeMethods.GetWindowLongPtr(hwnd, GwlStyle).ToInt64();
         style &= ~(WsCaption | WsThickFrame | WsBorder | WsDlgFrame);
@@ -779,6 +882,28 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
         var borderColor = DwmwaColorNone;
         _ = DwmSetWindowAttribute(hwnd, DwmwaBorderColor, ref borderColor, sizeof(int));
+
+        var ncRenderingPolicy = DwmncrpDisabled;
+        _ = DwmSetWindowAttribute(hwnd, DwmwaNcRenderingPolicy, ref ncRenderingPolicy, sizeof(int));
+    }
+
+    private static void ApplyWindowRegion(IntPtr hwnd, int width, int height)
+    {
+        if (hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var region = CreateRoundRectRgn(0, 1, width, height, 18, 18);
+        if (region == IntPtr.Zero)
+        {
+            return;
+        }
+
+        if (SetWindowRgn(hwnd, region, true) == 0)
+        {
+            _ = DeleteObject(region);
+        }
     }
 
     private void BringToFront()
@@ -909,6 +1034,16 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         int cx,
         int cy,
         uint uFlags);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    private static extern IntPtr CreateRoundRectRgn(int left, int top, int right, int bottom, int widthEllipse, int heightEllipse);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, bool redraw);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DeleteObject(IntPtr hObject);
 
     private static string TrimText(string text, int max)
     {
