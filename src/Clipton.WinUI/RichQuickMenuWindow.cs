@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using System.Runtime.InteropServices;
 using Windows.Foundation;
 using Windows.Graphics;
 using Windows.Storage.Streams;
@@ -24,6 +25,8 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private const int PreviewWidth = 320;
     private const int WindowHeight = 526;
     private const int WindowGap = 10;
+    private const int DwmwaBorderColor = 34;
+    private const int DwmwaColorNone = unchecked((int)0xFFFFFFFE);
     private const string PasteOptionsButtonTag = "RichPasteOptionsButton";
     private readonly string _title;
     private readonly string _theme;
@@ -144,6 +147,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         var windowId = Win32Interop.GetWindowIdFromWindow(_hwnd);
         _appWindow = AppWindow.GetFromWindowId(windowId);
         ConfigureWindowStyle();
+        DisableDwmBorder(_hwnd);
         if (_appWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.IsResizable = false;
@@ -195,6 +199,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         var windowId = Win32Interop.GetWindowIdFromWindow(_previewHwnd);
         _previewAppWindow = AppWindow.GetFromWindowId(windowId);
         ConfigureToolWindowStyle(_previewHwnd);
+        DisableDwmBorder(_previewHwnd);
         if (_previewAppWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.IsResizable = false;
@@ -743,6 +748,17 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GwlExstyle, new IntPtr(exStyle));
     }
 
+    private static void DisableDwmBorder(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var borderColor = DwmwaColorNone;
+        _ = DwmSetWindowAttribute(hwnd, DwmwaBorderColor, ref borderColor, sizeof(int));
+    }
+
     private void BringToFront()
     {
         if (_hwnd == IntPtr.Zero)
@@ -857,6 +873,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private static TextBlock Text(double size, double opacity) => Text(string.Empty, size, opacity);
 
     private static SolidColorBrush Brush(byte r, byte g, byte b) => new(Color.FromArgb(255, r, g, b));
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int attributeValue, int attributeSize);
 
     private static string TrimText(string text, int max)
     {
