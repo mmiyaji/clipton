@@ -4,6 +4,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -23,6 +24,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private const int PreviewWidth = 320;
     private const int WindowHeight = 526;
     private const int WindowGap = 10;
+    private const string PasteOptionsButtonTag = "RichPasteOptionsButton";
     private readonly string _title;
     private readonly string _theme;
     private readonly QuickMenuShortcutSettings _shortcuts;
@@ -46,6 +48,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private int _selectedIndex;
     private AppWindow? _appWindow;
     private IntPtr _hwnd;
+    private Window? _previewWindow;
+    private AppWindow? _previewAppWindow;
+    private IntPtr _previewHwnd;
     private NativeMethods.Point _anchorPoint;
     private bool _hasAnchorPoint;
     private bool _dismissed;
@@ -116,6 +121,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _feedbackTimer.Stop();
         DispatcherQueue.TryEnqueue(() =>
         {
+            _previewAppWindow?.Hide();
             _appWindow?.Hide();
             Dismissed?.Invoke(this, EventArgs.Empty);
         });
@@ -152,8 +158,6 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private void BuildContent()
     {
         _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(MenuWidth) });
-        _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(WindowGap) });
-        _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(PreviewWidth) });
         _root.Padding = new Thickness(0);
 
         _menuCard.Width = MenuWidth;
@@ -165,7 +169,16 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _menuCard.Padding = new Thickness(10);
         _menuCard.Child = BuildMenuPanel();
         _root.Children.Add(_menuCard);
+    }
 
+    private void EnsurePreviewWindow()
+    {
+        if (_previewWindow is not null)
+        {
+            return;
+        }
+
+        _previewWindow = new Window { ExtendsContentIntoTitleBar = true };
         _previewCard.Width = PreviewWidth;
         _previewCard.Height = 338;
         _previewCard.CornerRadius = new CornerRadius(9);
@@ -176,8 +189,29 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _previewCard.Visibility = Visibility.Collapsed;
         _previewCard.VerticalAlignment = VerticalAlignment.Center;
         _previewCard.Child = BuildPreviewPanel();
-        Grid.SetColumn(_previewCard, 2);
-        _root.Children.Add(_previewCard);
+        _previewWindow.Content = _previewCard;
+
+        _previewHwnd = WindowNative.GetWindowHandle(_previewWindow);
+        var windowId = Win32Interop.GetWindowIdFromWindow(_previewHwnd);
+        _previewAppWindow = AppWindow.GetFromWindowId(windowId);
+        ConfigureToolWindowStyle(_previewHwnd);
+        if (_previewAppWindow.Presenter is OverlappedPresenter presenter)
+        {
+            presenter.IsResizable = false;
+            presenter.IsMaximizable = false;
+            presenter.IsMinimizable = false;
+            presenter.SetBorderAndTitleBar(false, false);
+        }
+
+        _previewAppWindow.Resize(new SizeInt32(PreviewWidth, 338));
+
+        var escapeAccelerator = new KeyboardAccelerator { Key = VirtualKey.Escape };
+        escapeAccelerator.Invoked += (_, args) =>
+        {
+            args.Handled = true;
+            Dismiss();
+        };
+        _previewCard.KeyboardAccelerators.Add(escapeAccelerator);
     }
 
     private UIElement BuildMenuPanel()
@@ -317,7 +351,16 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             Child = BuildItemContent(item)
         };
         card.PointerEntered += (_, _) => Select(index);
-        card.Tapped += (_, _) => InvokeItem(item);
+        card.Tapped += (_, args) =>
+        {
+            if (IsFromPasteOptionsButton(args.OriginalSource))
+            {
+                args.Handled = true;
+                return;
+            }
+
+            InvokeItem(item);
+        };
         return card;
     }
 
@@ -348,14 +391,82 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         Grid.SetColumn(textPanel, 1);
         grid.Children.Add(textPanel);
 
-        var trailingGlyph = item.IsPinned ? "\uE734" : item.PasteOptions is { Count: > 0 } ? "\uE712" : "\uE734";
-        var trailing = Text(trailingGlyph, 19, item.IsPinned || item.PasteOptions is { Count: > 0 } ? 0.86 : 0.48);
-        trailing.FontFamily = new FontFamily("Segoe Fluent Icons");
-        trailing.VerticalAlignment = VerticalAlignment.Center;
+        var trailing = item.PasteOptions is { Count: > 0 }
+            ? CreatePasteOptionsButton(item)
+            : CreatePinnedGlyph(item);
         Grid.SetColumn(trailing, 2);
         grid.Children.Add(trailing);
 
         return grid;
+    }
+
+    private FrameworkElement CreatePasteOptionsButton(QuickMenuItem item)
+    {
+        var button = IconButton("\uE712", "More options");
+        button.Width = 34;
+        button.Height = 34;
+        button.Margin = new Thickness(0);
+        button.Background = Brush(40, 40, 40);
+        button.BorderBrush = Brush(40, 40, 40);
+        button.Tag = PasteOptionsButtonTag;
+        button.Tapped += (_, args) => args.Handled = true;
+        button.Click += (_, _) => ShowPasteOptions(item, button);
+        return button;
+    }
+
+    private static bool IsFromPasteOptionsButton(object source)
+    {
+        var current = source as DependencyObject;
+        while (current is not null)
+        {
+            if (current is Button { Tag: PasteOptionsButtonTag })
+            {
+                return true;
+            }
+
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return false;
+    }
+
+    private static TextBlock CreatePinnedGlyph(QuickMenuItem item)
+    {
+        var trailing = Text("\uE734", 19, item.IsPinned ? 0.86 : 0.48);
+        trailing.FontFamily = new FontFamily("Segoe Fluent Icons");
+        trailing.VerticalAlignment = VerticalAlignment.Center;
+        return trailing;
+    }
+
+    private void ShowPasteOptions(QuickMenuItem item, FrameworkElement anchor)
+    {
+        if (item.PasteOptions is not { Count: > 0 })
+        {
+            return;
+        }
+
+        var flyout = new MenuFlyout
+        {
+            Placement = FlyoutPlacementMode.RightEdgeAlignedTop
+        };
+        foreach (var option in item.PasteOptions)
+        {
+            flyout.Items.Add(CreatePasteOptionMenuItem(option));
+        }
+
+        flyout.ShowAt(anchor);
+    }
+
+    private MenuFlyoutItem CreatePasteOptionMenuItem(QuickMenuPasteOption option)
+    {
+        var optionItem = new MenuFlyoutItem
+        {
+            Text = option.Text,
+            Icon = CreateOptionIcon(option),
+            Tag = option
+        };
+        optionItem.Click += (_, _) => InvokePasteOption(option);
+        return optionItem;
     }
 
     private UIElement CreateItemIcon(QuickMenuItem item)
@@ -422,6 +533,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
         _previewImage.Source = bitmap;
         _previewMetaText.Text = CreatePreviewMeta(item, bytes.Length);
+        EnsurePreviewWindow();
         _previewCard.Visibility = Visibility.Visible;
         ResizeForPreview(showPreview: true);
     }
@@ -499,6 +611,17 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         item.Invoke();
     }
 
+    private void InvokePasteOption(QuickMenuPasteOption option)
+    {
+        _previewAppWindow?.Hide();
+        _appWindow?.Hide();
+        _ = Task.Delay(90).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
+        {
+            option.Invoke();
+            Dismiss();
+        }));
+    }
+
     private void CopySelectedImage()
     {
         var item = GetSelectedItem();
@@ -540,7 +663,14 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private void ResizeForPreview(bool showPreview)
     {
         _previewVisible = showPreview;
-        PositionNearCursor(resetAnchor: false);
+        if (!showPreview)
+        {
+            _previewAppWindow?.Hide();
+        }
+        else
+        {
+            PositionPreviewWindow();
+        }
     }
 
     private void PositionNearCursor(bool resetAnchor)
@@ -550,8 +680,6 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             return;
         }
 
-        var showPreview = _previewVisible && _previewCard.Visibility == Visibility.Visible;
-        var width = showPreview ? MenuWidth + WindowGap + PreviewWidth : MenuWidth;
         if (resetAnchor || !_hasAnchorPoint)
         {
             _anchorPoint = NativeMethods.GetCursorPos(out var point)
@@ -562,24 +690,33 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
         var workArea = GetWorkArea(_anchorPoint);
         var menuX = Math.Clamp(_anchorPoint.X - 18, workArea.Left + ScreenEdgePadding, workArea.Right - MenuWidth - ScreenEdgePadding);
-        var x = menuX;
-        var previewOnLeft = false;
-        if (showPreview)
+        var y = Math.Clamp(_anchorPoint.Y - 18, workArea.Top + ScreenEdgePadding, workArea.Bottom - WindowHeight - ScreenEdgePadding);
+        _appWindow.Resize(new SizeInt32(MenuWidth, WindowHeight));
+        _appWindow.Move(new PointInt32(menuX, y));
+        PositionPreviewWindow();
+        BringToFront();
+    }
+
+    private void PositionPreviewWindow()
+    {
+        if (!_previewVisible || _previewCard.Visibility != Visibility.Visible || _previewAppWindow is null || !_hasAnchorPoint)
         {
-            var rightEdgePadding = workArea.Right - ScreenEdgePadding;
-            var leftEdgePadding = workArea.Left + ScreenEdgePadding;
-            var previewFitsRight = menuX + MenuWidth + WindowGap + PreviewWidth <= rightEdgePadding;
-            var previewFitsLeft = menuX - WindowGap - PreviewWidth >= leftEdgePadding;
-            previewOnLeft = !previewFitsRight && previewFitsLeft;
-            x = previewOnLeft
-                ? menuX - WindowGap - PreviewWidth
-                : Math.Clamp(menuX, leftEdgePadding, rightEdgePadding - width);
+            return;
         }
 
-        var y = Math.Clamp(_anchorPoint.Y - 18, workArea.Top + ScreenEdgePadding, workArea.Bottom - WindowHeight - ScreenEdgePadding);
-        ApplyColumnLayout(showPreview, previewOnLeft);
-        _appWindow.Resize(new SizeInt32(width, WindowHeight));
-        _appWindow.Move(new PointInt32(x, y));
+        var workArea = GetWorkArea(_anchorPoint);
+        var menuX = Math.Clamp(_anchorPoint.X - 18, workArea.Left + ScreenEdgePadding, workArea.Right - MenuWidth - ScreenEdgePadding);
+        var menuY = Math.Clamp(_anchorPoint.Y - 18, workArea.Top + ScreenEdgePadding, workArea.Bottom - WindowHeight - ScreenEdgePadding);
+        var rightX = menuX + MenuWidth + WindowGap;
+        var leftX = menuX - PreviewWidth - WindowGap;
+        var previewX = rightX + PreviewWidth <= workArea.Right - ScreenEdgePadding
+            ? rightX
+            : Math.Max(workArea.Left + ScreenEdgePadding, leftX);
+        var previewY = Math.Clamp(menuY + 90, workArea.Top + ScreenEdgePadding, workArea.Bottom - 338 - ScreenEdgePadding);
+        _previewAppWindow.Resize(new SizeInt32(PreviewWidth, 338));
+        _previewAppWindow.Move(new PointInt32(previewX, previewY));
+        _previewWindow?.Activate();
+        BringPreviewToFront();
         BringToFront();
     }
 
@@ -590,10 +727,20 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             return;
         }
 
-        var exStyle = NativeMethods.GetWindowLongPtr(_hwnd, NativeMethods.GwlExstyle).ToInt64();
+        ConfigureToolWindowStyle(_hwnd);
+    }
+
+    private static void ConfigureToolWindowStyle(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var exStyle = NativeMethods.GetWindowLongPtr(hwnd, NativeMethods.GwlExstyle).ToInt64();
         exStyle |= NativeMethods.WsExToolwindow;
         exStyle &= ~NativeMethods.WsExAppwindow;
-        NativeMethods.SetWindowLongPtr(_hwnd, NativeMethods.GwlExstyle, new IntPtr(exStyle));
+        NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GwlExstyle, new IntPtr(exStyle));
     }
 
     private void BringToFront()
@@ -609,23 +756,14 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         NativeMethods.SetFocus(_hwnd);
     }
 
-    private void ApplyColumnLayout(bool showPreview, bool previewOnLeft)
+    private void BringPreviewToFront()
     {
-        if (!showPreview)
+        if (_previewHwnd == IntPtr.Zero)
         {
-            _root.ColumnDefinitions[0].Width = new GridLength(MenuWidth);
-            _root.ColumnDefinitions[1].Width = new GridLength(0);
-            _root.ColumnDefinitions[2].Width = new GridLength(0);
-            Grid.SetColumn(_menuCard, 0);
-            Grid.SetColumn(_previewCard, 2);
             return;
         }
 
-        _root.ColumnDefinitions[0].Width = new GridLength(previewOnLeft ? PreviewWidth : MenuWidth);
-        _root.ColumnDefinitions[1].Width = new GridLength(WindowGap);
-        _root.ColumnDefinitions[2].Width = new GridLength(previewOnLeft ? MenuWidth : PreviewWidth);
-        Grid.SetColumn(_previewCard, previewOnLeft ? 0 : 2);
-        Grid.SetColumn(_menuCard, previewOnLeft ? 2 : 0);
+        NativeMethods.BringWindowToTop(_previewHwnd);
     }
 
     private static NativeMethods.Rect GetWorkArea(NativeMethods.Point point)
@@ -685,6 +823,21 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         ToolTipService.SetToolTip(button, tooltip);
         AutomationProperties.SetName(button, tooltip);
         return button;
+    }
+
+    private static IconElement? CreateOptionIcon(QuickMenuPasteOption option)
+    {
+        if (string.IsNullOrWhiteSpace(option.IconGlyph))
+        {
+            return null;
+        }
+
+        return new FontIcon
+        {
+            Glyph = option.IconGlyph,
+            FontFamily = new FontFamily(option.IconFontFamily ?? "Segoe Fluent Icons"),
+            FontSize = option.IconFontFamily?.Equals("Segoe UI", StringComparison.OrdinalIgnoreCase) == true ? 13 : 12
+        };
     }
 
     private static TextBlock Text(string text, double size, double opacity, Windows.UI.Text.FontWeight? weight = null)
