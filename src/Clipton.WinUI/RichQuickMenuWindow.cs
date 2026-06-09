@@ -32,6 +32,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private readonly string _copyFeedbackText;
     private readonly string _cutFeedbackText;
     private readonly Grid _root = new();
+    private readonly Border _menuCard = new();
     private readonly StackPanel _itemHost = new() { Spacing = 6 };
     private readonly Border _previewCard = new();
     private readonly Image _previewImage = new() { Stretch = Stretch.UniformToFill };
@@ -46,6 +47,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private AppWindow? _appWindow;
     private IntPtr _hwnd;
     private bool _dismissed;
+    private bool _previewVisible;
     private long _previewRequestId;
 
     public RichQuickMenuWindow(
@@ -142,18 +144,15 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(PreviewWidth) });
         _root.Padding = new Thickness(0);
 
-        var menuCard = new Border
-        {
-            Width = MenuWidth,
-            Height = WindowHeight,
-            CornerRadius = new CornerRadius(9),
-            BorderThickness = new Thickness(1),
-            BorderBrush = Brush(74, 74, 74),
-            Background = Brush(37, 37, 37),
-            Padding = new Thickness(10),
-            Child = BuildMenuPanel()
-        };
-        _root.Children.Add(menuCard);
+        _menuCard.Width = MenuWidth;
+        _menuCard.Height = WindowHeight;
+        _menuCard.CornerRadius = new CornerRadius(9);
+        _menuCard.BorderThickness = new Thickness(1);
+        _menuCard.BorderBrush = Brush(74, 74, 74);
+        _menuCard.Background = Brush(37, 37, 37);
+        _menuCard.Padding = new Thickness(10);
+        _menuCard.Child = BuildMenuPanel();
+        _root.Children.Add(_menuCard);
 
         _previewCard.Width = PreviewWidth;
         _previewCard.Height = 338;
@@ -528,10 +527,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
     private void ResizeForPreview(bool showPreview)
     {
-        var width = showPreview ? MenuWidth + WindowGap + PreviewWidth : MenuWidth;
-        _root.ColumnDefinitions[1].Width = showPreview ? new GridLength(WindowGap) : new GridLength(0);
-        _root.ColumnDefinitions[2].Width = showPreview ? new GridLength(PreviewWidth) : new GridLength(0);
-        _appWindow?.Resize(new SizeInt32(width, WindowHeight));
+        _previewVisible = showPreview;
         PositionNearCursor();
     }
 
@@ -542,12 +538,48 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             return;
         }
 
-        var width = _previewCard.Visibility == Visibility.Visible ? MenuWidth + WindowGap + PreviewWidth : MenuWidth;
+        var showPreview = _previewVisible && _previewCard.Visibility == Visibility.Visible;
+        var width = showPreview ? MenuWidth + WindowGap + PreviewWidth : MenuWidth;
         var cursor = NativeMethods.GetCursorPos(out var point) ? point : new NativeMethods.Point { X = 200, Y = 200 };
         var workArea = GetWorkArea(cursor);
-        var x = Math.Clamp(cursor.X - 18, workArea.Left + ScreenEdgePadding, workArea.Right - width - ScreenEdgePadding);
+        var menuX = Math.Clamp(cursor.X - 18, workArea.Left + ScreenEdgePadding, workArea.Right - MenuWidth - ScreenEdgePadding);
+        var x = menuX;
+        var previewOnLeft = false;
+        if (showPreview)
+        {
+            var rightEdgePadding = workArea.Right - ScreenEdgePadding;
+            var leftEdgePadding = workArea.Left + ScreenEdgePadding;
+            var previewFitsRight = menuX + MenuWidth + WindowGap + PreviewWidth <= rightEdgePadding;
+            var previewFitsLeft = menuX - WindowGap - PreviewWidth >= leftEdgePadding;
+            previewOnLeft = !previewFitsRight && previewFitsLeft;
+            x = previewOnLeft
+                ? menuX - WindowGap - PreviewWidth
+                : Math.Clamp(menuX, leftEdgePadding, rightEdgePadding - width);
+        }
+
         var y = Math.Clamp(cursor.Y - 18, workArea.Top + ScreenEdgePadding, workArea.Bottom - WindowHeight - ScreenEdgePadding);
+        ApplyColumnLayout(showPreview, previewOnLeft);
+        _appWindow.Resize(new SizeInt32(width, WindowHeight));
         _appWindow.Move(new PointInt32(x, y));
+    }
+
+    private void ApplyColumnLayout(bool showPreview, bool previewOnLeft)
+    {
+        if (!showPreview)
+        {
+            _root.ColumnDefinitions[0].Width = new GridLength(MenuWidth);
+            _root.ColumnDefinitions[1].Width = new GridLength(0);
+            _root.ColumnDefinitions[2].Width = new GridLength(0);
+            Grid.SetColumn(_menuCard, 0);
+            Grid.SetColumn(_previewCard, 2);
+            return;
+        }
+
+        _root.ColumnDefinitions[0].Width = new GridLength(previewOnLeft ? PreviewWidth : MenuWidth);
+        _root.ColumnDefinitions[1].Width = new GridLength(WindowGap);
+        _root.ColumnDefinitions[2].Width = new GridLength(previewOnLeft ? MenuWidth : PreviewWidth);
+        Grid.SetColumn(_previewCard, previewOnLeft ? 0 : 2);
+        Grid.SetColumn(_menuCard, previewOnLeft ? 2 : 0);
     }
 
     private static NativeMethods.Rect GetWorkArea(NativeMethods.Point point)
