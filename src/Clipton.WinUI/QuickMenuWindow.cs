@@ -1564,6 +1564,11 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             Tag = new QuickMenuImagePreviewCommand(item),
             KeyboardAcceleratorTextOverride = "Space"
         };
+        if (item.IconImageBytes is { Length: > 0 } imageBytes)
+        {
+            previewItem.Loaded += async (_, _) => await InsertImagePreviewAsync(previewItem, imageBytes, "small");
+        }
+
         previewItem.Click += (_, _) => ToggleImagePreview(item);
         return previewItem;
     }
