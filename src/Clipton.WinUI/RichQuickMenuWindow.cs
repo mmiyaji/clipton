@@ -717,11 +717,11 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
                 break;
             case VirtualKey.Down:
                 args.Handled = true;
-                Select(Math.Min(_selectedIndex + 1, _visibleItems.Count - 1));
+                MoveSelection(1);
                 break;
             case VirtualKey.Up:
                 args.Handled = true;
-                Select(Math.Max(_selectedIndex - 1, 0));
+                MoveSelection(-1);
                 break;
             case VirtualKey.Enter:
                 args.Handled = true;
@@ -744,6 +744,16 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
                 break;
         }
+    }
+
+    private void MoveSelection(int delta)
+    {
+        if (_visibleItems.Count == 0)
+        {
+            return;
+        }
+
+        Select((_selectedIndex + delta + _visibleItems.Count) % _visibleItems.Count);
     }
 
     private void InvokeSelected() => InvokeItem(GetSelectedItem());
