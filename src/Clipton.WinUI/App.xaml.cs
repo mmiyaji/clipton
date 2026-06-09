@@ -52,8 +52,8 @@ public sealed class App : Application, IXamlMetadataProvider
             Resources.MergedDictionaries.Add(new XamlControlsResources());
             AppProfiler.Mark("XAML resources added.");
             var launchArguments = GetLaunchArguments(args.Arguments);
-            var dataDirectory = ResolveDataDirectory(launchArguments);
-            _runtime = new CliptonRuntime(dataDirectory);
+            var (dataDirectory, isSafeMode) = ResolveDataDirectory(launchArguments);
+            _runtime = new CliptonRuntime(dataDirectory, isSafeMode);
             AppProfiler.Mark("Runtime constructed.");
             _runtime.Start();
             AppProfiler.Mark("Runtime started.");
@@ -75,7 +75,25 @@ public sealed class App : Application, IXamlMetadataProvider
             .ToArray();
     }
 
-    private static string? ResolveDataDirectory(IReadOnlyList<string> launchArguments)
+    private static (string? DataDirectory, bool IsSafeMode) ResolveDataDirectory(IReadOnlyList<string> launchArguments)
+    {
+        if (TryGetArgumentDirectory(launchArguments) is { } argumentDirectory)
+        {
+            return (argumentDirectory, false);
+        }
+
+        if (launchArguments.Contains("--safe-mode", StringComparer.OrdinalIgnoreCase))
+        {
+            return (Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Clipton",
+                "SafeMode"), true);
+        }
+
+        return (AppDataDirectorySettings.Resolve(launchArguments), false);
+    }
+
+    private static string? TryGetArgumentDirectory(IReadOnlyList<string> launchArguments)
     {
         var dataDirIndex = -1;
         for (var i = 0; i < launchArguments.Count; i++)
@@ -87,20 +105,9 @@ public sealed class App : Application, IXamlMetadataProvider
             }
         }
 
-        if (dataDirIndex >= 0 && dataDirIndex + 1 < launchArguments.Count)
-        {
-            return Path.GetFullPath(Environment.ExpandEnvironmentVariables(launchArguments[dataDirIndex + 1]));
-        }
-
-        if (launchArguments.Contains("--safe-mode", StringComparer.OrdinalIgnoreCase))
-        {
-            return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Clipton",
-                "SafeMode");
-        }
-
-        return null;
+        return dataDirIndex >= 0 && dataDirIndex + 1 < launchArguments.Count
+            ? Path.GetFullPath(Environment.ExpandEnvironmentVariables(launchArguments[dataDirIndex + 1]))
+            : null;
     }
 
     public IXamlType GetXamlType(Type type) => EnsureXamlMetadataProvider().GetXamlType(type);

@@ -58,7 +58,7 @@ public sealed class CliptonRuntime : IDisposable
     private uint _lastCapturedClipboardSequence;
     private CancellationTokenSource? _clipboardCaptureDelay;
 
-    public CliptonRuntime(string? dataDirectory = null)
+    public CliptonRuntime(string? dataDirectory = null, bool isSafeMode = false)
     {
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
         var appData = string.IsNullOrWhiteSpace(dataDirectory)
@@ -72,7 +72,7 @@ public sealed class CliptonRuntime : IDisposable
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Clipton", "TempPaste")
             : Path.Combine(dataDirectory, "TempPaste");
         DataDirectory = appData;
-        IsSafeMode = !string.IsNullOrWhiteSpace(dataDirectory);
+        IsSafeMode = isSafeMode;
         Settings = _settingsStore.Load();
         AppDiagnostics.Configure(Settings.DiagnosticLoggingEnabled || AppProfiler.Enabled);
         AppProfiler.Mark("Settings loaded.");
@@ -97,6 +97,10 @@ public sealed class CliptonRuntime : IDisposable
     public CliptonSettings Settings { get; }
 
     public string DataDirectory { get; }
+
+    public string DefaultDataDirectory => AppDataDirectorySettings.DefaultDirectory;
+
+    public string? ConfiguredDataDirectory => AppDataDirectorySettings.LoadConfiguredDirectory();
 
     public bool IsSafeMode { get; }
 
@@ -378,6 +382,17 @@ public sealed class CliptonRuntime : IDisposable
     public void OpenDiagnosticLogDirectory()
     {
         AppDiagnostics.OpenLogDirectory();
+    }
+
+    public void OpenDataDirectory()
+    {
+        Directory.CreateDirectory(DataDirectory);
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(DataDirectory) { UseShellExecute = true });
+    }
+
+    public void SetConfiguredDataDirectory(string? path)
+    {
+        AppDataDirectorySettings.SaveConfiguredDirectory(path);
     }
 
     public void ClearDiagnosticLogs()

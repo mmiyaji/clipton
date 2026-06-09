@@ -153,6 +153,10 @@ public sealed class MainWindow : Window
     private readonly Button _exitApplicationButton = new();
     private readonly Button _openLogsButton = new();
     private readonly Button _clearLogsButton = new();
+    private readonly TextBlock _dataDirectoryText = Description();
+    private readonly Button _openDataDirectoryButton = new();
+    private readonly Button _changeDataDirectoryButton = new();
+    private readonly Button _resetDataDirectoryButton = new();
     private string? _selectedHistoryId;
     private SnippetItemViewModel? _selectedSnippet;
     private string _selectedSnippetFolder = string.Empty;
@@ -197,6 +201,7 @@ public sealed class MainWindow : Window
             _historySearchStatusText,
             _historyEmptyText,
             _selectedSnippetText,
+            _dataDirectoryText,
             _maskDefinitionsErrorText,
             _maskTestResultText);
         Title = "Clipton";
@@ -380,6 +385,10 @@ public sealed class MainWindow : Window
         SetCommandButton(_exitApplicationButton, "\uE8BB", t("ExitApplication"));
         SetCommandButton(_openLogsButton, "\uE838", t("OpenLogs"));
         SetCommandButton(_clearLogsButton, "\uE74D", t("ClearLogs"));
+        SetCommandButton(_openDataDirectoryButton, "\uE838", t("OpenFolder"));
+        SetCommandButton(_changeDataDirectoryButton, "\uE8B7", t("Change"));
+        SetCommandButton(_resetDataDirectoryButton, "\uE777", t("UseDefault"));
+        UpdateDataDirectoryText();
         _maskPatternsBox.PlaceholderText = t("MaskPatternDefinitions");
         _maskTestBox.PlaceholderText = t("MaskTestText");
         _maskDefinitionsResetButton.Content = t("ResetToDefaults");
@@ -576,6 +585,9 @@ public sealed class MainWindow : Window
         _generalPage.Children.Add(SettingCard("\uE7C3", "Startup", "StartupDescription", _startupToggle));
         _hideSettingsWindowOnStartupToggle.Toggled += (_, _) => SaveStartupWindowOptions();
         _generalPage.Children.Add(SettingCard("\uE8BB", "HideSettingsWindowOnStartup", "HideSettingsWindowOnStartupDescription", _hideSettingsWindowOnStartupToggle));
+
+        _generalPage.Children.Add(SectionHeader("StorageSection"));
+        _generalPage.Children.Add(BuildDataDirectoryCard());
 
         _generalPage.Children.Add(SectionHeader("QuickMenuSection"));
         foreach (var count in QuickMenuHistoryBuckets.TopLevelHistoryItemOptions)
@@ -809,6 +821,28 @@ public sealed class MainWindow : Window
         _maskDefinitionsButton.Click += (_, _) => ToggleMaskDefinitionsPanel();
         _historySettingsPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", maskControls));
         _historySettingsPage.Children.Add(BuildMaskDefinitionsPanel());
+    }
+
+    private UIElement BuildDataDirectoryCard()
+    {
+        var dataDirectoryControls = new StackPanel
+        {
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+        _dataDirectoryText.TextWrapping = TextWrapping.Wrap;
+        _dataDirectoryText.TextAlignment = TextAlignment.Right;
+        _dataDirectoryText.MaxWidth = 420;
+        var dataDirectoryButtons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
+        _openDataDirectoryButton.Click += (_, _) => _runtime.OpenDataDirectory();
+        _changeDataDirectoryButton.Click += async (_, _) => await ChangeDataDirectoryAsync();
+        _resetDataDirectoryButton.Click += async (_, _) => await ResetDataDirectoryAsync();
+        dataDirectoryButtons.Children.Add(_openDataDirectoryButton);
+        dataDirectoryButtons.Children.Add(_changeDataDirectoryButton);
+        dataDirectoryButtons.Children.Add(_resetDataDirectoryButton);
+        dataDirectoryControls.Children.Add(_dataDirectoryText);
+        dataDirectoryControls.Children.Add(dataDirectoryButtons);
+        return SettingCard("\uE8B7", "DataDirectory", "DataDirectoryDescription", dataDirectoryControls);
     }
 
     private UIElement BuildHistorySearchPanel()
@@ -2092,6 +2126,56 @@ public sealed class MainWindow : Window
         _runtime.SetDiagnosticLogging(_diagnosticLoggingToggle.IsOn);
     }
 
+    private void UpdateDataDirectoryText()
+    {
+        var configured = _runtime.ConfiguredDataDirectory;
+        if (string.IsNullOrWhiteSpace(configured))
+        {
+            _dataDirectoryText.Text = $"{_runtime.Translate("DataDirectoryDefault")}\n{_runtime.DataDirectory}";
+            return;
+        }
+
+        _dataDirectoryText.Text = string.Equals(configured, _runtime.DataDirectory, StringComparison.OrdinalIgnoreCase)
+            ? $"{_runtime.Translate("DataDirectoryCustom")}\n{configured}"
+            : $"{_runtime.Translate("DataDirectoryCustom")}\n{configured}\n{string.Format(_runtime.Translate("DataDirectoryCurrent"), _runtime.DataDirectory)}";
+    }
+
+    private async Task ChangeDataDirectoryAsync()
+    {
+        var path = await SelectFolderAsync();
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        await SaveDataDirectoryAsync(path);
+    }
+
+    private async Task ResetDataDirectoryAsync()
+    {
+        await SaveDataDirectoryAsync(null);
+    }
+
+    private async Task SaveDataDirectoryAsync(string? path)
+    {
+        try
+        {
+            _runtime.SetConfiguredDataDirectory(path);
+            UpdateDataDirectoryText();
+            await ShowMessageDialogAsync(
+                _runtime.Translate("DataDirectoryChangedTitle"),
+                _runtime.Translate("DataDirectoryChangedMessage"),
+                _runtime.Translate("Close"));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            await ShowMessageDialogAsync(
+                _runtime.Translate("DataDirectory"),
+                string.Format(_runtime.Translate("DataDirectoryChangeFailed"), ex.Message),
+                _runtime.Translate("Close"));
+        }
+    }
+
     private async Task ConfirmAndClearHistoryAsync()
     {
         var confirmed = await ConfirmDialogAsync(
@@ -2440,6 +2524,18 @@ public sealed class MainWindow : Window
         InitializeWithWindow.Initialize(picker, _hwnd);
         var file = await picker.PickSingleFileAsync();
         return file?.Path;
+    }
+
+    private async Task<string?> SelectFolderAsync()
+    {
+        var picker = new FolderPicker
+        {
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary
+        };
+        picker.FileTypeFilter.Add("*");
+        InitializeWithWindow.Initialize(picker, _hwnd);
+        var folder = await picker.PickSingleFolderAsync();
+        return folder?.Path;
     }
 
     private async Task RunImportExportActionAsync(string titleKey, Func<string> action)
