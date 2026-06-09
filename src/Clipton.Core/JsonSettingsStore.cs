@@ -48,6 +48,7 @@ public sealed class JsonSettingsStore
             .ToArray();
         settings.Locale = NormalizeLocale(settings.Locale);
         settings.Theme = NormalizeTheme(settings.Theme);
+        settings.QuickMenuDisplayMode = NormalizeQuickMenuDisplayMode(settings.QuickMenuDisplayMode);
         settings.QuickMenuImagePreviewSize = NormalizeQuickMenuImagePreviewSize(settings.QuickMenuImagePreviewSize);
         settings.QuickMenuTopLevelHistoryItems = QuickMenuHistoryBuckets.NormalizeTopLevelHistoryItems(settings.QuickMenuTopLevelHistoryItems);
         NormalizeMaskRuleSettings(settings, maskRuleDefinitionsConfigured);
@@ -57,6 +58,7 @@ public sealed class JsonSettingsStore
 
     public void Save(CliptonSettings settings)
     {
+        settings.QuickMenuDisplayMode = NormalizeQuickMenuDisplayMode(settings.QuickMenuDisplayMode);
         NormalizeMaskRuleSettings(settings, preferConfiguredDefinitions: true);
         var directory = Path.GetDirectoryName(_path);
         if (!string.IsNullOrWhiteSpace(directory))
@@ -117,6 +119,11 @@ public sealed class JsonSettingsStore
             "none" or "small" or "large" => value.ToLowerInvariant(),
             _ => "medium"
         };
+    }
+
+    private static string NormalizeQuickMenuDisplayMode(string? value)
+    {
+        return string.Equals(value, "rich", StringComparison.OrdinalIgnoreCase) ? "rich" : "default";
     }
 
     private static int NormalizeClipboardCaptureDelay(int value)

@@ -26,6 +26,8 @@ public sealed class CliptonSettings
 
     public int QuickMenuTopLevelHistoryItems { get; set; } = 5;
 
+    public string QuickMenuDisplayMode { get; set; } = "default";
+
     public bool SimpleContextMenuMode { get; set; }
 
     public string QuickMenuImagePreviewSize { get; set; } = "medium";

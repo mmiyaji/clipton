@@ -14,6 +14,7 @@ public sealed class SettingsStoreTests
 
         Assert.True(loaded.PersistEncryptedHistory);
         Assert.Equal(200, loaded.MaxHistoryItems);
+        Assert.Equal("default", loaded.QuickMenuDisplayMode);
         Assert.Equal("medium", loaded.QuickMenuImagePreviewSize);
         Assert.Equal("Ctrl+F", loaded.QuickMenuShortcuts.Search);
         Assert.Equal("T", loaded.QuickMenuShortcuts.PastePlainText);
@@ -95,6 +96,7 @@ public sealed class SettingsStoreTests
             PauseCapture = true,
             PastePlainTextByDefault = true,
             PersistEncryptedHistory = true,
+            QuickMenuDisplayMode = "rich",
             QuickMenuImagePreviewSize = "large",
             QuickMenuTopLevelHistoryItems = 30,
             QuickMenuShowCapturedAt = true,
@@ -130,6 +132,7 @@ public sealed class SettingsStoreTests
         Assert.True(loaded.PauseCapture);
         Assert.True(loaded.PastePlainTextByDefault);
         Assert.True(loaded.PersistEncryptedHistory);
+        Assert.Equal("rich", loaded.QuickMenuDisplayMode);
         Assert.Equal("large", loaded.QuickMenuImagePreviewSize);
         Assert.Equal(30, loaded.QuickMenuTopLevelHistoryItems);
         Assert.True(loaded.QuickMenuShowCapturedAt);
@@ -264,6 +267,19 @@ public sealed class SettingsStoreTests
         var loaded = store.Load();
 
         Assert.Equal("medium", loaded.QuickMenuImagePreviewSize);
+    }
+
+    [Fact]
+    public void Load_NormalizesUnknownQuickMenuDisplayModeToDefault()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"QuickMenuDisplayMode":"floating"}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Equal("default", loaded.QuickMenuDisplayMode);
     }
 
     [Fact]

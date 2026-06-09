@@ -87,6 +87,7 @@ public sealed class MainWindow : Window
     private readonly ComboBox _themeBox = new();
     private readonly ComboBox _localeBox = new();
     private readonly ComboBox _quickMenuTopLevelHistoryItemsBox = new();
+    private readonly ComboBox _quickMenuDisplayModeBox = new();
     private readonly ComboBox _quickMenuImagePreviewSizeBox = new();
     private readonly ComboBox _quickMenuSearchShortcutBox = new();
     private readonly ComboBox _quickMenuPlainTextShortcutBox = new();
@@ -393,6 +394,8 @@ public sealed class MainWindow : Window
         SetComboBoxText(_localeBox, "system", t("LanguageSystem"));
         SetComboBoxText(_localeBox, "en", t("LanguageEnglish"));
         SetComboBoxText(_localeBox, "ja", t("LanguageJapanese"));
+        SetComboBoxText(_quickMenuDisplayModeBox, "default", t("QuickMenuDisplayModeDefault"));
+        SetComboBoxText(_quickMenuDisplayModeBox, "rich", t("QuickMenuDisplayModeRich"));
         SetComboBoxText(_quickMenuImagePreviewSizeBox, "none", t("ImagePreviewSizeNone"));
         SetComboBoxText(_quickMenuImagePreviewSizeBox, "small", t("ImagePreviewSizeSmall"));
         SetComboBoxText(_quickMenuImagePreviewSizeBox, "medium", t("ImagePreviewSizeMedium"));
@@ -429,6 +432,7 @@ public sealed class MainWindow : Window
         SetComboSelection(_hotkeyBox, _runtime.Settings.Hotkey);
         SetComboSelection(_themeBox, _runtime.Settings.Theme);
         SetComboSelection(_localeBox, _runtime.Settings.Locale);
+        SetComboSelection(_quickMenuDisplayModeBox, _runtime.Settings.QuickMenuDisplayMode);
         SetComboSelection(_quickMenuImagePreviewSizeBox, _runtime.Settings.QuickMenuImagePreviewSize);
         SetComboSelection(_quickMenuSearchShortcutBox, _runtime.Settings.QuickMenuShortcuts.Search);
         SetComboSelection(_quickMenuPlainTextShortcutBox, _runtime.Settings.QuickMenuShortcuts.PastePlainText);
@@ -582,6 +586,15 @@ public sealed class MainWindow : Window
         _quickMenuTopLevelHistoryItemsBox.Width = 180;
         _quickMenuTopLevelHistoryItemsBox.SelectionChanged += (_, _) => ChangeQuickMenuTopLevelHistoryItems();
         _generalPage.Children.Add(SettingCard("\uE8B7", "QuickMenuTopLevelHistoryItems", "QuickMenuTopLevelHistoryItemsDescription", _quickMenuTopLevelHistoryItemsBox));
+
+        foreach (var mode in new[] { "default", "rich" })
+        {
+            _quickMenuDisplayModeBox.Items.Add(new ComboBoxItem { Tag = mode });
+        }
+
+        _quickMenuDisplayModeBox.Width = 180;
+        _quickMenuDisplayModeBox.SelectionChanged += (_, _) => ChangeQuickMenuDisplayMode();
+        _generalPage.Children.Add(SettingCard("\uE771", "QuickMenuDisplayMode", "QuickMenuDisplayModeDescription", _quickMenuDisplayModeBox));
 
         foreach (var size in new[] { "none", "small", "medium", "large" })
         {
@@ -2245,6 +2258,16 @@ public sealed class MainWindow : Window
         }
 
         _runtime.SetQuickMenuImagePreviewSize(size);
+    }
+
+    private void ChangeQuickMenuDisplayMode()
+    {
+        if (_loading || _quickMenuDisplayModeBox.SelectedItem is not ComboBoxItem selected || selected.Tag is not string mode)
+        {
+            return;
+        }
+
+        _runtime.SetQuickMenuDisplayMode(mode);
     }
 
     private void SaveQuickMenuDisplayOptions()

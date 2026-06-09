@@ -17,7 +17,7 @@ using WinRT.Interop;
 
 namespace Clipton.WinUI;
 
-public sealed class QuickMenuWindow : Window
+public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
 {
     private const int MaxMenuLineLength = 34;
     private const int HostWindowSize = 1;
@@ -148,6 +148,8 @@ public sealed class QuickMenuWindow : Window
     }
 
     public event EventHandler? Dismissed;
+
+    public string DisplayMode => "default";
 
     public void FocusMenu()
     {

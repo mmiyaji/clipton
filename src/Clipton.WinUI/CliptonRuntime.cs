@@ -50,7 +50,7 @@ public sealed class CliptonRuntime : IDisposable
     private NativeTrayIcon? _notifyIcon;
     private Window? _lifetimeWindow;
     private MainWindow? _mainWindow;
-    private QuickMenuWindow? _quickMenuWindow;
+    private IQuickMenuHostWindow? _quickMenuWindow;
     private IntPtr _pasteTargetWindow;
     private long _lastQuickMenuRequestTick;
     private int _quickMenuRequestPending;
@@ -401,6 +401,12 @@ public sealed class CliptonRuntime : IDisposable
     public void SetQuickMenuImagePreviewSize(string size)
     {
         Settings.QuickMenuImagePreviewSize = NormalizeQuickMenuImagePreviewSize(size);
+        SaveSettings();
+    }
+
+    public void SetQuickMenuDisplayMode(string mode)
+    {
+        Settings.QuickMenuDisplayMode = NormalizeQuickMenuDisplayMode(mode);
         SaveSettings();
     }
 
@@ -953,37 +959,62 @@ public sealed class CliptonRuntime : IDisposable
                 IconFontFamily: "Segoe Fluent Icons"));
         }
 
+        var quickMenuDisplayMode = NormalizeQuickMenuDisplayMode(Settings.QuickMenuDisplayMode);
+        var useRichQuickMenu = string.Equals(quickMenuDisplayMode, "rich", StringComparison.OrdinalIgnoreCase);
         if (_quickMenuWindow is { } existingQuickMenuWindow)
         {
-            existingQuickMenuWindow.Reopen(menuItems);
-            return;
+            if (string.Equals(existingQuickMenuWindow.DisplayMode, quickMenuDisplayMode, StringComparison.OrdinalIgnoreCase))
+            {
+                existingQuickMenuWindow.Reopen(menuItems);
+                return;
+            }
+
+            existingQuickMenuWindow.Dismiss();
         }
 
-        var quickMenuWindow = new QuickMenuWindow(
-            Translate("History"),
-            menuItems,
-            EffectiveTheme,
-            Settings.QuickMenuImagePreviewSize,
-            Settings.QuickMenuShowCapturedAt,
-            Settings.QuickMenuShowShortcutHints,
-            Settings.QuickMenuShortcuts,
-            ShowHistoryWindow,
-            Translate("Search"),
-            Translate("SearchPrompt"),
-            Translate("Search"),
-            Translate("AdvancedSearch"),
-            Translate("Cancel"),
-            Translate("NoSearchResults"),
-            Translate("PreviewImage"),
-            new Dictionary<string, string>
-            {
-                ["ImagePreviewFeedbackCopy"] = Translate("ImagePreviewFeedbackCopy"),
-                ["ImagePreviewFeedbackCut"] = Translate("ImagePreviewFeedbackCut"),
-                ["ImagePreviewFeedbackZoomIn"] = Translate("ImagePreviewFeedbackZoomIn"),
-                ["ImagePreviewFeedbackZoomOut"] = Translate("ImagePreviewFeedbackZoomOut"),
-                ["ImagePreviewFeedbackZoomReset"] = Translate("ImagePreviewFeedbackZoomReset")
-            });
+        IQuickMenuHostWindow quickMenuWindow = useRichQuickMenu
+            ? new RichQuickMenuWindow(
+                Translate("History"),
+                menuItems,
+                EffectiveTheme,
+                Settings.QuickMenuShortcuts,
+                ShowHistoryWindow,
+                Translate("ShowAllHistory"),
+                Translate("PreviewImage"),
+                Translate("ImagePreviewFeedbackCopy"),
+                Translate("ImagePreviewFeedbackCut"))
+            : new QuickMenuWindow(
+                Translate("History"),
+                menuItems,
+                EffectiveTheme,
+                Settings.QuickMenuImagePreviewSize,
+                Settings.QuickMenuShowCapturedAt,
+                Settings.QuickMenuShowShortcutHints,
+                Settings.QuickMenuShortcuts,
+                ShowHistoryWindow,
+                Translate("Search"),
+                Translate("SearchPrompt"),
+                Translate("Search"),
+                Translate("AdvancedSearch"),
+                Translate("Cancel"),
+                Translate("NoSearchResults"),
+                Translate("PreviewImage"),
+                new Dictionary<string, string>
+                {
+                    ["ImagePreviewFeedbackCopy"] = Translate("ImagePreviewFeedbackCopy"),
+                    ["ImagePreviewFeedbackCut"] = Translate("ImagePreviewFeedbackCut"),
+                    ["ImagePreviewFeedbackZoomIn"] = Translate("ImagePreviewFeedbackZoomIn"),
+                    ["ImagePreviewFeedbackZoomOut"] = Translate("ImagePreviewFeedbackZoomOut"),
+                    ["ImagePreviewFeedbackZoomReset"] = Translate("ImagePreviewFeedbackZoomReset")
+                });
         _quickMenuWindow = quickMenuWindow;
+        quickMenuWindow.Dismissed += (_, _) =>
+        {
+            if (ReferenceEquals(_quickMenuWindow, quickMenuWindow))
+            {
+                _quickMenuWindow = null;
+            }
+        };
         quickMenuWindow.FocusMenu();
     }
 
@@ -1030,6 +1061,11 @@ public sealed class CliptonRuntime : IDisposable
             "none" or "small" or "large" => size.ToLowerInvariant(),
             _ => "medium"
         };
+    }
+
+    private static string NormalizeQuickMenuDisplayMode(string? mode)
+    {
+        return string.Equals(mode, "rich", StringComparison.OrdinalIgnoreCase) ? "rich" : "default";
     }
 
     private static int NormalizeClipboardCaptureDelay(int milliseconds)
