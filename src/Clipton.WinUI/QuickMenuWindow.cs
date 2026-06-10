@@ -75,6 +75,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private readonly Dictionary<MenuFlyoutItemBase, MenuFlyoutItemBase> _parentItem = [];
     private readonly Dictionary<MenuFlyoutItemBase, MenuFlyout> _pasteOptionsFlyouts = [];
     private readonly HashSet<MenuFlyoutSubItem> _materializedFolderItems = [];
+    private readonly HashSet<MenuFlyoutSubItem> _materializingFolderItems = [];
     private IReadOnlyList<MenuFlyoutItemBase> _activeFocusableItems = [];
     private MenuFlyoutItemBase? _activeParent;
     private int _focusedIndex = -1;
@@ -1654,23 +1655,48 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     {
         folderItem.Items.Add(new MenuFlyoutItem
         {
-            Text = " ",
+            Text = "Loading...",
             IsEnabled = false,
-            Visibility = Visibility.Collapsed
+            Icon = new FontIcon
+            {
+                Glyph = "\uE895",
+                FontFamily = new FontFamily("Segoe Fluent Icons")
+            }
         });
     }
 
     private void EnsureFolderItems(MenuFlyoutSubItem folderItem)
     {
-        if (!_materializedFolderItems.Add(folderItem)
+        if (_materializedFolderItems.Contains(folderItem)
+            || _materializingFolderItems.Contains(folderItem)
             || folderItem.Tag is not QuickMenuItem item)
         {
             return;
         }
 
+        _materializingFolderItems.Add(folderItem);
+        folderItem.Items.Clear();
+        AddFolderPlaceholder(folderItem);
+        _childFocusableItems[folderItem] = [];
+        _ = Task.Run(item.GetChildren).ContinueWith(task =>
+        {
+            var children = task.Status == TaskStatus.RanToCompletion ? task.Result : [];
+            DispatcherQueue.TryEnqueue(() => CompleteFolderItems(folderItem, children));
+        });
+    }
+
+    private void CompleteFolderItems(MenuFlyoutSubItem folderItem, IReadOnlyList<QuickMenuItem> children)
+    {
+        _materializingFolderItems.Remove(folderItem);
+        if (_dismissed || _materializedFolderItems.Contains(folderItem))
+        {
+            return;
+        }
+
+        _materializedFolderItems.Add(folderItem);
         folderItem.Items.Clear();
         _childFocusableItems[folderItem] = [];
-        AddItems(folderItem.Items, item.GetChildren(), folderItem);
+        AddItems(folderItem.Items, children, folderItem);
     }
 
     private MenuFlyout EnsurePasteOptionsFlyout(MenuFlyoutItemBase flyoutItem, QuickMenuItem item)

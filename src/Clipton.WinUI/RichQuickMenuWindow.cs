@@ -38,6 +38,10 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private const int DwmncrpDisabled = 1;
     private const int DwmwaColorNone = unchecked((int)0xFFFFFFFE);
     private const int GwlStyle = -16;
+    private const int VkPageUp = 0x21;
+    private const int VkPageDown = 0x22;
+    private const int VkEnd = 0x23;
+    private const int VkHome = 0x24;
     private const long WsCaption = 0x00C00000L;
     private const long WsThickFrame = 0x00040000L;
     private const long WsBorder = 0x00800000L;
@@ -48,6 +52,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpFrameChanged = 0x0020;
     private const string PasteOptionsButtonTag = "RichPasteOptionsButton";
+    private static readonly NativeMethods.LowLevelKeyboardProc s_keyboardProc = OnStaticKeyboardHook;
+    private static IntPtr s_keyboardHook;
+    private static RichQuickMenuWindow? s_activeWindow;
     private readonly string _title;
     private readonly string _theme;
     private readonly QuickMenuShortcutSettings _shortcuts;
@@ -65,10 +72,16 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private readonly TextBlock _previewMetaText = Text(12, 0.76);
     private readonly Border _feedbackPill = new();
     private readonly TextBlock _feedbackText = Text(12, 0.94);
+    private readonly Border _loadingOverlay = new();
+    private readonly ProgressRing _loadingRing = new() { Width = 22, Height = 22, IsActive = false };
+    private readonly TextBlock _loadingText = Text("Loading...", 13, 0.92, Microsoft.UI.Text.FontWeights.SemiBold);
     private readonly DispatcherTimer _feedbackTimer = new() { Interval = TimeSpan.FromMilliseconds(900) };
+    private readonly Stack<(IReadOnlyList<QuickMenuItem> Items, int SelectedIndex, HeaderFilter Filter)> _navigationStack = new();
     private IReadOnlyList<QuickMenuItem> _items = [];
     private readonly List<QuickMenuItem> _visibleItems = [];
     private readonly List<Border> _itemCards = [];
+    private ScrollViewer? _scrollViewer;
+    private Button? _backButton;
     private int _selectedIndex;
     private HeaderFilter _activeFilter = HeaderFilter.All;
     private AppWindow? _appWindow;
@@ -83,8 +96,10 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private bool _dismissed;
     private bool _dragging;
     private bool _previewVisible;
+    private bool _folderLoading;
     private long _previewRequestId;
     private long _focusRequestId;
+    private long _folderLoadRequestId;
 
     public RichQuickMenuWindow(
         string title,
@@ -123,6 +138,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
     public void FocusMenu()
     {
+        InstallKeyboardHook();
         PositionNearCursor(resetAnchor: true);
         FocusMenuNow();
         QueueFocusRetry();
@@ -132,6 +148,8 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     {
         _items = items;
         _selectedIndex = 0;
+        _activeFilter = HeaderFilter.All;
+        _navigationStack.Clear();
         _hasAnchorPoint = false;
         RebuildItems();
         PositionNearCursor(resetAnchor: true);
@@ -147,6 +165,8 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
         _dismissed = true;
         _feedbackTimer.Stop();
+        HideFolderLoading();
+        UninstallKeyboardHook();
         DispatcherQueue.TryEnqueue(() =>
         {
             _previewAppWindow?.Hide();
@@ -213,6 +233,35 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             VerticalAlignment = VerticalAlignment.Top,
             IsHitTestVisible = false
         });
+
+        _loadingRing.Foreground = Brush(245, 245, 245);
+        var loadingPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 10,
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        loadingPanel.Children.Add(_loadingRing);
+        loadingPanel.Children.Add(_loadingText);
+        _loadingOverlay.Width = MenuWidth;
+        _loadingOverlay.Height = WindowHeight;
+        _loadingOverlay.Background = new SolidColorBrush(Color.FromArgb(188, 24, 24, 24));
+        _loadingOverlay.CornerRadius = new CornerRadius(9);
+        _loadingOverlay.Visibility = Visibility.Collapsed;
+        _loadingOverlay.IsHitTestVisible = true;
+        _loadingOverlay.Child = new Border
+        {
+            Background = Brush(43, 43, 43),
+            BorderBrush = Brush(72, 72, 72),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(7),
+            Padding = new Thickness(18, 13, 18, 13),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = loadingPanel
+        };
+        _root.Children.Add(_loadingOverlay);
     }
 
     private void EnsurePreviewWindow()
@@ -289,17 +338,23 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         AddToolbarButton(toolbar, 1, "\uE718", "Pinned", HeaderFilter.Pinned);
         AddToolbarButton(toolbar, 2, "\uE8D2", "Text", HeaderFilter.Text);
         AddToolbarButton(toolbar, 3, "\uEB9F", _previewImageText, HeaderFilter.Image);
+        _backButton = IconButton("\uE72B", "Back");
+        _backButton.Margin = new Thickness(2, 0, 8, 0);
+        _backButton.HorizontalAlignment = HorizontalAlignment.Right;
+        _backButton.Click += (_, _) => NavigateBack();
+        Grid.SetColumn(_backButton, 4);
+        toolbar.Children.Add(_backButton);
         AddToolbarButton(toolbar, 5, "\uE711", "Close", selected: false, Dismiss);
         panel.Children.Add(toolbar);
 
-        var scrollViewer = new ScrollViewer
+        _scrollViewer = new ScrollViewer
         {
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             Content = _itemHost
         };
-        Grid.SetRow(scrollViewer, 1);
-        panel.Children.Add(scrollViewer);
+        Grid.SetRow(_scrollViewer, 1);
+        panel.Children.Add(_scrollViewer);
 
         var allHistoryButton = new Button
         {
@@ -442,7 +497,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _visibleItems.Clear();
         _itemCards.Clear();
 
-        foreach (var item in _items.Where(item => !item.IsSeparator && MatchesFilter(item)).Take(12))
+        foreach (var item in _items.Where(item => !item.IsSeparator && MatchesFilter(item)))
         {
             _visibleItems.Add(item);
             var card = BuildItemCard(item, _visibleItems.Count - 1);
@@ -453,6 +508,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         if (_visibleItems.Count == 0)
         {
             _selectedIndex = 0;
+            _scrollViewer?.ChangeView(null, 0, null, disableAnimation: true);
             _ = UpdatePreviewAsync(null);
             UpdateToolbarSelection();
             return;
@@ -542,8 +598,8 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         Grid.SetColumn(textPanel, 1);
         grid.Children.Add(textPanel);
 
-        var trailing = item.PasteOptions is { Count: > 0 }
-            ? CreatePasteOptionsButton(item)
+        var trailing = item.IsFolder ? CreateFolderGlyph()
+            : item.PasteOptions is { Count: > 0 } ? CreatePasteOptionsButton(item)
             : CreatePinnedGlyph(item);
         Grid.SetColumn(trailing, 2);
         grid.Children.Add(trailing);
@@ -605,6 +661,14 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         return trailing;
     }
 
+    private static TextBlock CreateFolderGlyph()
+    {
+        var trailing = Text("\uE974", 18, 0.78);
+        trailing.FontFamily = new FontFamily("Segoe Fluent Icons");
+        trailing.VerticalAlignment = VerticalAlignment.Center;
+        return trailing;
+    }
+
     private void ShowPasteOptions(QuickMenuItem item, FrameworkElement anchor)
     {
         if (item.PasteOptions is not { Count: > 0 })
@@ -645,7 +709,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             return image;
         }
 
-        var glyph = item.IconGlyph ?? GetFallbackGlyph(item);
+        var glyph = item.IsFolder && item.IconGlyph == ">" ? GetFallbackGlyph(item) : item.IconGlyph ?? GetFallbackGlyph(item);
         return new FontIcon
         {
             Glyph = glyph,
@@ -678,6 +742,11 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             _itemCards[i].Background = selected ? Brush(48, 48, 48) : Brush(40, 40, 40);
         }
 
+        _itemCards.ElementAtOrDefault(_selectedIndex)?.StartBringIntoView(new BringIntoViewOptions
+        {
+            AnimationDesired = false,
+            VerticalAlignmentRatio = 0.5
+        });
         _ = UpdatePreviewAsync(GetSelectedItem());
     }
 
@@ -709,6 +778,17 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     {
         var key = args.Key;
         var ctrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+        if (_folderLoading)
+        {
+            args.Handled = true;
+            if (key == VirtualKey.Escape)
+            {
+                Dismiss();
+            }
+
+            return;
+        }
+
         switch (key)
         {
             case VirtualKey.Escape:
@@ -723,9 +803,30 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
                 args.Handled = true;
                 MoveSelection(-1);
                 break;
+            case VirtualKey.PageDown:
+                args.Handled = true;
+                MoveSelection(5);
+                break;
+            case VirtualKey.PageUp:
+                args.Handled = true;
+                MoveSelection(-5);
+                break;
+            case VirtualKey.Home:
+                args.Handled = true;
+                Select(0);
+                break;
+            case VirtualKey.End:
+                args.Handled = true;
+                Select(_visibleItems.Count - 1);
+                break;
             case VirtualKey.Enter:
                 args.Handled = true;
                 InvokeSelected();
+                break;
+            case VirtualKey.Left:
+            case VirtualKey.Back:
+                args.Handled = true;
+                NavigateBack();
                 break;
             case VirtualKey.C when ctrl:
                 args.Handled = true;
@@ -756,6 +857,121 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         Select((_selectedIndex + delta + _visibleItems.Count) % _visibleItems.Count);
     }
 
+    private void SelectFirst() => Select(0);
+
+    private void SelectLast() => Select(_visibleItems.Count - 1);
+
+    private void InstallKeyboardHook()
+    {
+        s_activeWindow = this;
+        if (s_keyboardHook == IntPtr.Zero)
+        {
+            s_keyboardHook = NativeMethods.SetWindowsHookEx(
+                NativeMethods.WhKeyboardLl,
+                s_keyboardProc,
+                NativeMethods.GetModuleHandle(null),
+                0);
+        }
+    }
+
+    private void UninstallKeyboardHook()
+    {
+        if (ReferenceEquals(s_activeWindow, this))
+        {
+            s_activeWindow = null;
+        }
+
+        if (s_keyboardHook != IntPtr.Zero)
+        {
+            NativeMethods.UnhookWindowsHookEx(s_keyboardHook);
+            s_keyboardHook = IntPtr.Zero;
+        }
+    }
+
+    private static IntPtr OnStaticKeyboardHook(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        return s_activeWindow is { } active
+            ? active.OnKeyboardHook(nCode, wParam, lParam)
+            : NativeMethods.CallNextHookEx(s_keyboardHook, nCode, wParam, lParam);
+    }
+
+    private IntPtr OnKeyboardHook(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode < 0 || (wParam.ToInt32() != NativeMethods.WmKeydown && wParam.ToInt32() != NativeMethods.WmSyskeydown))
+        {
+            return NativeMethods.CallNextHookEx(s_keyboardHook, nCode, wParam, lParam);
+        }
+
+        if (!IsInteractionForeground())
+        {
+            return NativeMethods.CallNextHookEx(s_keyboardHook, nCode, wParam, lParam);
+        }
+
+        var key = Marshal.ReadInt32(lParam);
+        var ctrl = (NativeMethods.GetAsyncKeyState(NativeMethods.VkControl) & 0x8000) != 0;
+        if (_folderLoading)
+        {
+            if (key == NativeMethods.VkEscape)
+            {
+                DispatcherQueue.TryEnqueue(Dismiss);
+            }
+
+            return 1;
+        }
+
+        switch (key)
+        {
+            case NativeMethods.VkDown:
+                DispatcherQueue.TryEnqueue(() => MoveSelection(1));
+                return 1;
+            case NativeMethods.VkUp:
+                DispatcherQueue.TryEnqueue(() => MoveSelection(-1));
+                return 1;
+            case VkPageDown:
+                DispatcherQueue.TryEnqueue(() => MoveSelection(5));
+                return 1;
+            case VkPageUp:
+                DispatcherQueue.TryEnqueue(() => MoveSelection(-5));
+                return 1;
+            case VkHome:
+                DispatcherQueue.TryEnqueue(SelectFirst);
+                return 1;
+            case VkEnd:
+                DispatcherQueue.TryEnqueue(SelectLast);
+                return 1;
+            case NativeMethods.VkLeft:
+            case NativeMethods.VkBack:
+                DispatcherQueue.TryEnqueue(NavigateBack);
+                return 1;
+            case NativeMethods.VkReturn:
+                DispatcherQueue.TryEnqueue(InvokeSelected);
+                return 1;
+            case NativeMethods.VkEscape:
+                DispatcherQueue.TryEnqueue(Dismiss);
+                return 1;
+            case NativeMethods.VkC when ctrl:
+                DispatcherQueue.TryEnqueue(CopySelectedImage);
+                return 1;
+            case NativeMethods.VkX when ctrl:
+                DispatcherQueue.TryEnqueue(CutSelectedImage);
+                return 1;
+            default:
+                if (MatchesShortcut(key, ctrl, _shortcuts.PastePlainText))
+                {
+                    DispatcherQueue.TryEnqueue(InvokeSelectedPlainText);
+                    return 1;
+                }
+
+                return NativeMethods.CallNextHookEx(s_keyboardHook, nCode, wParam, lParam);
+        }
+    }
+
+    private bool IsInteractionForeground()
+    {
+        var foreground = NativeMethods.GetForegroundWindow();
+        return foreground == _hwnd || (_previewHwnd != IntPtr.Zero && foreground == _previewHwnd);
+    }
+
     private void InvokeSelected() => InvokeItem(GetSelectedItem());
 
     private void InvokeSelectedPlainText()
@@ -773,19 +989,97 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
     private void InvokeItem(QuickMenuItem? item)
     {
-        if (item is null || !item.IsEnabled)
+        if (_folderLoading || item is null || !item.IsEnabled)
         {
             return;
         }
 
         if (item.IsFolder)
         {
-            Reopen(item.GetChildren());
+            OpenFolder(item);
             return;
         }
 
         Dismiss();
         item.Invoke();
+    }
+
+    private async void OpenFolder(QuickMenuItem item)
+    {
+        var requestId = Interlocked.Increment(ref _folderLoadRequestId);
+        ShowFolderLoading(item.Title);
+        IReadOnlyList<QuickMenuItem> children;
+        try
+        {
+            await Task.Yield();
+            children = await Task.Run(item.GetChildren);
+        }
+        catch
+        {
+            children = [];
+        }
+
+        DispatcherQueue.TryEnqueue(() => CompleteOpenFolder(requestId, children));
+    }
+
+    private void CompleteOpenFolder(long requestId, IReadOnlyList<QuickMenuItem> children)
+    {
+        if (_dismissed || requestId != _folderLoadRequestId)
+        {
+            return;
+        }
+
+        HideFolderLoading();
+        if (children.Count == 0)
+        {
+            return;
+        }
+
+        _navigationStack.Push((_items, _selectedIndex, _activeFilter));
+        _items = children;
+        _selectedIndex = 0;
+        _activeFilter = HeaderFilter.All;
+        RebuildItems();
+        _scrollViewer?.ChangeView(null, 0, null, disableAnimation: true);
+        FocusMenuNow();
+        QueueFocusRetry();
+    }
+
+    private void ShowFolderLoading(string title)
+    {
+        _folderLoading = true;
+        _loadingText.Text = string.IsNullOrWhiteSpace(title) ? "Loading..." : $"Loading {TrimText(title, 18)}...";
+        _loadingRing.IsActive = true;
+        _loadingOverlay.Visibility = Visibility.Visible;
+        _previewAppWindow?.Hide();
+    }
+
+    private void HideFolderLoading()
+    {
+        _folderLoading = false;
+        _loadingRing.IsActive = false;
+        _loadingOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private void NavigateBack()
+    {
+        if (_navigationStack.Count == 0)
+        {
+            return;
+        }
+
+        var previous = _navigationStack.Pop();
+        _items = previous.Items;
+        _selectedIndex = previous.SelectedIndex;
+        _activeFilter = previous.Filter;
+        RebuildItems();
+        _itemCards.ElementAtOrDefault(_selectedIndex)?.StartBringIntoView(new BringIntoViewOptions
+        {
+            AnimationDesired = false,
+            VerticalAlignmentRatio = 0.5
+        });
+        FocusMenuNow();
+        QueueFocusRetry();
     }
 
     private void InvokePasteOption(QuickMenuPasteOption option)
@@ -1063,6 +1357,12 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         {
             UpdateToolbarButton(button, filter == _activeFilter);
         }
+
+        if (_backButton is not null)
+        {
+            _backButton.Visibility = _navigationStack.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            _backButton.IsEnabled = _navigationStack.Count > 0;
+        }
     }
 
     private static void UpdateToolbarButton(Button button, bool selected)
@@ -1212,7 +1512,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
     private static string GetFallbackGlyph(QuickMenuItem item)
     {
-        return item.KindLabel.Equals("Image", StringComparison.OrdinalIgnoreCase)
+        return item.IsFolder
+            ? "\uE8B7"
+            : item.KindLabel.Equals("Image", StringComparison.OrdinalIgnoreCase)
             ? "\uEB9F"
             : item.KindLabel.Equals("Link", StringComparison.OrdinalIgnoreCase)
                 ? "\uE71B"
@@ -1240,6 +1542,21 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         return ctrl == requiresCtrl
             && Enum.TryParse<VirtualKey>(keyText, ignoreCase: true, out var parsedKey)
             && parsedKey == key;
+    }
+
+    private static bool MatchesShortcut(int key, bool ctrl, string shortcut)
+    {
+        if (string.IsNullOrWhiteSpace(shortcut))
+        {
+            return false;
+        }
+
+        var normalized = shortcut.Trim();
+        var requiresCtrl = normalized.StartsWith("Ctrl+", StringComparison.OrdinalIgnoreCase);
+        var keyText = requiresCtrl ? normalized[5..] : normalized;
+        return ctrl == requiresCtrl
+            && Enum.TryParse<VirtualKey>(keyText, ignoreCase: true, out var parsedKey)
+            && (int)parsedKey == key;
     }
 
     private static async Task SetImageSourceAsync(Image image, byte[] bytes)
