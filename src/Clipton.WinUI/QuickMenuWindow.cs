@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
@@ -734,9 +735,34 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         {
             Text = AppName,
             IsEnabled = false,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(Color.FromArgb(255, 170, 170, 170)),
+            Template = CreateAppTitleTemplate()
         });
         _flyout.Items.Add(new MenuFlyoutSeparator());
+    }
+
+    private static ControlTemplate CreateAppTitleTemplate()
+    {
+        const string xaml = """
+            <ControlTemplate
+                xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                TargetType="MenuFlyoutItem">
+                <Grid
+                    MinHeight="38"
+                    Padding="12,0,12,0"
+                    Background="{TemplateBinding Background}">
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        Text="{TemplateBinding Text}"
+                        Foreground="{TemplateBinding Foreground}"
+                        FontWeight="{TemplateBinding FontWeight}"
+                        FontSize="13"
+                        TextTrimming="CharacterEllipsis" />
+                </Grid>
+            </ControlTemplate>
+            """;
+        return (ControlTemplate)XamlReader.Load(xaml);
     }
 
     private void EnqueueAfterDelay(int milliseconds, Action action)
