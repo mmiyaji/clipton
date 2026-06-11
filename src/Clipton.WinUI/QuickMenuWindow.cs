@@ -1691,6 +1691,20 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         });
     }
 
+    private static void AddFolderUnavailablePlaceholder(MenuFlyoutSubItem folderItem)
+    {
+        folderItem.Items.Add(new MenuFlyoutItem
+        {
+            Text = "No items",
+            IsEnabled = false,
+            Icon = new FontIcon
+            {
+                Glyph = "\uE783",
+                FontFamily = new FontFamily("Segoe Fluent Icons")
+            }
+        });
+    }
+
     private void EnsureFolderItems(MenuFlyoutSubItem folderItem)
     {
         if (_materializedFolderItems.Contains(folderItem)
@@ -1706,6 +1720,11 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         _childFocusableItems[folderItem] = [];
         _ = Task.Run(item.GetChildren).ContinueWith(task =>
         {
+            if (task.Exception is not null)
+            {
+                AppDiagnostics.Log(task.Exception, $"Quick menu folder load failed. folder={item.Title}");
+            }
+
             var children = task.Status == TaskStatus.RanToCompletion ? task.Result : [];
             DispatcherQueue.TryEnqueue(() => CompleteFolderItems(folderItem, children));
         });
@@ -1719,9 +1738,15 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             return;
         }
 
-        _materializedFolderItems.Add(folderItem);
         folderItem.Items.Clear();
         _childFocusableItems[folderItem] = [];
+        if (children.Count == 0)
+        {
+            AddFolderUnavailablePlaceholder(folderItem);
+            return;
+        }
+
+        _materializedFolderItems.Add(folderItem);
         AddItems(folderItem.Items, children, folderItem);
     }
 
@@ -2495,8 +2520,13 @@ public sealed record QuickMenuItem(
             return _resolvedChildren;
         }
 
-        _resolvedChildren = LazyChildren?.Invoke() ?? [];
-        return _resolvedChildren;
+        var children = LazyChildren?.Invoke() ?? [];
+        if (children.Count > 0)
+        {
+            _resolvedChildren = children;
+        }
+
+        return children;
     }
 
     public override string ToString() => Title;

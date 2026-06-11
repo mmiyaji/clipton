@@ -1014,8 +1014,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             await Task.Yield();
             children = await Task.Run(item.GetChildren);
         }
-        catch
+        catch (Exception exception)
         {
+            AppDiagnostics.Log(exception, $"Rich quick menu folder load failed. folder={item.Title}");
             children = [];
         }
 
