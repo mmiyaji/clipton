@@ -704,6 +704,18 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
 
     private async void ShowImagePreview(QuickMenuItem? item)
     {
+        try
+        {
+            await ShowImagePreviewAsync(item);
+        }
+        catch (Exception exception)
+        {
+            AppDiagnostics.Log(exception, "Quick menu image preview");
+        }
+    }
+
+    private async Task ShowImagePreviewAsync(QuickMenuItem? item)
+    {
         HideImagePreview();
         var requestId = ++_imagePreviewRequestId;
         var imageBytes = item?.PreviewImageBytesProvider?.Invoke() ?? item?.IconImageBytes;
@@ -1160,6 +1172,19 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
 
     private async void SearchMenu()
     {
+        try
+        {
+            await SearchMenuAsync();
+        }
+        catch (Exception exception)
+        {
+            AppDiagnostics.Log(exception, "Quick menu search");
+            Dismiss();
+        }
+    }
+
+    private async Task SearchMenuAsync()
+    {
         _rebuildingFlyout = true;
         _flyout.Hide();
         UninstallKeyboardHook();
@@ -1182,12 +1207,18 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         var normalizedQuery = searchResult.Query.Trim();
+        var rootItems = _rootItems;
         var resultItems = string.IsNullOrWhiteSpace(normalizedQuery)
-            ? _rootItems
-            : FlattenSearchableItems(_rootItems)
+            ? rootItems
+            : await Task.Run(() => (IReadOnlyList<QuickMenuItem>)FlattenSearchableItems(rootItems)
                 .Where(item => MatchesSearch(item, normalizedQuery))
                 .Take(50)
-                .ToArray();
+                .ToArray());
+
+        if (_dismissed)
+        {
+            return;
+        }
 
         if (resultItems.Count == 0)
         {
@@ -1941,6 +1972,19 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     }
 
     private static async Task InsertImagePreviewAsync(MenuFlyoutItemBase flyoutItem, byte[]? imageBytes, string size)
+    {
+        // Invoked from async-void Loaded handlers; an exception here would crash the app.
+        try
+        {
+            await InsertImagePreviewCoreAsync(flyoutItem, imageBytes, size);
+        }
+        catch (Exception exception)
+        {
+            AppDiagnostics.Log(exception, "Quick menu inline image preview");
+        }
+    }
+
+    private static async Task InsertImagePreviewCoreAsync(MenuFlyoutItemBase flyoutItem, byte[]? imageBytes, string size)
     {
         if (imageBytes is not { Length: > 0 })
         {

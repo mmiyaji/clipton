@@ -346,6 +346,14 @@ public static class ClipboardBridge
             }
         }
 
-        return action();
+        try
+        {
+            return action();
+        }
+        catch (Exception exception) when (exception is ExternalException or COMException or UnauthorizedAccessException)
+        {
+            AppDiagnostics.Log(exception, "Clipboard access retries exhausted");
+            return default;
+        }
     }
 }
