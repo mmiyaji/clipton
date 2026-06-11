@@ -13,6 +13,8 @@ public sealed class App : Application, IXamlMetadataProvider
 
     public static string[] LaunchArgs { get; set; } = [];
 
+    internal static SingleInstanceGuard? SingleInstance { get; set; }
+
     public App()
     {
         UnhandledException += (_, e) =>
@@ -60,6 +62,7 @@ public sealed class App : Application, IXamlMetadataProvider
             var forceShow = launchArguments.Contains("--settings", StringComparer.OrdinalIgnoreCase);
             _runtime.ShowStartupWindowIfNeeded(forceShow);
             AppProfiler.Mark(forceShow ? "Startup window shown by launch argument." : "Startup window policy applied.");
+            SingleInstance?.WatchActivationRequests(() => _runtime?.ActivateFromSecondInstance());
         }
         catch (Exception exception)
         {

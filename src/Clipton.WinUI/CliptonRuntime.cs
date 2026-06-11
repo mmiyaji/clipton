@@ -163,6 +163,12 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
+    public void ActivateFromSecondInstance()
+    {
+        AppDiagnostics.Info("Runtime", "Second instance launch detected; activating settings window.");
+        _dispatcherQueue.TryEnqueue(ShowMainWindow);
+    }
+
     public void ShowMainWindow()
     {
         if (_mainWindow is null)
