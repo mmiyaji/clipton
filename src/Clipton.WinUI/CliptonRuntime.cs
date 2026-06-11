@@ -37,6 +37,9 @@ public sealed class CliptonRuntime : IDisposable
     private readonly string _thumbnailPath;
     private readonly string _tempPastePath;
     private readonly object _historySaveGate = new();
+    private readonly object _historyPersistChainGate = new();
+    private readonly ClipboardCaptureWorker _captureWorker = new();
+    private Task _historyPersistChain = Task.CompletedTask;
     private readonly object _historyImageCacheGate = new();
     private readonly Dictionary<string, byte[]> _historyImageBytesByKey = new(StringComparer.Ordinal);
     private readonly Queue<string> _historyImageCacheKeys = new();
@@ -712,6 +715,7 @@ public sealed class CliptonRuntime : IDisposable
         IsExiting = true;
         _clipboardCaptureDelay?.Cancel();
         _clipboardCaptureDelay?.Dispose();
+        _captureWorker.Dispose();
         SaveHistory();
         _messageWindow?.Dispose();
         _notifyIcon?.Dispose();
@@ -735,8 +739,8 @@ public sealed class CliptonRuntime : IDisposable
         _messageWindow = new HotkeyMessageWindow(ShowQuickMenuOnUiThread, CaptureClipboardOnUiThread);
         RegisterHotkey();
         AppProfiler.Mark("Hotkey registered.");
-        CaptureClipboard();
-        AppProfiler.Mark("Initial clipboard captured.");
+        ScheduleClipboardCapture();
+        AppProfiler.Mark("Initial clipboard capture scheduled.");
         _clipboardServicesStarted = true;
         AppDiagnostics.Info("Runtime", "Clipboard services started.");
     }
@@ -753,7 +757,7 @@ public sealed class CliptonRuntime : IDisposable
         if (delay <= 0)
         {
             AppDiagnostics.Info("Clipboard", "Clipboard update received; capture scheduled immediately.");
-            _dispatcherQueue.TryEnqueue(CaptureClipboard);
+            ScheduleClipboardCapture();
             return;
         }
 
@@ -767,7 +771,7 @@ public sealed class CliptonRuntime : IDisposable
         {
             if (!task.IsCanceled)
             {
-                _dispatcherQueue.TryEnqueue(CaptureClipboard);
+                ScheduleClipboardCapture();
             }
         }, TaskScheduler.Default);
     }
@@ -803,7 +807,12 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
-    private void CaptureClipboard()
+    private void ScheduleClipboardCapture()
+    {
+        _captureWorker.Post(CaptureClipboardCore);
+    }
+
+    private void CaptureClipboardCore()
     {
         if (Settings.PauseCapture)
         {
@@ -811,7 +820,7 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         var sequence = NativeMethods.GetClipboardSequenceNumber();
-        if (sequence != 0 && sequence == _lastCapturedClipboardSequence)
+        if (sequence != 0 && sequence == Volatile.Read(ref _lastCapturedClipboardSequence))
         {
             AppDiagnostics.Info("Clipboard", $"Clipboard sequence {sequence} already captured; skipping.");
             return;
@@ -823,13 +832,18 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        _lastCapturedClipboardSequence = sequence;
+        _dispatcherQueue.TryEnqueue(() => CommitCapturedClipboard(snapshot, sequence));
+    }
+
+    private void CommitCapturedClipboard(ClipboardSnapshot snapshot, uint sequence)
+    {
+        Volatile.Write(ref _lastCapturedClipboardSequence, sequence);
         if (History.Add(snapshot))
         {
             AppDiagnostics.Info("Clipboard", $"Captured clipboard item with {snapshot.Formats.Count} format(s).");
             if (ShouldFlushResidentHistory())
             {
-                SaveHistory();
+                SaveHistoryInBackground();
             }
             else
             {
@@ -918,8 +932,8 @@ public sealed class CliptonRuntime : IDisposable
             _pasteTargetWindow = NativeMethods.GetForegroundWindow();
         }
 
-        CaptureClipboard();
-        AppProfiler.Mark("Quick menu clipboard captured.");
+        ScheduleClipboardCapture();
+        AppProfiler.Mark("Quick menu clipboard capture scheduled.");
 
         var menuItems = new List<QuickMenuItem>();
         var pinnedIds = Settings.PinnedHistoryIds.ToHashSet(StringComparer.Ordinal);
@@ -1333,33 +1347,109 @@ public sealed class CliptonRuntime : IDisposable
     private void SaveHistory()
     {
         Interlocked.Increment(ref _historySaveVersion);
+        CancelPendingHistorySaveDebounce();
+        var plan = CreateHistoryPersistPlan();
+        try
+        {
+            EnqueueHistoryPersist(plan).Wait(TimeSpan.FromSeconds(10));
+        }
+        catch (AggregateException exception)
+        {
+            AppDiagnostics.Log(exception, "History save");
+        }
+
+        FinishHistoryPersist(plan);
+    }
+
+    private void SaveHistoryInBackground()
+    {
+        Interlocked.Increment(ref _historySaveVersion);
+        CancelPendingHistorySaveDebounce();
+        var plan = CreateHistoryPersistPlan();
+        _ = EnqueueHistoryPersist(plan).ContinueWith(
+            _ => _dispatcherQueue.TryEnqueue(() => FinishHistoryPersist(plan)),
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnRanToCompletion,
+            TaskScheduler.Default);
+    }
+
+    private void CancelPendingHistorySaveDebounce()
+    {
         lock (_historySaveGate)
         {
             _historySaveDebounce?.Cancel();
             _historySaveDebounce = null;
         }
+    }
 
-        if (Settings.PersistEncryptedHistory)
+    private HistoryPersistPlan CreateHistoryPersistPlan()
+    {
+        return new HistoryPersistPlan(
+            Settings.PersistEncryptedHistory,
+            History.Items.ToArray(),
+            _loadedPersistedHistoryCount,
+            UnloadedPersistedHistoryCount,
+            Settings.MaxHistoryItems);
+    }
+
+    private Task EnqueueHistoryPersist(HistoryPersistPlan plan)
+    {
+        lock (_historyPersistChainGate)
         {
-            var snapshots = History.Items.ToArray();
-            if (UnloadedPersistedHistoryCount > 0)
+            var task = _historyPersistChain.ContinueWith(
+                _ => PersistHistory(plan),
+                CancellationToken.None,
+                TaskContinuationOptions.None,
+                TaskScheduler.Default);
+            _historyPersistChain = task;
+            return task;
+        }
+    }
+
+    private void PersistHistory(HistoryPersistPlan plan)
+    {
+        try
+        {
+            if (!plan.Persist)
             {
-                _historyStore.SavePreservingOlder(snapshots, _loadedPersistedHistoryCount, Settings.MaxHistoryItems);
+                _historyStore.Delete();
+                return;
+            }
+
+            if (plan.UnloadedCount > 0)
+            {
+                _historyStore.SavePreservingOlder(plan.Snapshots, plan.LoadedPersistedCount, plan.Capacity);
             }
             else
             {
-                _historyStore.Save(snapshots);
+                _historyStore.Save(plan.Snapshots);
             }
 
-            PruneHistoryImageFiles(snapshots.Select(item => item.Id).ToHashSet(StringComparer.Ordinal));
-            _persistedHistoryCount = Math.Min(Settings.MaxHistoryItems, Math.Max(_persistedHistoryCount, snapshots.Length + UnloadedPersistedHistoryCount));
-            TrimLoadedHistoryAfterPersist();
+            PruneHistoryImageFiles(plan.Snapshots.Select(item => item.Id).ToHashSet(StringComparer.Ordinal));
         }
-        else
+        catch (Exception exception)
         {
-            _historyStore.Delete();
+            AppDiagnostics.Log(exception, "History persist");
         }
     }
+
+    private void FinishHistoryPersist(HistoryPersistPlan plan)
+    {
+        if (!plan.Persist)
+        {
+            return;
+        }
+
+        _persistedHistoryCount = Math.Min(plan.Capacity, Math.Max(_persistedHistoryCount, plan.Snapshots.Length + plan.UnloadedCount));
+        TrimLoadedHistoryAfterPersist();
+    }
+
+    private sealed record HistoryPersistPlan(
+        bool Persist,
+        ClipboardSnapshot[] Snapshots,
+        int LoadedPersistedCount,
+        int UnloadedCount,
+        int Capacity);
 
     private void QueueHistorySave()
     {
@@ -1386,7 +1476,7 @@ public sealed class CliptonRuntime : IDisposable
                 await Task.Delay(HistorySaveDebounceMilliseconds, cts.Token);
                 if (version == Volatile.Read(ref _historySaveVersion))
                 {
-                    _dispatcherQueue.TryEnqueue(SaveHistory);
+                    _dispatcherQueue.TryEnqueue(SaveHistoryInBackground);
                 }
             }
             catch (OperationCanceledException)
@@ -1452,9 +1542,7 @@ public sealed class CliptonRuntime : IDisposable
 
         Interlocked.Exchange(ref _lastResidentHistoryGcTick, now);
         GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
-        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
-        GC.WaitForPendingFinalizers();
-        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Optimized, blocking: false, compacting: false);
     }
 
     private void EnsureDefaultSnippets()
@@ -1621,11 +1709,33 @@ public sealed class CliptonRuntime : IDisposable
     {
         RestorePasteTarget();
         Thread.Sleep(60);
+        WaitForModifierKeyRelease();
         NativeMethods.keybd_event(NativeMethods.VkControl, 0, 0, UIntPtr.Zero);
         NativeMethods.keybd_event(NativeMethods.VkV, 0, 0, UIntPtr.Zero);
         Thread.Sleep(20);
         NativeMethods.keybd_event(NativeMethods.VkV, 0, NativeMethods.KeyeventfKeyup, UIntPtr.Zero);
         NativeMethods.keybd_event(NativeMethods.VkControl, 0, NativeMethods.KeyeventfKeyup, UIntPtr.Zero);
+    }
+
+    // Shift/Alt/Win still held from the hotkey or Enter press would turn the
+    // injected Ctrl+V into a different chord (e.g. Ctrl+Shift+V) in the target app.
+    private static void WaitForModifierKeyRelease()
+    {
+        static bool IsDown(int key) => (NativeMethods.GetAsyncKeyState(key) & 0x8000) != 0;
+
+        var deadline = Environment.TickCount64 + 600;
+        while (Environment.TickCount64 < deadline)
+        {
+            if (!IsDown(NativeMethods.VkShift)
+                && !IsDown(NativeMethods.VkMenu)
+                && !IsDown(NativeMethods.VkLWin)
+                && !IsDown(NativeMethods.VkRWin))
+            {
+                return;
+            }
+
+            Thread.Sleep(15);
+        }
     }
 
     private void RestorePasteTarget()

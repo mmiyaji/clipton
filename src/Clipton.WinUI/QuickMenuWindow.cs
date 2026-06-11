@@ -235,9 +235,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         Interlocked.Exchange(ref s_lastNativeResourceCollectionTick, now);
-        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
-        GC.WaitForPendingFinalizers();
-        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Optimized, blocking: false, compacting: false);
     }
 
     private void BuildHost()
