@@ -77,6 +77,8 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private bool _revealMaskedItems;
     private bool _showCapturedAt;
     private MenuFlyoutItemBase? _hoveredPasteOptionsItem;
+    private MenuFlyoutItemBase? _trackedFocusedItem;
+    private object? _trackedFocusedTag;
     private Window? _imagePreviewWindow;
     private IntPtr _imagePreviewHwnd;
     private AppWindow? _imagePreviewAppWindow;
@@ -197,6 +199,8 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         _materializedFolderItems.Clear();
         _materializingFolderItems.Clear();
         _hoveredPasteOptionsItem = null;
+        _trackedFocusedItem = null;
+        _trackedFocusedTag = null;
         _currentItems = [];
         _rootItems = [];
     }
@@ -424,6 +428,13 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                         }
                     });
                 }
+                else if (GetFocusedPasteOptionsSubItem() is { } subItemQuickItem)
+                {
+                    // In-folder items with paste options are MenuFlyoutSubItems;
+                    // native Enter would only open the submenu. Paste directly
+                    // instead, matching root-level items.
+                    DispatcherQueue.TryEnqueue(() => Invoke(subItemQuickItem, asPlainText: false));
+                }
                 else
                 {
                     handled = false;
@@ -433,6 +444,10 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                 if (GetFocusedMenuItem() is { } previewItem && HasImagePreview(previewItem))
                 {
                     DispatcherQueue.TryEnqueue(() => ToggleImagePreview(previewItem));
+                }
+                else if (GetFocusedImagePreviewCommand() is { } previewCommand)
+                {
+                    DispatcherQueue.TryEnqueue(() => ToggleImagePreview(previewCommand.Item));
                 }
                 else
                 {
@@ -455,7 +470,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             case NativeMethods.VkEscape:
                 if (_imagePreviewWindow is not null)
                 {
-                    DispatcherQueue.TryEnqueue(HideImagePreview);
+                    DispatcherQueue.TryEnqueue(HideImagePreviewAndMaybeDismiss);
                 }
                 else
                 {
@@ -679,11 +694,23 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                 return;
             }
 
-            HideImagePreview();
+            HideImagePreviewAndMaybeDismiss();
             return;
         }
 
         ShowImagePreview(item);
+    }
+
+    // When the preview was opened by natively invoking the preview command the
+    // menu chain is already closed; closing the preview must end the session
+    // instead of leaving an invisible window holding the keyboard hook.
+    private void HideImagePreviewAndMaybeDismiss()
+    {
+        HideImagePreview();
+        if (!_dismissed && !_flyout.IsOpen)
+        {
+            Dismiss();
+        }
     }
 
     private static bool HasImagePreview(QuickMenuItem item)
@@ -713,6 +740,10 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             return;
         }
 
+        // The guard must be up before the first await: invoking the preview
+        // command natively closes the cascading menu chain, and the resulting
+        // flyout Closed event would otherwise dismiss this window mid-load.
+        _openingImagePreview = true;
         var bitmap = await CreateBitmapImageAsync(imageBytes);
         var previewBackground = new SolidColorBrush(Color.FromArgb(255, 28, 28, 28));
         var panelBackground = new SolidColorBrush(Color.FromArgb(255, 33, 33, 33));
@@ -728,6 +759,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         };
         if (_dismissed || requestId != _imagePreviewRequestId || _host.XamlRoot is null)
         {
+            _openingImagePreview = false;
             return;
         }
 
@@ -899,6 +931,10 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                 _imagePreviewFrame = null;
                 _imagePreviewFeedbackPill = null;
                 _imagePreviewFeedbackText = null;
+                if (!_dismissed && !_flyout.IsOpen)
+                {
+                    Dismiss();
+                }
             }
         };
         _openingImagePreview = true;
@@ -1234,6 +1270,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                 AddFolderPlaceholder(subItem);
                 subItem.PointerEntered += (_, _) => EnsureFolderItems(subItem);
                 subItem.GotFocus += (_, _) => EnsureFolderItems(subItem);
+                TrackFocus(subItem, item);
                 target.Add(subItem);
                 continue;
             }
@@ -1275,6 +1312,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                     }
                 };
                 ConfigureImagePreviewShortcut(optionSubItem, item);
+                TrackFocus(optionSubItem, item);
                 target.Add(optionSubItem);
                 continue;
             }
@@ -1352,6 +1390,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
 
             flyoutItem.Tag = item;
             flyoutItem.Click += (_, _) => Invoke(item, asPlainText: false);
+            TrackFocus(flyoutItem, item);
             target.Add(flyoutItem);
         }
     }
@@ -1516,6 +1555,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             Tag = new QuickMenuImagePreviewCommand(item),
             KeyboardAcceleratorTextOverride = "Space"
         };
+        TrackFocus(previewItem, previewItem.Tag);
         if (item.IconImageBytes is { Length: > 0 } imageBytes)
         {
             previewItem.Loaded += async (_, _) => await InsertImagePreviewAsync(previewItem, imageBytes, "small");
@@ -1534,6 +1574,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             Tag = option
         };
         optionItem.Click += (_, _) => InvokePasteOption(option);
+        TrackFocus(optionItem, option);
         return optionItem;
     }
 
@@ -1576,41 +1617,72 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         return string.IsNullOrWhiteSpace(hint) ? "..." : $"{hint}  ...";
     }
 
-    private QuickMenuItem? GetFocusedMenuItem()
+    // Menu popups (submenus, paste-option flyouts) have their own XamlRoots,
+    // so FocusManager.GetFocusedElement(_host.XamlRoot) cannot see focus inside
+    // them. GotFocus/LostFocus tracking covers every level; the tag is cached
+    // separately because the keyboard hook thread must not touch
+    // DependencyObject properties.
+    private void TrackFocus(MenuFlyoutItemBase item, object? tag)
     {
-        if (_host.XamlRoot is null)
+        item.GotFocus += (_, _) =>
         {
-            return null;
+            _trackedFocusedItem = item;
+            _trackedFocusedTag = tag;
+        };
+        item.LostFocus += (_, _) =>
+        {
+            if (ReferenceEquals(_trackedFocusedItem, item))
+            {
+                _trackedFocusedItem = null;
+                _trackedFocusedTag = null;
+            }
+        };
+    }
+
+    private (MenuFlyoutItemBase? Element, object? Tag) GetFocusedMenuElement()
+    {
+        if (_trackedFocusedItem is { } tracked)
+        {
+            return (tracked, _trackedFocusedTag);
         }
 
-        return FocusManager.GetFocusedElement(_host.XamlRoot) switch
+        try
         {
-            MenuFlyoutItemBase { Tag: QuickMenuItem item } => item,
-            _ => null
-        };
+            if (_host.XamlRoot is not null
+                && FocusManager.GetFocusedElement(_host.XamlRoot) is MenuFlyoutItemBase element)
+            {
+                return (element, element.Tag);
+            }
+        }
+        catch (COMException)
+        {
+        }
+
+        return (null, null);
+    }
+
+    private QuickMenuItem? GetFocusedMenuItem()
+    {
+        return GetFocusedMenuElement().Tag as QuickMenuItem;
     }
 
     private MenuFlyoutItem? GetFocusedPasteOptionsItem()
     {
-        if (_host.XamlRoot is null)
-        {
-            return null;
-        }
-
-        return FocusManager.GetFocusedElement(_host.XamlRoot) is MenuFlyoutItem { Tag: QuickMenuItem { PasteOptions.Count: > 0 } } focusedItem
-            ? focusedItem
+        var (element, tag) = GetFocusedMenuElement();
+        return element is MenuFlyoutItem flyoutItem && tag is QuickMenuItem { PasteOptions.Count: > 0 }
+            ? flyoutItem
             : null;
+    }
+
+    private QuickMenuImagePreviewCommand? GetFocusedImagePreviewCommand()
+    {
+        return GetFocusedMenuElement().Tag as QuickMenuImagePreviewCommand;
     }
 
     private QuickMenuItem? GetFocusedPasteOptionsSubItem()
     {
-        if (_host.XamlRoot is null)
-        {
-            return null;
-        }
-
-        return FocusManager.GetFocusedElement(_host.XamlRoot) is MenuFlyoutSubItem { Tag: QuickMenuItem { PasteOptions.Count: > 0 } item }
-            && !item.IsFolder
+        var (element, tag) = GetFocusedMenuElement();
+        return element is MenuFlyoutSubItem && tag is QuickMenuItem { PasteOptions.Count: > 0 } item && !item.IsFolder
             ? item
             : null;
     }
