@@ -58,11 +58,9 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private readonly Grid _host = new();
     private readonly MenuFlyout _flyout = new();
     private readonly string _theme;
-    private readonly string _searchTitle;
     private readonly string _searchPrompt;
-    private readonly string _searchButtonText;
+    private readonly string _searchHintsText;
     private readonly string _advancedSearchButtonText;
-    private readonly string _cancelButtonText;
     private readonly string _noSearchResultsText;
     private readonly string _previewImageText;
     private readonly IReadOnlyDictionary<string, string> _previewStrings;
@@ -84,7 +82,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private bool _revealMaskedItems;
     private bool _showCapturedAt;
     private MenuFlyoutItemBase? _hoveredPasteOptionsItem;
-    private QuickMenuWindow? _replacementWindow;
+    private QuickMenuSearchWindow? _searchWindow;
     private Window? _imagePreviewWindow;
     private IntPtr _imagePreviewHwnd;
     private AppWindow? _imagePreviewAppWindow;
@@ -111,11 +109,9 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         bool showShortcutHints,
         QuickMenuShortcutSettings shortcuts,
         Action openDetailedSearch,
-        string searchTitle,
         string searchPrompt,
-        string searchButtonText,
+        string searchHintsText,
         string advancedSearchButtonText,
-        string cancelButtonText,
         string noSearchResultsText,
         string previewImageText,
         IReadOnlyDictionary<string, string> previewStrings)
@@ -129,11 +125,9 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         _showShortcutHints = showShortcutHints;
         _shortcuts = shortcuts;
         _openDetailedSearch = openDetailedSearch;
-        _searchTitle = searchTitle;
         _searchPrompt = searchPrompt;
-        _searchButtonText = searchButtonText;
+        _searchHintsText = searchHintsText;
         _advancedSearchButtonText = advancedSearchButtonText;
-        _cancelButtonText = cancelButtonText;
         _noSearchResultsText = noSearchResultsText;
         _previewImageText = previewImageText;
         _previewStrings = previewStrings;
@@ -174,6 +168,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     {
         UninstallKeyboardHook();
         UninstallMouseHook();
+        CloseSearchWindowQuietly();
         _flyout.Hide();
         _appWindow?.Hide();
         ReleaseMenuReferences();
@@ -198,12 +193,22 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         UninstallMouseHook();
         DispatcherQueue.TryEnqueue(() =>
         {
+            CloseSearchWindowQuietly();
             _flyout.Hide();
             _appWindow?.Hide();
             Dismissed?.Invoke(this, EventArgs.Empty);
             ReleaseMenuReferences();
             RequestNativeResourceCollection();
         });
+    }
+
+    private void CloseSearchWindowQuietly()
+    {
+        if (_searchWindow is { } searchWindow)
+        {
+            _searchWindow = null;
+            searchWindow.CloseQuietly();
+        }
     }
 
     private void ReleaseMenuReferences()
@@ -222,7 +227,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         _hoveredPasteOptionsItem = null;
         _currentItems = [];
         _rootItems = [];
-        _replacementWindow = null;
+        _searchWindow = null;
     }
 
     private static void RequestNativeResourceCollection()
@@ -1189,202 +1194,55 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         _flyout.Hide();
         UninstallKeyboardHook();
         UninstallMouseHook();
-        var searchResult = await PromptForSearchAsync();
-        if (searchResult?.OpenDetailedSearch == true)
-        {
-            Dismiss();
-            _openDetailedSearch();
-            return;
-        }
-
-        if (searchResult?.Query is null)
-        {
-            _opened = false;
-            BuildFlyout();
-            ShowFlyout();
-            EnqueueAfterDelay(300, () => _rebuildingFlyout = false);
-            return;
-        }
-
-        var normalizedQuery = searchResult.Query.Trim();
         var rootItems = _rootItems;
-        var resultItems = string.IsNullOrWhiteSpace(normalizedQuery)
-            ? rootItems
-            : await Task.Run(() => (IReadOnlyList<QuickMenuItem>)FlattenSearchableItems(rootItems)
-                .Where(item => MatchesSearch(item, normalizedQuery))
-                .Take(50)
-                .ToArray());
-
+        var searchSource = await Task.Run(() => FlattenSearchableItems(rootItems).ToArray());
         if (_dismissed)
         {
             return;
         }
 
-        if (resultItems.Count == 0)
-        {
-            resultItems =
-            [
-                new QuickMenuItem(
-                    string.Format(_noSearchResultsText, normalizedQuery),
-                    _shortcuts.Search,
-                    "-",
-                    string.Empty,
-                    () => { },
-                    IsEnabled: false)
-            ];
-        }
-
-        ShowReplacementMenu(resultItems);
-    }
-
-    private void ShowReplacementMenu(IReadOnlyList<QuickMenuItem> items)
-    {
-        _flyout.Hide();
-        _appWindow?.Hide();
-        UninstallKeyboardHook();
-        UninstallMouseHook();
-        _replacementWindow = new QuickMenuWindow(
-            _searchTitle,
-            items,
+        _searchWindow = new QuickMenuSearchWindow(
+            searchSource,
             _theme,
-            _imagePreviewSize,
-            _showCapturedAt,
-            _showShortcutHints,
-            _shortcuts,
-            _openDetailedSearch,
-            _searchTitle,
             _searchPrompt,
-            _searchButtonText,
+            _searchHintsText,
             _advancedSearchButtonText,
-            _cancelButtonText,
             _noSearchResultsText,
-            _previewImageText,
-            _previewStrings);
-        _replacementWindow.Dismissed += (_, _) => Dismiss();
-        _replacementWindow.FocusMenu();
+            invokeItem: (item, asPlainText) =>
+            {
+                _searchWindow = null;
+                Invoke(item, asPlainText);
+            },
+            openDetailedSearch: () =>
+            {
+                _searchWindow = null;
+                Dismiss();
+                _openDetailedSearch();
+            },
+            returnToMenu: () => DispatcherQueue.TryEnqueue(ReturnFromSearch),
+            dismissAll: () =>
+            {
+                _searchWindow = null;
+                Dismiss();
+            });
+        _searchWindow.Show();
     }
 
-    private async Task<SearchPromptResult?> PromptForSearchAsync()
+    private void ReturnFromSearch()
     {
-        var result = new TaskCompletionSource<SearchPromptResult?>();
-        var window = new Window
+        _searchWindow = null;
+        if (_dismissed)
         {
-            Title = _searchTitle
-        };
-        window.SystemBackdrop = SystemBackdrop;
-        var root = new Grid
-        {
-            Padding = new Thickness(18),
-            MinWidth = 520,
-            MinHeight = 180,
-            RequestedTheme = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase)
-                ? ElementTheme.Dark
-                : ElementTheme.Light,
-            Background = new SolidColorBrush(string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase)
-                ? Color.FromArgb(255, 31, 31, 31)
-                : Color.FromArgb(255, 243, 243, 243))
-        };
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        var prompt = new TextBlock
-        {
-            Text = _searchPrompt,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 12),
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        root.Children.Add(prompt);
-        var input = new TextBox
-        {
-            PlaceholderText = _searchTitle,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            MinHeight = 34,
-            Margin = new Thickness(0, 0, 0, 12),
-            VerticalContentAlignment = VerticalAlignment.Center
-        };
-        input.Loaded += (_, _) => FocusSearchInput(input);
-        Grid.SetRow(input, 1);
-        root.Children.Add(input);
-        var buttons = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Spacing = 8
-        };
-        var cancelButton = new Button { Content = _cancelButtonText, MinWidth = 96 };
-        var advancedButton = new Button { Content = _advancedSearchButtonText, MinWidth = 96 };
-        var searchButton = new Button { Content = _searchButtonText, MinWidth = 96 };
-        buttons.Children.Add(advancedButton);
-        buttons.Children.Add(cancelButton);
-        buttons.Children.Add(searchButton);
-        Grid.SetRow(buttons, 2);
-        root.Children.Add(buttons);
-        window.Content = root;
-
-        var completed = false;
-
-        void Complete(SearchPromptResult? value)
-        {
-            if (completed)
-            {
-                return;
-            }
-
-            completed = true;
-            result.TrySetResult(value);
-            window.Close();
+            return;
         }
 
-        searchButton.Click += (_, _) => Complete(new SearchPromptResult(input.Text, false));
-        advancedButton.Click += (_, _) => Complete(new SearchPromptResult(null, true));
-        cancelButton.Click += (_, _) => Complete(null);
-        input.KeyDown += (_, e) =>
-        {
-            if (e.Key == VirtualKey.Enter)
-            {
-                Complete(new SearchPromptResult(input.Text, false));
-                e.Handled = true;
-            }
-            else if (e.Key == VirtualKey.Escape)
-            {
-                Complete(null);
-                e.Handled = true;
-            }
-        };
-        window.Closed += (_, _) => result.TrySetResult(completed ? result.Task.Result : null);
-        window.Activate();
-        var hwnd = WindowNative.GetWindowHandle(window);
-        var id = Win32Interop.GetWindowIdFromWindow(hwnd);
-        if (AppWindow.GetFromWindowId(id) is { } appWindow)
-        {
-            appWindow.Resize(new SizeInt32(560, 220));
-            var dark = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase);
-            appWindow.TitleBar.BackgroundColor = dark ? Color.FromArgb(255, 31, 31, 31) : Color.FromArgb(255, 243, 243, 243);
-            appWindow.TitleBar.ForegroundColor = dark ? Color.FromArgb(255, 243, 243, 243) : Color.FromArgb(255, 31, 31, 31);
-            appWindow.TitleBar.ButtonBackgroundColor = appWindow.TitleBar.BackgroundColor;
-            appWindow.TitleBar.ButtonForegroundColor = appWindow.TitleBar.ForegroundColor;
-            if (appWindow.Presenter is OverlappedPresenter presenter)
-            {
-                presenter.IsResizable = true;
-                presenter.IsMaximizable = true;
-                presenter.IsMinimizable = true;
-            }
-        }
-
-        NativeMethods.SetForegroundWindow(hwnd);
-        FocusSearchInput(input);
-        _ = Task.Delay(120).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => FocusSearchInput(input)));
-        return await result.Task;
+        _opened = false;
+        BuildFlyout();
+        ShowFlyout();
+        EnqueueAfterDelay(300, () => _rebuildingFlyout = false);
     }
 
-    private static void FocusSearchInput(TextBox input)
-    {
-        input.Focus(FocusState.Programmatic);
-        input.Select(input.Text.Length, 0);
-    }
-
-    private static IEnumerable<QuickMenuItem> FlattenSearchableItems(IEnumerable<QuickMenuItem> items)
+    internal static IEnumerable<QuickMenuItem> FlattenSearchableItems(IEnumerable<QuickMenuItem> items)
     {
         foreach (var item in items)
         {
@@ -1407,9 +1265,8 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         }
     }
 
-    private static bool MatchesSearch(QuickMenuItem item, string query)
+    internal static bool MatchesSearch(SearchFilter filter, QuickMenuItem item)
     {
-        var filter = SearchFilter.Parse(query);
         if (filter.IsEmpty)
         {
             return true;
@@ -1900,14 +1757,14 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         return new RootFlyoutPlacement(anchor, placement);
     }
 
-    private static System.Drawing.Point GetCursorPoint()
+    internal static System.Drawing.Point GetCursorPoint()
     {
         return NativeMethods.GetCursorPos(out var point)
             ? new System.Drawing.Point(point.X, point.Y)
             : System.Drawing.Point.Empty;
     }
 
-    private static System.Drawing.Rectangle GetWorkingArea(System.Drawing.Point point)
+    internal static System.Drawing.Rectangle GetWorkingArea(System.Drawing.Point point)
     {
         var nativePoint = new NativeMethods.Point { X = point.X, Y = point.Y };
         var monitor = NativeMethods.MonitorFromPoint(nativePoint, NativeMethods.MonitorDefaultToNearest);
@@ -2033,7 +1890,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         grid.Children.Add(panel);
     }
 
-    private static async Task<BitmapImage> CreateBitmapImageAsync(byte[] bytes, int decodePixelWidth = 0)
+    internal static async Task<BitmapImage> CreateBitmapImageAsync(byte[] bytes, int decodePixelWidth = 0)
     {
         var bitmap = new BitmapImage();
         if (decodePixelWidth > 0)
@@ -2105,7 +1962,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         NativeMethods.SetLayeredWindowAttributes(_hwnd, 0, 1, NativeMethods.LwaAlpha);
     }
 
-    private static void ConfigureBorderlessToolWindow(IntPtr hwnd)
+    internal static void ConfigureBorderlessToolWindow(IntPtr hwnd)
     {
         if (hwnd == IntPtr.Zero)
         {
@@ -2221,5 +2078,3 @@ internal readonly record struct KeyModifierState(bool Control, bool Shift, bool 
 internal sealed record RootFlyoutPlacement(
     System.Drawing.Point Anchor,
     FlyoutPlacementMode Placement);
-
-internal sealed record SearchPromptResult(string? Query, bool OpenDetailedSearch);

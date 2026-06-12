@@ -1034,11 +1034,9 @@ public sealed class CliptonRuntime : IDisposable
                 Settings.QuickMenuShowShortcutHints,
                 Settings.QuickMenuShortcuts,
                 ShowHistoryWindow,
-                Translate("Search"),
                 Translate("SearchPrompt"),
-                Translate("Search"),
+                Translate("QuickMenuSearchHints"),
                 Translate("AdvancedSearch"),
-                Translate("Cancel"),
                 Translate("NoSearchResults"),
                 Translate("PreviewImage"),
                 new Dictionary<string, string>
