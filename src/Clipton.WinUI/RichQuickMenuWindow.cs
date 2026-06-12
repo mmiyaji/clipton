@@ -1040,6 +1040,10 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
                 args.Handled = true;
                 NavigateBack();
                 break;
+            case VirtualKey.Right:
+                args.Handled = true;
+                OpenSelectedFolder();
+                break;
             case VirtualKey.C when ctrl:
                 args.Handled = true;
                 CopySelectedImage();
@@ -1196,6 +1200,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             case NativeMethods.VkBack:
                 DispatcherQueue.TryEnqueue(NavigateBack);
                 return 1;
+            case NativeMethods.VkRight:
+                DispatcherQueue.TryEnqueue(OpenSelectedFolder);
+                return 1;
             case NativeMethods.VkReturn:
                 DispatcherQueue.TryEnqueue(InvokeSelected);
                 return 1;
@@ -1232,6 +1239,14 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     }
 
     private void InvokeSelected() => InvokeItem(GetSelectedItem());
+
+    private void OpenSelectedFolder()
+    {
+        if (GetSelectedItem() is { IsFolder: true } folder)
+        {
+            InvokeItem(folder);
+        }
+    }
 
     private void InvokeSelectedPlainText()
     {
@@ -1319,6 +1334,13 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _activeFilter = HeaderFilter.All;
         RebuildItems();
         _scrollViewer?.ChangeView(null, 0, null, disableAnimation: true);
+        if (_searchBox.Visibility == Visibility.Visible && _searchResults is null)
+        {
+            // An idle search box would keep keyboard focus and swallow the
+            // Left/Back folder navigation keys; close it when entering a folder.
+            HideSearch();
+        }
+
         FocusMenuNow();
         QueueFocusRetry();
     }
