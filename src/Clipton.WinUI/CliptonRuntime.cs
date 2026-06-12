@@ -27,6 +27,7 @@ public sealed class CliptonRuntime : IDisposable
     private const int ResidentHistoryGcMinIntervalMilliseconds = 5000;
     private const int QuickMenuHotkeyDebounceMilliseconds = 160;
     private const int TempPasteMaxFiles = 100;
+    private const int QuickMenuClipboardCaptureTimeoutMilliseconds = 500;
     private static readonly TimeSpan TempPasteMaxAge = TimeSpan.FromHours(24);
     private static readonly Regex UrlRegex = new(@"\b(?:https?|ftp)://[^\s<>()""']+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private readonly DispatcherQueue _dispatcherQueue;
@@ -816,29 +817,47 @@ public sealed class CliptonRuntime : IDisposable
 
     private void CaptureClipboardCore()
     {
-        if (Settings.PauseCapture)
+        var result = CaptureClipboardSnapshotCore();
+        if (result is null)
         {
             return;
+        }
+
+        _dispatcherQueue.TryEnqueue(() => CommitCapturedClipboard(result.Snapshot, result.Sequence));
+    }
+
+    private ClipboardCaptureResult? CaptureClipboardSnapshotCore()
+    {
+        if (Settings.PauseCapture)
+        {
+            return null;
         }
 
         var sequence = NativeMethods.GetClipboardSequenceNumber();
         if (sequence != 0 && sequence == Volatile.Read(ref _lastCapturedClipboardSequence))
         {
             AppDiagnostics.Info("Clipboard", $"Clipboard sequence {sequence} already captured; skipping.");
-            return;
+            return null;
         }
 
         var snapshot = ClipboardBridge.Capture();
         if (snapshot is null)
         {
-            return;
+            return null;
         }
 
-        _dispatcherQueue.TryEnqueue(() => CommitCapturedClipboard(snapshot, sequence));
+        return new ClipboardCaptureResult(snapshot, sequence);
     }
 
     private void CommitCapturedClipboard(ClipboardSnapshot snapshot, uint sequence)
     {
+        var lastSequence = Volatile.Read(ref _lastCapturedClipboardSequence);
+        if (sequence != 0 && lastSequence != 0 && sequence < lastSequence)
+        {
+            AppDiagnostics.Info("Clipboard", $"Ignoring stale clipboard sequence {sequence}; latest is {lastSequence}.");
+            return;
+        }
+
         Volatile.Write(ref _lastCapturedClipboardSequence, sequence);
         if (History.Add(snapshot))
         {
@@ -854,6 +873,42 @@ public sealed class CliptonRuntime : IDisposable
 
             _mainWindow?.RefreshItemsIncremental();
         }
+    }
+
+    private void RefreshClipboardBeforeQuickMenu()
+    {
+        var task = _captureWorker.InvokeAsync(CaptureClipboardSnapshotCore);
+        try
+        {
+            if (task.Wait(TimeSpan.FromMilliseconds(QuickMenuClipboardCaptureTimeoutMilliseconds)))
+            {
+                if (task.Result is { } result)
+                {
+                    CommitCapturedClipboard(result.Snapshot, result.Sequence);
+                    AppProfiler.Mark("Quick menu clipboard capture committed.");
+                }
+
+                return;
+            }
+        }
+        catch (Exception exception)
+        {
+            AppDiagnostics.Log(exception, "Quick menu clipboard capture");
+            return;
+        }
+
+        AppDiagnostics.Info("Clipboard", $"Quick menu clipboard capture exceeded {QuickMenuClipboardCaptureTimeoutMilliseconds}ms; using current history.");
+        _ = task.ContinueWith(completed =>
+        {
+            if (completed.Status == TaskStatus.RanToCompletion && completed.Result is { } result)
+            {
+                _dispatcherQueue.TryEnqueue(() => CommitCapturedClipboard(result.Snapshot, result.Sequence));
+            }
+            else if (completed.Exception is not null)
+            {
+                AppDiagnostics.Log(completed.Exception, "Quick menu clipboard capture continuation");
+            }
+        }, TaskScheduler.Default);
     }
 
     private bool RegisterHotkey()
@@ -934,8 +989,7 @@ public sealed class CliptonRuntime : IDisposable
             _pasteTargetWindow = NativeMethods.GetForegroundWindow();
         }
 
-        ScheduleClipboardCapture();
-        AppProfiler.Mark("Quick menu clipboard capture scheduled.");
+        RefreshClipboardBeforeQuickMenu();
 
         var menuItems = BuildQuickMenuItems();
         var quickMenuDisplayMode = NormalizeQuickMenuDisplayMode(Settings.QuickMenuDisplayMode);
@@ -951,6 +1005,8 @@ public sealed class CliptonRuntime : IDisposable
 
         AppProfiler.Mark($"Quick menu focused. mode={quickMenuDisplayMode}; total={(System.Diagnostics.Stopwatch.GetElapsedTime(quickMenuStartTimestamp).TotalMilliseconds):F1}ms; items={menuItems.Count}");
     }
+
+    private sealed record ClipboardCaptureResult(ClipboardSnapshot Snapshot, uint Sequence);
 
     // The menu windows are cached and reused across invocations: tearing down
     // and recreating a WinUI window per hotkey press both leaks the hidden

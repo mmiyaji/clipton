@@ -37,6 +37,37 @@ internal sealed class ClipboardCaptureWorker : IDisposable
         }
     }
 
+    public Task<T?> InvokeAsync<T>(Func<T?> action)
+    {
+        if (_queue.IsAddingCompleted)
+        {
+            return Task.FromResult<T?>(default);
+        }
+
+        var completion = new TaskCompletionSource<T?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            _queue.Add(() =>
+            {
+                try
+                {
+                    completion.TrySetResult(action());
+                }
+                catch (Exception exception)
+                {
+                    AppDiagnostics.Log(exception, "Clipboard capture worker");
+                    completion.TrySetException(exception);
+                }
+            });
+        }
+        catch (InvalidOperationException)
+        {
+            completion.TrySetResult(default);
+        }
+
+        return completion.Task;
+    }
+
     private void Run()
     {
         foreach (var action in _queue.GetConsumingEnumerable())

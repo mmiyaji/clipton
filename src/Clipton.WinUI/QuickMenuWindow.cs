@@ -255,19 +255,12 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             Position = new Windows.Foundation.Point(0, 0)
         });
         var focusToken = ++_focusToken;
-        DispatcherQueue.TryEnqueue(() =>
-        {
-            _ = Task.Delay(180).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
-            {
-                if (_dismissed || _focusToken != focusToken)
-                {
-                    return;
-                }
-
-                FocusHostWindow();
-                FocusFirstRootItem();
-            }));
-        });
+        FocusRootItemAfterDelay(focusToken, 0);
+        FocusRootItemAfterDelay(focusToken, 80);
+        FocusRootItemAfterDelay(focusToken, 180);
+        FocusRootItemAfterDelay(focusToken, 320);
+        FocusRootItemAfterDelay(focusToken, 500);
+        FocusRootItemAfterDelay(focusToken, 700);
     }
 
     private void FocusHostWindow()
@@ -278,6 +271,20 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         _host.Focus(FocusState.Programmatic);
+    }
+
+    private void FocusRootItemAfterDelay(long focusToken, int delayMilliseconds)
+    {
+        _ = Task.Delay(delayMilliseconds).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_dismissed || _focusToken != focusToken)
+            {
+                return;
+            }
+
+            FocusHostWindow();
+            FocusFirstRootItem();
+        }));
     }
 
     private void InstallKeyboardHook()
@@ -445,6 +452,14 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                     // native Enter would only open the submenu. Paste directly
                     // instead, matching root-level items.
                     DispatcherQueue.TryEnqueue(() => Invoke(subItemQuickItem, asPlainText: false));
+                }
+                else if (GetFocusedInvokableMenuItem() is { } focusedQuickItem)
+                {
+                    DispatcherQueue.TryEnqueue(() => Invoke(focusedQuickItem, asPlainText: false));
+                }
+                else if (GetFirstRootInvokableMenuItem() is { } fallbackQuickItem)
+                {
+                    DispatcherQueue.TryEnqueue(() => Invoke(fallbackQuickItem, asPlainText: false));
                 }
                 else
                 {
@@ -1677,6 +1692,13 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         return GetFocusedMenuElement().Tag as QuickMenuItem;
     }
 
+    private QuickMenuItem? GetFocusedInvokableMenuItem()
+    {
+        return GetFocusedMenuItem() is { IsFolder: false, Invoke: not null } item
+            ? item
+            : null;
+    }
+
     private MenuFlyoutItem? GetFocusedPasteOptionsItem()
     {
         var (element, tag) = GetFocusedMenuElement();
@@ -1733,6 +1755,13 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private void FocusFirstRootItem()
     {
         FocusWhenLoaded(FirstFocusableItem(_rootFocusableItems));
+    }
+
+    private QuickMenuItem? GetFirstRootInvokableMenuItem()
+    {
+        return _rootFocusableItems
+            .Select(item => item.Tag as QuickMenuItem)
+            .FirstOrDefault(item => item is { IsFolder: false, Invoke: not null });
     }
 
     private static MenuFlyoutItemBase? FirstFocusableItem(IEnumerable<MenuFlyoutItemBase> items)
