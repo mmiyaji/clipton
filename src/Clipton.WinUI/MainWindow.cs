@@ -163,6 +163,7 @@ public sealed class MainWindow : Window
     private bool _updatingSnippetTreeSelection;
     private string _historySearchQuery = string.Empty;
     private int _historyVisibleLimit = HistoryDisplayBatchSize;
+    private readonly Dictionary<string, ListViewItem> _historyRowCache = new(StringComparer.Ordinal);
     private bool _loading;
     private bool _startupRegistrationSaving;
     private bool _historyOptionsSaving;
@@ -265,12 +266,29 @@ public sealed class MainWindow : Window
 
     public void RefreshItems()
     {
+        // Display-affecting state (masking, language, pin state, ...) may have
+        // changed, so cached rows must be rebuilt.
+        _historyRowCache.Clear();
+        RefreshItemsCore();
+    }
+
+    // Membership-only refresh (new capture, search filter, load more): row
+    // visuals per snapshot are unchanged, so cached rows are reused instead of
+    // rebuilding view models, row UI and context flyouts for every item.
+    public void RefreshItemsIncremental()
+    {
+        RefreshItemsCore();
+    }
+
+    private void RefreshItemsCore()
+    {
+        var filter = SearchFilter.Parse(_historySearchQuery);
         _historyListView.Items.Clear();
         var visibleHistoryItems = new List<ClipboardSnapshot>(_historyVisibleLimit);
         var matchedHistoryCount = 0;
         foreach (var snapshot in _runtime.History.Items)
         {
-            if (!HistoryMatchesSearch(snapshot))
+            if (!HistoryMatchesSearch(filter, snapshot))
             {
                 continue;
             }
@@ -282,26 +300,10 @@ public sealed class MainWindow : Window
             }
         }
 
+        PruneHistoryRowCache();
         foreach (var snapshot in visibleHistoryItems)
         {
-            var item = _runtime.CreateHistoryItemViewModel(snapshot);
-            var listItem = new ListViewItem
-            {
-                Content = HistoryListRow(item),
-                Tag = item,
-                ContextFlyout = CreateHistoryContextFlyout(item),
-                HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                Padding = new Thickness(0),
-                MinHeight = 56,
-                UseSystemFocusVisuals = true
-            };
-            listItem.DoubleTapped += (_, _) => _runtime.PasteHistoryItem(item.Id, asPlainText: false);
-            listItem.RightTapped += (_, _) =>
-            {
-                _selectedHistoryId = item.Id;
-                _historyListView.SelectedItem = listItem;
-            };
-            _historyListView.Items.Add(listItem);
+            _historyListView.Items.Add(GetOrCreateHistoryRow(snapshot));
         }
 
         _historyEmptyText.Text = string.IsNullOrWhiteSpace(_historySearchQuery) ? _runtime.Translate("HistoryEmpty") : _runtime.Translate("NoSearchResults");
@@ -335,6 +337,53 @@ public sealed class MainWindow : Window
         }
 
         RefreshSnippetTree();
+    }
+
+    private ListViewItem GetOrCreateHistoryRow(ClipboardSnapshot snapshot)
+    {
+        if (_historyRowCache.TryGetValue(snapshot.Id, out var cached))
+        {
+            return cached;
+        }
+
+        var item = _runtime.CreateHistoryItemViewModel(snapshot);
+        var listItem = new ListViewItem
+        {
+            Content = HistoryListRow(item),
+            Tag = item,
+            ContextFlyout = CreateHistoryContextFlyout(item),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Padding = new Thickness(0),
+            MinHeight = 56,
+            UseSystemFocusVisuals = true
+        };
+        listItem.DoubleTapped += (_, _) => _runtime.PasteHistoryItem(item.Id, asPlainText: false);
+        listItem.RightTapped += (_, _) =>
+        {
+            _selectedHistoryId = item.Id;
+            _historyListView.SelectedItem = listItem;
+        };
+        _historyRowCache[snapshot.Id] = listItem;
+        return listItem;
+    }
+
+    private void PruneHistoryRowCache()
+    {
+        if (_historyRowCache.Count == 0)
+        {
+            return;
+        }
+
+        var activeIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var snapshot in _runtime.History.Items)
+        {
+            activeIds.Add(snapshot.Id);
+        }
+
+        foreach (var staleId in _historyRowCache.Keys.Where(id => !activeIds.Contains(id)).ToArray())
+        {
+            _historyRowCache.Remove(staleId);
+        }
     }
 
     public void RefreshTexts()
@@ -1370,9 +1419,8 @@ public sealed class MainWindow : Window
         }
     }
 
-    private bool HistoryMatchesSearch(ClipboardSnapshot item)
+    private bool HistoryMatchesSearch(SearchFilter filter, ClipboardSnapshot item)
     {
-        var filter = SearchFilter.Parse(_historySearchQuery);
         if (filter.IsEmpty)
         {
             return true;
@@ -1407,7 +1455,7 @@ public sealed class MainWindow : Window
         _historySearchQuery = normalized;
         _historyVisibleLimit = HistoryDisplayBatchSize;
         UpdateHistorySearchStatus();
-        RefreshItems();
+        RefreshItemsIncremental();
     }
 
     private void ClearHistorySearch()
@@ -1602,7 +1650,7 @@ public sealed class MainWindow : Window
     {
         _historyVisibleLimit += HistoryDisplayBatchSize;
         _runtime.LoadMorePersistedHistory(HistoryDisplayBatchSize);
-        RefreshItems();
+        RefreshItemsIncremental();
     }
 
     private void UpdateHistorySearchStatus()

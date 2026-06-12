@@ -850,7 +850,7 @@ public sealed class CliptonRuntime : IDisposable
                 QueueHistorySave();
             }
 
-            _mainWindow?.RefreshItems();
+            _mainWindow?.RefreshItemsIncremental();
         }
     }
 
