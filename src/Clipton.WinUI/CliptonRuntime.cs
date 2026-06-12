@@ -53,7 +53,8 @@ public sealed class CliptonRuntime : IDisposable
     private NativeTrayIcon? _notifyIcon;
     private Window? _lifetimeWindow;
     private MainWindow? _mainWindow;
-    private IQuickMenuHostWindow? _quickMenuWindow;
+    private QuickMenuWindow? _defaultQuickMenu;
+    private RichQuickMenuWindow? _richQuickMenu;
     private IntPtr _pasteTargetWindow;
     private long _lastQuickMenuRequestTick;
     private int _quickMenuRequestPending;
@@ -719,7 +720,8 @@ public sealed class CliptonRuntime : IDisposable
         SaveHistory();
         _messageWindow?.Dispose();
         _notifyIcon?.Dispose();
-        _quickMenuWindow?.Dismiss();
+        _defaultQuickMenu?.Dismiss();
+        _richQuickMenu?.Dismiss();
         _lifetimeWindow?.Close();
     }
 
@@ -938,20 +940,27 @@ public sealed class CliptonRuntime : IDisposable
         var menuItems = BuildQuickMenuItems();
         var quickMenuDisplayMode = NormalizeQuickMenuDisplayMode(Settings.QuickMenuDisplayMode);
         var useRichQuickMenu = string.Equals(quickMenuDisplayMode, "rich", StringComparison.OrdinalIgnoreCase);
-        if (_quickMenuWindow is { } existingQuickMenuWindow)
+        if (useRichQuickMenu)
         {
-            if (string.Equals(existingQuickMenuWindow.DisplayMode, quickMenuDisplayMode, StringComparison.OrdinalIgnoreCase))
-            {
-                existingQuickMenuWindow.Reopen(menuItems);
-                return;
-            }
-
-            existingQuickMenuWindow.Dismiss();
+            ShowRichQuickMenu(menuItems, startInSearchMode: false);
+        }
+        else
+        {
+            ShowDefaultQuickMenu(menuItems);
         }
 
-        IQuickMenuHostWindow quickMenuWindow = useRichQuickMenu
-            ? CreateRichQuickMenuWindow(menuItems, startInSearchMode: false)
-            : new QuickMenuWindow(
+        AppProfiler.Mark($"Quick menu focused. mode={quickMenuDisplayMode}; total={(System.Diagnostics.Stopwatch.GetElapsedTime(quickMenuStartTimestamp).TotalMilliseconds):F1}ms; items={menuItems.Count}");
+    }
+
+    // The menu windows are cached and reused across invocations: tearing down
+    // and recreating a WinUI window per hotkey press both leaks the hidden
+    // window and makes the menu slower to appear.
+    private void ShowDefaultQuickMenu(IReadOnlyList<QuickMenuItem> menuItems)
+    {
+        _richQuickMenu?.Dismiss();
+        if (_defaultQuickMenu is null)
+        {
+            _defaultQuickMenu = new QuickMenuWindow(
                 Translate("History"),
                 menuItems,
                 EffectiveTheme,
@@ -969,21 +978,38 @@ public sealed class CliptonRuntime : IDisposable
                     ["ImagePreviewFeedbackZoomOut"] = Translate("ImagePreviewFeedbackZoomOut"),
                     ["ImagePreviewFeedbackZoomReset"] = Translate("ImagePreviewFeedbackZoomReset")
                 });
-        AttachQuickMenuWindow(quickMenuWindow);
-        AppProfiler.Mark($"Quick menu focused. mode={quickMenuDisplayMode}; total={(System.Diagnostics.Stopwatch.GetElapsedTime(quickMenuStartTimestamp).TotalMilliseconds):F1}ms; items={menuItems.Count}");
+            _defaultQuickMenu.FocusMenu();
+            return;
+        }
+
+        _defaultQuickMenu.Reopen(menuItems);
+    }
+
+    private void ShowRichQuickMenu(IReadOnlyList<QuickMenuItem> menuItems, bool startInSearchMode)
+    {
+        _defaultQuickMenu?.Dismiss();
+        if (_richQuickMenu is null)
+        {
+            _richQuickMenu = CreateRichQuickMenuWindow(menuItems, startInSearchMode);
+            _richQuickMenu.FocusMenu();
+            return;
+        }
+
+        if (startInSearchMode)
+        {
+            _richQuickMenu.ReopenWithSearch(menuItems);
+        }
+        else
+        {
+            _richQuickMenu.Reopen(menuItems);
+        }
     }
 
     // Opens the rich window focused on its search box. Used by the default
     // quick menu's search shortcut so both display modes share one search UI.
     private void OpenQuickMenuSearch()
     {
-        var menuItems = BuildQuickMenuItems();
-        if (_quickMenuWindow is { } existingQuickMenuWindow)
-        {
-            existingQuickMenuWindow.Dismiss();
-        }
-
-        AttachQuickMenuWindow(CreateRichQuickMenuWindow(menuItems, startInSearchMode: true));
+        ShowRichQuickMenu(BuildQuickMenuItems(), startInSearchMode: true);
     }
 
     private RichQuickMenuWindow CreateRichQuickMenuWindow(IReadOnlyList<QuickMenuItem> menuItems, bool startInSearchMode)
@@ -1000,19 +1026,6 @@ public sealed class CliptonRuntime : IDisposable
             Translate("ImagePreviewFeedbackCut"),
             Translate("SearchPlaceholder"),
             startInSearchMode);
-    }
-
-    private void AttachQuickMenuWindow(IQuickMenuHostWindow quickMenuWindow)
-    {
-        _quickMenuWindow = quickMenuWindow;
-        quickMenuWindow.Dismissed += (_, _) =>
-        {
-            if (ReferenceEquals(_quickMenuWindow, quickMenuWindow))
-            {
-                _quickMenuWindow = null;
-            }
-        };
-        quickMenuWindow.FocusMenu();
     }
 
     private List<QuickMenuItem> BuildQuickMenuItems()

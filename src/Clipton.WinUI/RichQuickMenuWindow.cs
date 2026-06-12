@@ -165,8 +165,15 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         QueueFocusRetry();
     }
 
+    public void ReopenWithSearch(IReadOnlyList<QuickMenuItem> items)
+    {
+        _startInSearchMode = true;
+        Reopen(items);
+    }
+
     public void Reopen(IReadOnlyList<QuickMenuItem> items)
     {
+        _dismissed = false;
         _items = items;
         _rootItemsForSearch = items;
         _selectedIndex = 0;
@@ -199,6 +206,12 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         UninstallKeyboardHook();
         DispatcherQueue.TryEnqueue(() =>
         {
+            if (!_dismissed)
+            {
+                // Reopened before the cleanup ran; the new menu must survive.
+                return;
+            }
+
             _previewAppWindow?.Hide();
             _appWindow?.Hide();
             Dismissed?.Invoke(this, EventArgs.Empty);

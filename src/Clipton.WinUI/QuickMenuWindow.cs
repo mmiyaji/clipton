@@ -72,6 +72,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private IntPtr _hwnd;
     private bool _dismissed;
     private bool _opened;
+    private bool _reopening;
     private long _focusToken;
     private IReadOnlyList<QuickMenuItem> _currentItems;
     private bool _revealMaskedItems;
@@ -125,7 +126,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         PositionNearCursor();
         _flyout.Closed += (_, _) =>
         {
-            if (_openingImagePreview)
+            if (_openingImagePreview || _reopening)
             {
                 return;
             }
@@ -151,6 +152,9 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
 
     public void Reopen(IReadOnlyList<QuickMenuItem> items)
     {
+        // Hiding the flyout raises Closed, which must not dismiss the menu
+        // that is being rebuilt right here.
+        _reopening = true;
         UninstallKeyboardHook();
         UninstallMouseHook();
         _flyout.Hide();
@@ -163,6 +167,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         BuildFlyout();
         PositionNearCursor();
         FocusMenu();
+        EnqueueAfterDelay(400, () => _reopening = false);
     }
 
     public void Dismiss()
@@ -177,6 +182,12 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         UninstallMouseHook();
         DispatcherQueue.TryEnqueue(() =>
         {
+            if (!_dismissed)
+            {
+                // Reopened before the cleanup ran; the new menu must survive.
+                return;
+            }
+
             _flyout.Hide();
             _appWindow?.Hide();
             Dismissed?.Invoke(this, EventArgs.Empty);
