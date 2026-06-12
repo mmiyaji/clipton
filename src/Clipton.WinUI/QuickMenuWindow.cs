@@ -439,6 +439,19 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                     handled = false;
                 }
                 break;
+            case NativeMethods.VkRight:
+                // Submenu presenters can consume Right before it reaches the
+                // item-level KeyDown handler, so paste options are opened from
+                // the hook; folders stay unhandled for the native submenu open.
+                if (GetFocusedPasteOptionsItem() is { Tag: QuickMenuItem optionsQuickItem } optionsItem)
+                {
+                    DispatcherQueue.TryEnqueue(() => ShowPasteOptionsForItem(optionsItem, EnsurePasteOptionsFlyout(optionsItem, optionsQuickItem), focusOptions: true));
+                }
+                else
+                {
+                    handled = false;
+                }
+                break;
             case NativeMethods.VkEscape:
                 if (_imagePreviewWindow is not null)
                 {
@@ -1225,9 +1238,46 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                 continue;
             }
 
-            // Items with paste options are plain MenuFlyoutItems with a "..."
-            // hint at every level; the native ">" chevron stays reserved for
-            // folders so the two are visually distinct.
+            // Inside folders, paste options must be a native cascading submenu:
+            // showing a separate flyout from within a submenu light-dismisses
+            // the whole menu chain. The chevron is swapped for the More glyph
+            // so it stays visually distinct from folder navigation, and Enter
+            // is overridden in the keyboard hook to paste directly.
+            if (parent is not null && item.PasteOptions is { Count: > 0 })
+            {
+                var optionSubItem = new MenuFlyoutSubItem
+                {
+                    Text = BuildDisplayText(item),
+                    Icon = CreateIcon(item),
+                    Tag = item
+                };
+                if (HasImagePreview(item))
+                {
+                    optionSubItem.Items.Add(CreateImagePreviewMenuItem(item));
+                    if (item.PasteOptions.Count > 0)
+                    {
+                        optionSubItem.Items.Add(new MenuFlyoutSeparator());
+                    }
+                }
+
+                foreach (var option in item.PasteOptions)
+                {
+                    optionSubItem.Items.Add(CreatePasteOptionMenuItem(option));
+                }
+
+                optionSubItem.Loaded += (_, _) =>
+                {
+                    ReplaceSubItemChevronWithMoreGlyph(optionSubItem);
+                    if (!string.Equals(_imagePreviewSize, "none", StringComparison.OrdinalIgnoreCase)
+                        && item.IconImageBytes is { Length: > 0 })
+                    {
+                        _ = InsertImagePreviewAsync(optionSubItem, item.IconImageBytes, _imagePreviewSize);
+                    }
+                };
+                ConfigureImagePreviewShortcut(optionSubItem, item);
+                target.Add(optionSubItem);
+                continue;
+            }
 
             var flyoutItem = new MenuFlyoutItem
             {
@@ -1538,6 +1588,63 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             MenuFlyoutItemBase { Tag: QuickMenuItem item } => item,
             _ => null
         };
+    }
+
+    private MenuFlyoutItem? GetFocusedPasteOptionsItem()
+    {
+        if (_host.XamlRoot is null)
+        {
+            return null;
+        }
+
+        return FocusManager.GetFocusedElement(_host.XamlRoot) is MenuFlyoutItem { Tag: QuickMenuItem { PasteOptions.Count: > 0 } } focusedItem
+            ? focusedItem
+            : null;
+    }
+
+    private QuickMenuItem? GetFocusedPasteOptionsSubItem()
+    {
+        if (_host.XamlRoot is null)
+        {
+            return null;
+        }
+
+        return FocusManager.GetFocusedElement(_host.XamlRoot) is MenuFlyoutSubItem { Tag: QuickMenuItem { PasteOptions.Count: > 0 } item }
+            && !item.IsFolder
+            ? item
+            : null;
+    }
+
+    // Distinguishes paste options from folder navigation: the native cascading
+    // chevron is replaced with the More (...) glyph.
+    private static void ReplaceSubItemChevronWithMoreGlyph(MenuFlyoutSubItem subItem)
+    {
+        var chevron = FindDescendant<FontIcon>(subItem, "SubItemChevron") ?? FindChevronIcon(subItem);
+        if (chevron is not null)
+        {
+            chevron.Glyph = "";
+            chevron.FontSize = 14;
+        }
+    }
+
+    private static FontIcon? FindChevronIcon(DependencyObject root)
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is FontIcon { Glyph: "" } icon)
+            {
+                return icon;
+            }
+
+            if (FindChevronIcon(child) is { } descendant)
+            {
+                return descendant;
+            }
+        }
+
+        return null;
     }
 
     private void FocusFirstRootItem()
