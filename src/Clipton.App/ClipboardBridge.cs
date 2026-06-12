@@ -1,11 +1,8 @@
 using System.Collections.Specialized;
 using System.IO;
-using System.Net;
 using System.Runtime.InteropServices;
-using System.Text.RegularExpressions;
 using System.Windows.Media.Imaging;
 using Clipton.Core;
-using Forms = System.Windows.Forms;
 using Clipboard = System.Windows.Clipboard;
 using DataFormats = System.Windows.DataFormats;
 using DataObject = System.Windows.DataObject;
@@ -179,66 +176,7 @@ public static class ClipboardBridge
 
     private static string? ExtractPlainText(string? rtf, string? html)
     {
-        var fromRtf = ExtractPlainTextFromRtf(rtf);
-        if (!string.IsNullOrWhiteSpace(fromRtf))
-        {
-            return fromRtf;
-        }
-
-        var fromHtml = ExtractPlainTextFromHtml(html);
-        return string.IsNullOrWhiteSpace(fromHtml) ? null : fromHtml;
-    }
-
-    private static string? ExtractPlainTextFromRtf(string? rtf)
-    {
-        if (string.IsNullOrWhiteSpace(rtf))
-        {
-            return null;
-        }
-
-        try
-        {
-            using var box = new Forms.RichTextBox();
-            box.Rtf = rtf;
-            return box.Text;
-        }
-        catch (ArgumentException)
-        {
-            return null;
-        }
-    }
-
-    private static string? ExtractPlainTextFromHtml(string? html)
-    {
-        if (string.IsNullOrWhiteSpace(html))
-        {
-            return null;
-        }
-
-        var fragment = ExtractHtmlFragment(html);
-        fragment = Regex.Replace(fragment, @"(?is)<\s*(br|/p|/div|/li|/tr|/h[1-6])\b[^>]*>", "\n");
-        fragment = Regex.Replace(fragment, @"(?is)<\s*(script|style)\b[^>]*>.*?<\s*/\s*\1\s*>", string.Empty);
-        fragment = Regex.Replace(fragment, @"(?s)<[^>]+>", string.Empty);
-        fragment = WebUtility.HtmlDecode(fragment);
-        fragment = Regex.Replace(fragment, @"[ \t\f\v]+", " ");
-        fragment = Regex.Replace(fragment, @"\r\n|\r", "\n");
-        fragment = Regex.Replace(fragment, @"\n{3,}", "\n\n");
-        return fragment.Trim();
-    }
-
-    private static string ExtractHtmlFragment(string html)
-    {
-        const string startMarker = "<!--StartFragment-->";
-        const string endMarker = "<!--EndFragment-->";
-        var start = html.IndexOf(startMarker, StringComparison.OrdinalIgnoreCase);
-        var end = html.IndexOf(endMarker, StringComparison.OrdinalIgnoreCase);
-        if (start >= 0 && end > start)
-        {
-            start += startMarker.Length;
-            return html[start..end];
-        }
-
-        return html;
+        return ClipboardTextExtraction.ExtractPlainText(rtf, html);
     }
 
     private static T? WithClipboardRetry<T>(Func<T?> action)
