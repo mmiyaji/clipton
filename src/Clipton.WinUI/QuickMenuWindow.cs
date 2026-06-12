@@ -918,10 +918,12 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             }
         };
         _openingImagePreview = true;
-        window.Activate();
+        // Size, position and chrome must be final before Activate; otherwise a
+        // default-sized titled window flashes briefly on screen.
         _imagePreviewHwnd = WindowNative.GetWindowHandle(window);
         ConfigureBorderlessToolWindow(_imagePreviewHwnd);
         _imagePreviewAppWindow = PositionImagePreviewWindow(window);
+        window.Activate();
         ApplyImagePreviewZoom();
         EnqueueAfterDelay(250, () => _openingImagePreview = false);
     }

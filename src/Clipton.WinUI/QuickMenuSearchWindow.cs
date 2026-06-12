@@ -91,10 +91,12 @@ internal sealed class QuickMenuSearchWindow : Window
 
     public void Show()
     {
-        Activate();
+        // Size, position and chrome must be final before Activate; otherwise a
+        // default-sized titled window flashes briefly on screen.
         _hwnd = WindowNative.GetWindowHandle(this);
         PositionNearCursor();
         QuickMenuWindow.ConfigureBorderlessToolWindow(_hwnd);
+        Activate();
         NativeMethods.SetForegroundWindow(_hwnd);
         FocusSearchBox();
         _ = Task.Delay(120).ContinueWith(_ => DispatcherQueue.TryEnqueue(FocusSearchBox));
