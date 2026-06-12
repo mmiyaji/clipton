@@ -1225,39 +1225,9 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                 continue;
             }
 
-            if (parent is not null && item.PasteOptions is { Count: > 0 })
-            {
-                var optionSubItem = new MenuFlyoutSubItem
-                {
-                    Text = BuildDisplayText(item),
-                    Icon = CreateIcon(item),
-                    Tag = item
-                };
-                if (HasImagePreview(item))
-                {
-                    var previewItem = CreateImagePreviewMenuItem(item);
-                    optionSubItem.Items.Add(previewItem);
-                    if (item.PasteOptions.Count > 0)
-                    {
-                        optionSubItem.Items.Add(new MenuFlyoutSeparator());
-                    }
-                }
-
-                foreach (var option in item.PasteOptions)
-                {
-                    optionSubItem.Items.Add(CreatePasteOptionMenuItem(option));
-                }
-
-                if (!string.Equals(_imagePreviewSize, "none", StringComparison.OrdinalIgnoreCase)
-                    && item.IconImageBytes is { Length: > 0 })
-                {
-                    optionSubItem.Loaded += async (_, _) => await InsertImagePreviewAsync(optionSubItem, item.IconImageBytes, _imagePreviewSize);
-                }
-
-                ConfigureImagePreviewShortcut(optionSubItem, item);
-                target.Add(optionSubItem);
-                continue;
-            }
+            // Items with paste options are plain MenuFlyoutItems with a "..."
+            // hint at every level; the native ">" chevron stays reserved for
+            // folders so the two are visually distinct.
 
             var flyoutItem = new MenuFlyoutItem
             {
