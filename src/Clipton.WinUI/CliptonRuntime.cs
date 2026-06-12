@@ -935,6 +935,88 @@ public sealed class CliptonRuntime : IDisposable
         ScheduleClipboardCapture();
         AppProfiler.Mark("Quick menu clipboard capture scheduled.");
 
+        var menuItems = BuildQuickMenuItems();
+        var quickMenuDisplayMode = NormalizeQuickMenuDisplayMode(Settings.QuickMenuDisplayMode);
+        var useRichQuickMenu = string.Equals(quickMenuDisplayMode, "rich", StringComparison.OrdinalIgnoreCase);
+        if (_quickMenuWindow is { } existingQuickMenuWindow)
+        {
+            if (string.Equals(existingQuickMenuWindow.DisplayMode, quickMenuDisplayMode, StringComparison.OrdinalIgnoreCase))
+            {
+                existingQuickMenuWindow.Reopen(menuItems);
+                return;
+            }
+
+            existingQuickMenuWindow.Dismiss();
+        }
+
+        IQuickMenuHostWindow quickMenuWindow = useRichQuickMenu
+            ? CreateRichQuickMenuWindow(menuItems, startInSearchMode: false)
+            : new QuickMenuWindow(
+                Translate("History"),
+                menuItems,
+                EffectiveTheme,
+                Settings.QuickMenuImagePreviewSize,
+                Settings.QuickMenuShowCapturedAt,
+                Settings.QuickMenuShowShortcutHints,
+                Settings.QuickMenuShortcuts,
+                OpenQuickMenuSearch,
+                Translate("PreviewImage"),
+                new Dictionary<string, string>
+                {
+                    ["ImagePreviewFeedbackCopy"] = Translate("ImagePreviewFeedbackCopy"),
+                    ["ImagePreviewFeedbackCut"] = Translate("ImagePreviewFeedbackCut"),
+                    ["ImagePreviewFeedbackZoomIn"] = Translate("ImagePreviewFeedbackZoomIn"),
+                    ["ImagePreviewFeedbackZoomOut"] = Translate("ImagePreviewFeedbackZoomOut"),
+                    ["ImagePreviewFeedbackZoomReset"] = Translate("ImagePreviewFeedbackZoomReset")
+                });
+        AttachQuickMenuWindow(quickMenuWindow);
+        AppProfiler.Mark($"Quick menu focused. mode={quickMenuDisplayMode}; total={(System.Diagnostics.Stopwatch.GetElapsedTime(quickMenuStartTimestamp).TotalMilliseconds):F1}ms; items={menuItems.Count}");
+    }
+
+    // Opens the rich window focused on its search box. Used by the default
+    // quick menu's search shortcut so both display modes share one search UI.
+    private void OpenQuickMenuSearch()
+    {
+        var menuItems = BuildQuickMenuItems();
+        if (_quickMenuWindow is { } existingQuickMenuWindow)
+        {
+            existingQuickMenuWindow.Dismiss();
+        }
+
+        AttachQuickMenuWindow(CreateRichQuickMenuWindow(menuItems, startInSearchMode: true));
+    }
+
+    private RichQuickMenuWindow CreateRichQuickMenuWindow(IReadOnlyList<QuickMenuItem> menuItems, bool startInSearchMode)
+    {
+        return new RichQuickMenuWindow(
+            Translate("History"),
+            menuItems,
+            EffectiveTheme,
+            Settings.QuickMenuShortcuts,
+            ShowHistoryWindow,
+            Translate("ShowAllHistory"),
+            Translate("PreviewImage"),
+            Translate("ImagePreviewFeedbackCopy"),
+            Translate("ImagePreviewFeedbackCut"),
+            Translate("SearchPlaceholder"),
+            startInSearchMode);
+    }
+
+    private void AttachQuickMenuWindow(IQuickMenuHostWindow quickMenuWindow)
+    {
+        _quickMenuWindow = quickMenuWindow;
+        quickMenuWindow.Dismissed += (_, _) =>
+        {
+            if (ReferenceEquals(_quickMenuWindow, quickMenuWindow))
+            {
+                _quickMenuWindow = null;
+            }
+        };
+        quickMenuWindow.FocusMenu();
+    }
+
+    private List<QuickMenuItem> BuildQuickMenuItems()
+    {
         var menuItems = new List<QuickMenuItem>();
         var pinnedIds = Settings.PinnedHistoryIds.ToHashSet(StringComparer.Ordinal);
         var historyCount = CountUnpinnedHistoryItems(pinnedIds);
@@ -963,7 +1045,7 @@ public sealed class CliptonRuntime : IDisposable
                 "Enter",
                 () => { },
                 LazyChildren: () => pinnedItems.Select(item => CreateHistoryMenuItem(item, includeImageThumbnails)).ToArray(),
-                IconGlyph: "\uE718",
+                IconGlyph: "",
                 IconFontFamily: "Segoe Fluent Icons"));
         }
 
@@ -985,7 +1067,7 @@ public sealed class CliptonRuntime : IDisposable
                 "*",
                 "Enter",
                 ShowMainWindow,
-                IconGlyph: "\uE713",
+                IconGlyph: "",
                 IconFontFamily: "Segoe Fluent Icons"));
         }
 
@@ -997,66 +1079,11 @@ public sealed class CliptonRuntime : IDisposable
                 "-",
                 "Enter",
                 ShowMainWindow,
-                IconGlyph: "\uE713",
+                IconGlyph: "",
                 IconFontFamily: "Segoe Fluent Icons"));
         }
 
-        var quickMenuDisplayMode = NormalizeQuickMenuDisplayMode(Settings.QuickMenuDisplayMode);
-        var useRichQuickMenu = string.Equals(quickMenuDisplayMode, "rich", StringComparison.OrdinalIgnoreCase);
-        if (_quickMenuWindow is { } existingQuickMenuWindow)
-        {
-            if (string.Equals(existingQuickMenuWindow.DisplayMode, quickMenuDisplayMode, StringComparison.OrdinalIgnoreCase))
-            {
-                existingQuickMenuWindow.Reopen(menuItems);
-                return;
-            }
-
-            existingQuickMenuWindow.Dismiss();
-        }
-
-        IQuickMenuHostWindow quickMenuWindow = useRichQuickMenu
-            ? new RichQuickMenuWindow(
-                Translate("History"),
-                menuItems,
-                EffectiveTheme,
-                Settings.QuickMenuShortcuts,
-                ShowHistoryWindow,
-                Translate("ShowAllHistory"),
-                Translate("PreviewImage"),
-                Translate("ImagePreviewFeedbackCopy"),
-                Translate("ImagePreviewFeedbackCut"))
-            : new QuickMenuWindow(
-                Translate("History"),
-                menuItems,
-                EffectiveTheme,
-                Settings.QuickMenuImagePreviewSize,
-                Settings.QuickMenuShowCapturedAt,
-                Settings.QuickMenuShowShortcutHints,
-                Settings.QuickMenuShortcuts,
-                ShowHistoryWindow,
-                Translate("SearchPrompt"),
-                Translate("QuickMenuSearchHints"),
-                Translate("AdvancedSearch"),
-                Translate("NoSearchResults"),
-                Translate("PreviewImage"),
-                new Dictionary<string, string>
-                {
-                    ["ImagePreviewFeedbackCopy"] = Translate("ImagePreviewFeedbackCopy"),
-                    ["ImagePreviewFeedbackCut"] = Translate("ImagePreviewFeedbackCut"),
-                    ["ImagePreviewFeedbackZoomIn"] = Translate("ImagePreviewFeedbackZoomIn"),
-                    ["ImagePreviewFeedbackZoomOut"] = Translate("ImagePreviewFeedbackZoomOut"),
-                    ["ImagePreviewFeedbackZoomReset"] = Translate("ImagePreviewFeedbackZoomReset")
-                });
-        _quickMenuWindow = quickMenuWindow;
-        quickMenuWindow.Dismissed += (_, _) =>
-        {
-            if (ReferenceEquals(_quickMenuWindow, quickMenuWindow))
-            {
-                _quickMenuWindow = null;
-            }
-        };
-        quickMenuWindow.FocusMenu();
-        AppProfiler.Mark($"Quick menu focused. mode={quickMenuDisplayMode}; total={(System.Diagnostics.Stopwatch.GetElapsedTime(quickMenuStartTimestamp).TotalMilliseconds):F1}ms; items={menuItems.Count}");
+        return menuItems;
     }
 
     private void SaveSettings()

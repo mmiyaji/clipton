@@ -58,14 +58,10 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private readonly Grid _host = new();
     private readonly MenuFlyout _flyout = new();
     private readonly string _theme;
-    private readonly string _searchPrompt;
-    private readonly string _searchHintsText;
-    private readonly string _advancedSearchButtonText;
-    private readonly string _noSearchResultsText;
     private readonly string _previewImageText;
     private readonly IReadOnlyDictionary<string, string> _previewStrings;
     private readonly string _imagePreviewSize;
-    private readonly Action _openDetailedSearch;
+    private readonly Action _openSearch;
     private readonly QuickMenuShortcutSettings _shortcuts;
     private readonly bool _showShortcutHints;
     private readonly List<MenuFlyoutItemBase> _rootFocusableItems = [];
@@ -78,11 +74,9 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private bool _opened;
     private long _focusToken;
     private IReadOnlyList<QuickMenuItem> _currentItems;
-    private bool _rebuildingFlyout;
     private bool _revealMaskedItems;
     private bool _showCapturedAt;
     private MenuFlyoutItemBase? _hoveredPasteOptionsItem;
-    private QuickMenuSearchWindow? _searchWindow;
     private Window? _imagePreviewWindow;
     private IntPtr _imagePreviewHwnd;
     private AppWindow? _imagePreviewAppWindow;
@@ -108,11 +102,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         bool showCapturedAt,
         bool showShortcutHints,
         QuickMenuShortcutSettings shortcuts,
-        Action openDetailedSearch,
-        string searchPrompt,
-        string searchHintsText,
-        string advancedSearchButtonText,
-        string noSearchResultsText,
+        Action openSearch,
         string previewImageText,
         IReadOnlyDictionary<string, string> previewStrings)
     {
@@ -124,11 +114,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         _showCapturedAt = showCapturedAt;
         _showShortcutHints = showShortcutHints;
         _shortcuts = shortcuts;
-        _openDetailedSearch = openDetailedSearch;
-        _searchPrompt = searchPrompt;
-        _searchHintsText = searchHintsText;
-        _advancedSearchButtonText = advancedSearchButtonText;
-        _noSearchResultsText = noSearchResultsText;
+        _openSearch = openSearch;
         _previewImageText = previewImageText;
         _previewStrings = previewStrings;
         Title = "Clipton";
@@ -142,10 +128,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                 return;
             }
 
-            if (!_rebuildingFlyout)
-            {
-                Dismiss();
-            }
+            Dismiss();
         };
     }
 
@@ -168,7 +151,6 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     {
         UninstallKeyboardHook();
         UninstallMouseHook();
-        CloseSearchWindowQuietly();
         _flyout.Hide();
         _appWindow?.Hide();
         ReleaseMenuReferences();
@@ -193,22 +175,12 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         UninstallMouseHook();
         DispatcherQueue.TryEnqueue(() =>
         {
-            CloseSearchWindowQuietly();
             _flyout.Hide();
             _appWindow?.Hide();
             Dismissed?.Invoke(this, EventArgs.Empty);
             ReleaseMenuReferences();
             RequestNativeResourceCollection();
         });
-    }
-
-    private void CloseSearchWindowQuietly()
-    {
-        if (_searchWindow is { } searchWindow)
-        {
-            _searchWindow = null;
-            searchWindow.CloseQuietly();
-        }
     }
 
     private void ReleaseMenuReferences()
@@ -227,7 +199,6 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         _hoveredPasteOptionsItem = null;
         _currentItems = [];
         _rootItems = [];
-        _searchWindow = null;
     }
 
     private static void RequestNativeResourceCollection()
@@ -1177,71 +1148,10 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         return appWindow;
     }
 
-    private async void SearchMenu()
+    private void SearchMenu()
     {
-        try
-        {
-            await SearchMenuAsync();
-        }
-        catch (Exception exception)
-        {
-            AppDiagnostics.Log(exception, "Quick menu search");
-            Dismiss();
-        }
-    }
-
-    private async Task SearchMenuAsync()
-    {
-        _rebuildingFlyout = true;
-        _flyout.Hide();
-        UninstallKeyboardHook();
-        UninstallMouseHook();
-        var rootItems = _rootItems;
-        var searchSource = await Task.Run(() => FlattenSearchableItems(rootItems).ToArray());
-        if (_dismissed)
-        {
-            return;
-        }
-
-        _searchWindow = new QuickMenuSearchWindow(
-            searchSource,
-            _theme,
-            _searchPrompt,
-            _searchHintsText,
-            _advancedSearchButtonText,
-            _noSearchResultsText,
-            invokeItem: (item, asPlainText) =>
-            {
-                _searchWindow = null;
-                Invoke(item, asPlainText);
-            },
-            openDetailedSearch: () =>
-            {
-                _searchWindow = null;
-                Dismiss();
-                _openDetailedSearch();
-            },
-            returnToMenu: () => DispatcherQueue.TryEnqueue(ReturnFromSearch),
-            dismissAll: () =>
-            {
-                _searchWindow = null;
-                Dismiss();
-            });
-        _searchWindow.Show();
-    }
-
-    private void ReturnFromSearch()
-    {
-        _searchWindow = null;
-        if (_dismissed)
-        {
-            return;
-        }
-
-        _opened = false;
-        BuildFlyout();
-        ShowFlyout();
-        EnqueueAfterDelay(300, () => _rebuildingFlyout = false);
+        Dismiss();
+        _openSearch();
     }
 
     internal static IEnumerable<QuickMenuItem> FlattenSearchableItems(IEnumerable<QuickMenuItem> items)
