@@ -51,80 +51,7 @@ public static class ClipboardBridge
     {
         try
         {
-            var data = Clipboard.GetDataObject();
-            if (data is null)
-            {
-                return null;
-            }
-
-            var formats = new List<ClipboardFormatKind>();
-            string? text = null;
-            string? rtf = null;
-            string? html = null;
-            byte[]? image = null;
-            IReadOnlyList<string>? filePaths = null;
-
-            if (data.GetDataPresent(DataFormats.UnicodeText))
-            {
-                text = Clipboard.GetText(TextDataFormat.UnicodeText);
-                if (!string.IsNullOrEmpty(text))
-                {
-                    formats.Add(ClipboardFormatKind.Text);
-                }
-            }
-
-            if (data.GetDataPresent(DataFormats.Rtf))
-            {
-                rtf = Clipboard.GetText(TextDataFormat.Rtf);
-                if (!string.IsNullOrEmpty(rtf))
-                {
-                    formats.Add(ClipboardFormatKind.RichText);
-                }
-            }
-
-            if (data.GetDataPresent(DataFormats.Html))
-            {
-                html = Clipboard.GetText(TextDataFormat.Html);
-                if (!string.IsNullOrEmpty(html))
-                {
-                    formats.Add(ClipboardFormatKind.Html);
-                }
-            }
-
-            if (string.IsNullOrEmpty(text))
-            {
-                text = ExtractPlainText(rtf, html);
-                if (!string.IsNullOrEmpty(text))
-                {
-                    formats.Add(ClipboardFormatKind.Text);
-                }
-            }
-
-            if (data.GetDataPresent(DataFormats.FileDrop))
-            {
-                filePaths = data.GetData(DataFormats.FileDrop) as string[] ?? [];
-                if (filePaths.Count > 0)
-                {
-                    formats.Add(ClipboardFormatKind.FileDrop);
-                }
-            }
-
-            if (data.GetDataPresent(DataFormats.Bitmap))
-            {
-                var bitmap = Clipboard.GetImage();
-                if (bitmap is not null)
-                {
-                    image = EncodePng(bitmap);
-                    formats.Add(ClipboardFormatKind.Image);
-                }
-            }
-
-            if (formats.Count == 0)
-            {
-                return null;
-            }
-
-            return new ClipboardSnapshot(Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, formats, text, rtf, html, image, filePaths);
+            return CaptureFrom(Clipboard.GetDataObject());
         }
         catch (ExternalException)
         {
@@ -132,30 +59,115 @@ public static class ClipboardBridge
         }
     }
 
+    // Pure transformation from an in-memory data object; unit-testable without
+    // touching the shared system clipboard.
+    public static ClipboardSnapshot? CaptureFrom(System.Windows.IDataObject? data)
+    {
+        if (data is null)
+        {
+            return null;
+        }
+
+        var formats = new List<ClipboardFormatKind>();
+        string? text = null;
+        string? rtf = null;
+        string? html = null;
+        byte[]? image = null;
+        IReadOnlyList<string>? filePaths = null;
+
+        if (data.GetDataPresent(DataFormats.UnicodeText))
+        {
+            text = data.GetData(DataFormats.UnicodeText) as string;
+            if (!string.IsNullOrEmpty(text))
+            {
+                formats.Add(ClipboardFormatKind.Text);
+            }
+        }
+
+        if (data.GetDataPresent(DataFormats.Rtf))
+        {
+            rtf = data.GetData(DataFormats.Rtf) as string;
+            if (!string.IsNullOrEmpty(rtf))
+            {
+                formats.Add(ClipboardFormatKind.RichText);
+            }
+        }
+
+        if (data.GetDataPresent(DataFormats.Html))
+        {
+            html = data.GetData(DataFormats.Html) as string;
+            if (!string.IsNullOrEmpty(html))
+            {
+                formats.Add(ClipboardFormatKind.Html);
+            }
+        }
+
+        if (string.IsNullOrEmpty(text))
+        {
+            text = ExtractPlainText(rtf, html);
+            if (!string.IsNullOrEmpty(text))
+            {
+                formats.Add(ClipboardFormatKind.Text);
+            }
+        }
+
+        if (data.GetDataPresent(DataFormats.FileDrop))
+        {
+            filePaths = data.GetData(DataFormats.FileDrop) as string[] ?? [];
+            if (filePaths.Count > 0)
+            {
+                formats.Add(ClipboardFormatKind.FileDrop);
+            }
+        }
+
+        if (data.GetDataPresent(DataFormats.Bitmap))
+        {
+            if (data.GetData(DataFormats.Bitmap, autoConvert: true) is BitmapSource bitmap)
+            {
+                image = EncodePng(bitmap);
+                formats.Add(ClipboardFormatKind.Image);
+            }
+        }
+
+        if (formats.Count == 0)
+        {
+            return null;
+        }
+
+        return new ClipboardSnapshot(Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, formats, text, rtf, html, image, filePaths);
+    }
+
     private static void PutOnce(ClipboardSnapshot snapshot, bool asPlainText)
     {
+        Clipboard.SetDataObject(CreateDataObject(snapshot, asPlainText), copy: true);
+    }
+
+    // Pure transformation to an in-memory data object; unit-testable without
+    // touching the shared system clipboard.
+    public static DataObject CreateDataObject(ClipboardSnapshot snapshot, bool asPlainText)
+    {
+        var data = new DataObject();
         var plainText = GetPlainText(snapshot);
         if (asPlainText && !string.IsNullOrEmpty(plainText))
         {
-            Clipboard.SetText(plainText, TextDataFormat.UnicodeText);
-            return;
+            data.SetText(plainText, TextDataFormat.UnicodeText);
+            return data;
         }
 
         if (snapshot.FilePaths.Count > 0)
         {
             var collection = new StringCollection();
             collection.AddRange(snapshot.FilePaths.ToArray());
-            Clipboard.SetFileDropList(collection);
-            return;
+            data.SetFileDropList(collection);
+            return data;
         }
 
         if (snapshot.ImagePng is { Length: > 0 })
         {
-            Clipboard.SetImage(DecodePng(snapshot.ImagePng));
-            return;
+            data.SetImage(DecodePng(snapshot.ImagePng));
+            return data;
         }
 
-        var data = new DataObject();
         if (!string.IsNullOrEmpty(snapshot.Text))
         {
             data.SetText(snapshot.Text, TextDataFormat.UnicodeText);
@@ -171,7 +183,7 @@ public static class ClipboardBridge
             data.SetText(snapshot.Html, TextDataFormat.Html);
         }
 
-        Clipboard.SetDataObject(data, copy: true);
+        return data;
     }
 
     private static string? ExtractPlainText(string? rtf, string? html)
