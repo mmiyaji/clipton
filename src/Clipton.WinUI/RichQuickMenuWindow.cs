@@ -84,6 +84,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private readonly List<Border> _itemCards = [];
     private ScrollViewer? _scrollViewer;
     private Button? _backButton;
+    private Button? _searchButton;
     private int _selectedIndex;
     private HeaderFilter _activeFilter = HeaderFilter.All;
     private AppWindow? _appWindow;
@@ -368,7 +369,12 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         AddToolbarButton(toolbar, 1, "\uE718", "Pinned", HeaderFilter.Pinned);
         AddToolbarButton(toolbar, 2, "\uE8D2", "Text", HeaderFilter.Text);
         AddToolbarButton(toolbar, 3, "\uEB9F", _previewImageText, HeaderFilter.Image);
-        AddToolbarButton(toolbar, 4, "\uE721", _searchPlaceholder, selected: false, ToggleSearch);
+        _searchButton = IconButton("\uE721", _searchPlaceholder);
+        _searchButton.Margin = new Thickness(2, 0, 8, 0);
+        _searchButton.Click += (_, _) => ToggleSearch();
+        UpdateToolbarButton(_searchButton, selected: false);
+        Grid.SetColumn(_searchButton, 4);
+        toolbar.Children.Add(_searchButton);
         _backButton = IconButton("\uE72B", "Back");
         _backButton.Margin = new Thickness(2, 0, 8, 0);
         _backButton.HorizontalAlignment = HorizontalAlignment.Right;
@@ -438,6 +444,11 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         // encrypted store) so the first keystroke filters without a long wait.
         _searchSourceTask ??= CreateSearchSourceTask(_rootItemsForSearch);
         _searchBox.Visibility = Visibility.Visible;
+        if (_searchButton is not null)
+        {
+            UpdateToolbarButton(_searchButton, selected: true);
+        }
+
         _searchBox.Focus(FocusState.Programmatic);
         _searchBox.Select(_searchBox.Text.Length, 0);
     }
@@ -446,6 +457,10 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     {
         _searchVersion++;
         _searchBox.Visibility = Visibility.Collapsed;
+        if (_searchButton is not null)
+        {
+            UpdateToolbarButton(_searchButton, selected: false);
+        }
         if (_searchBox.Text.Length > 0)
         {
             _searchBox.Text = string.Empty;
