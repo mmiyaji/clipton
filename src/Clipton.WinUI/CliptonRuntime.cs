@@ -1192,20 +1192,30 @@ public sealed class CliptonRuntime : IDisposable
         var target = Math.Min(Math.Min(loadedPersistedCount, Settings.MaxHistoryItems), _persistedHistoryCount);
         while (_loadedPersistedHistoryCount < target)
         {
+            // Store reads (decryption, file I/O) stay on the calling thread;
+            // only the History mutation is marshaled to the UI thread.
             var loadCount = Math.Min(QuickMenuHistoryBuckets.BucketSize, target - _loadedPersistedHistoryCount);
             var snapshots = _historyStore.LoadRange(_loadedPersistedHistoryCount, loadCount);
+            RunOnDispatcher(() =>
+            {
+                if (snapshots.Count == 0)
+                {
+                    _loadedPersistedHistoryCount = target;
+                    return;
+                }
+
+                foreach (var snapshot in snapshots)
+                {
+                    History.AppendOlder(snapshot);
+                }
+
+                _loadedPersistedHistoryCount += snapshots.Count;
+            });
+
             if (snapshots.Count == 0)
             {
-                _loadedPersistedHistoryCount = target;
                 break;
             }
-
-            foreach (var snapshot in snapshots)
-            {
-                History.AppendOlder(snapshot);
-            }
-
-            _loadedPersistedHistoryCount += snapshots.Count;
         }
     }
 
@@ -1213,10 +1223,55 @@ public sealed class CliptonRuntime : IDisposable
     {
         var targetLoadedPersistedCount = Math.Min(_persistedHistoryCount, offset + count + pinnedIds.Count);
         EnsurePersistedHistoryLoaded(targetLoadedPersistedCount);
-        return EnumerateUnpinnedHistoryItems(pinnedIds)
-            .Skip(offset)
-            .Take(count)
-            .ToArray();
+        IReadOnlyList<ClipboardSnapshot> range = [];
+        RunOnDispatcher(() =>
+        {
+            range = EnumerateUnpinnedHistoryItems(pinnedIds)
+                .Skip(offset)
+                .Take(count)
+                .ToArray();
+        });
+        return range;
+    }
+
+    // History and the loaded-count fields are UI-thread state, but folder
+    // materialization and quick menu search call into them from background
+    // threads. Mutating or enumerating the live list there races against the
+    // UI thread (e.g. a clipboard capture committing at the same time).
+    private void RunOnDispatcher(Action action)
+    {
+        if (_dispatcherQueue.HasThreadAccess)
+        {
+            action();
+            return;
+        }
+
+        using var completed = new ManualResetEventSlim();
+        Exception? failure = null;
+        if (!_dispatcherQueue.TryEnqueue(() =>
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+            finally
+            {
+                completed.Set();
+            }
+        }))
+        {
+            return;
+        }
+
+        completed.Wait(TimeSpan.FromSeconds(5));
+        if (failure is not null)
+        {
+            AppDiagnostics.Log(failure, "Dispatcher marshal");
+        }
     }
 
     private void AddHistoryRangeFolders(
