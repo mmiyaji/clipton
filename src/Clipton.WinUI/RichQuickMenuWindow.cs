@@ -93,6 +93,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private AppWindow? _previewAppWindow;
     private IntPtr _previewHwnd;
     private NativeMethods.Point _anchorPoint;
+    private NativeMethods.Point _lastHoverCursorPosition;
     private NativeMethods.Point _dragStartCursor;
     private PointInt32 _dragStartWindowPosition;
     private bool _hasAnchorPoint;
@@ -749,7 +750,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             Padding = new Thickness(8),
             Child = BuildItemContent(item)
         };
-        card.PointerEntered += (_, _) => Select(index);
+        card.PointerMoved += (_, _) => OnCardPointerHover(index);
         card.Tapped += (_, args) =>
         {
             if (IsFromPasteOptionsButton(args.OriginalSource))
@@ -911,6 +912,25 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
+    }
+
+    // Keyboard navigation scrolls the list, which slides other cards under a
+    // stationary pointer and re-evaluates hit testing; that must not steal the
+    // selection. Only honor hover when the mouse physically moved.
+    private void OnCardPointerHover(int index)
+    {
+        if (!NativeMethods.GetCursorPos(out var cursor))
+        {
+            return;
+        }
+
+        if (cursor.X == _lastHoverCursorPosition.X && cursor.Y == _lastHoverCursorPosition.Y)
+        {
+            return;
+        }
+
+        _lastHoverCursorPosition = cursor;
+        Select(index);
     }
 
     private void Select(int index)
