@@ -2,6 +2,8 @@
 
 Clipton is a local-first clipboard manager for Windows. It keeps recent clipboard history, registered text snippets, and quick paste commands close to the keyboard while avoiding cloud sync, telemetry, and network dependencies.
 
+![Clipton overview with quick menu, clipboard history, and snippet editor screenshots](docs/images/clipton-readme-overview.png)
+
 ## Features
 
 - WinUI resident app with a system tray icon.
