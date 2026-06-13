@@ -298,6 +298,8 @@ public sealed class EncryptedHistoryStore
         public string? Html { get; set; }
         public byte[]? ImagePng { get; set; }
         public string[] FilePaths { get; set; } = [];
+        public string? SourceApplicationName { get; set; }
+        public string? SourceWindowTitle { get; set; }
 
         public static ClipboardSnapshotDto FromSnapshot(ClipboardSnapshot snapshot)
         {
@@ -310,13 +312,25 @@ public sealed class EncryptedHistoryStore
                 Rtf = snapshot.Rtf,
                 Html = snapshot.Html,
                 ImagePng = snapshot.ImagePng,
-                FilePaths = snapshot.FilePaths.ToArray()
+                FilePaths = snapshot.FilePaths.ToArray(),
+                SourceApplicationName = snapshot.SourceApplicationName,
+                SourceWindowTitle = snapshot.SourceWindowTitle
             };
         }
 
         public ClipboardSnapshot ToSnapshot()
         {
-            return new ClipboardSnapshot(Id, CapturedAt, Formats, Text, Rtf, Html, ImagePng, FilePaths);
+            return new ClipboardSnapshot(
+                Id,
+                CapturedAt,
+                Formats,
+                Text,
+                Rtf,
+                Html,
+                ImagePng,
+                FilePaths,
+                SourceApplicationName,
+                SourceWindowTitle);
         }
     }
 }

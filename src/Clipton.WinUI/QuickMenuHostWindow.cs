@@ -6,6 +6,8 @@ internal interface IQuickMenuHostWindow
 
     string DisplayMode { get; }
 
+    bool IsDismissed { get; }
+
     void FocusMenu();
 
     void Reopen(IReadOnlyList<QuickMenuItem> items);

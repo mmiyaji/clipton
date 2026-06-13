@@ -10,7 +10,7 @@ public sealed class HotkeyMessageWindow : IDisposable
     private MessageWindow? _window;
     private bool _disposed;
 
-    public HotkeyMessageWindow(Action<IntPtr> onHotkey, Action onClipboardChanged)
+    public HotkeyMessageWindow(Action<IntPtr> onHotkey, Action<IntPtr> onClipboardChanged)
     {
         _thread = new Thread(() =>
         {
@@ -67,7 +67,7 @@ public sealed class HotkeyMessageWindow : IDisposable
     {
         private const int HotkeyId = 0x434C;
         private readonly Action<IntPtr> _onHotkey;
-        private readonly Action _onClipboardChanged;
+        private readonly Action<IntPtr> _onClipboardChanged;
         private readonly object _registrationLock = new();
         private readonly Win32MessageWindow _window;
         private RegistrationRequest? _pendingRegistration;
@@ -76,7 +76,7 @@ public sealed class HotkeyMessageWindow : IDisposable
         private HotkeyGesture? _registeredGesture;
         private bool _disposed;
 
-        public MessageWindow(Action<IntPtr> onHotkey, Action onClipboardChanged)
+        public MessageWindow(Action<IntPtr> onHotkey, Action<IntPtr> onClipboardChanged)
         {
             _onHotkey = onHotkey;
             _onClipboardChanged = onClipboardChanged;
@@ -190,7 +190,7 @@ public sealed class HotkeyMessageWindow : IDisposable
 
             if (msg == NativeMethods.WmClipboardUpdate)
             {
-                _onClipboardChanged();
+                _onClipboardChanged(NativeMethods.GetForegroundWindow());
                 return IntPtr.Zero;
             }
 

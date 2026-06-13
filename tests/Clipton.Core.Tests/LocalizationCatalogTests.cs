@@ -19,4 +19,35 @@ public sealed class LocalizationCatalogTests
 
         Assert.Equal("Settings", catalog.Translate("fr", "Settings"));
     }
+
+    [Fact]
+    public void Translate_MaskDescriptionsClarifyPreviewOnlyBehavior()
+    {
+        var catalog = new LocalizationCatalog();
+
+        Assert.Contains("list previews", catalog.Translate("en", "MaskSensitiveContentDescription"));
+        Assert.Contains("not removed from stored clipboard data", catalog.Translate("en", "MaskDefinitionsDescription"));
+    }
+
+    [Fact]
+    public void Translate_DisablePersistHistoryMessageMentionsVolatileDataDeletion()
+    {
+        var catalog = new LocalizationCatalog();
+
+        var message = catalog.Translate("en", "ConfirmDisablePersistHistoryMessage");
+
+        Assert.Contains("current in-memory history", message);
+        Assert.Contains("temporary paste files", message);
+    }
+
+    [Fact]
+    public void Translate_ProvidesQuickEditLabels()
+    {
+        var catalog = new LocalizationCatalog();
+
+        Assert.Equal("Edit and paste", catalog.Translate("en", "EditAndPaste"));
+        Assert.Equal("Quick edit", catalog.Translate("en", "QuickEdit"));
+        Assert.Equal("Paste edited", catalog.Translate("en", "PasteEdited"));
+        Assert.Equal("編集して貼り付け", catalog.Translate("ja", "EditAndPaste"));
+    }
 }

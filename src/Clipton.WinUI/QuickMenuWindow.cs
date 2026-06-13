@@ -47,6 +47,9 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private const double ImagePreviewMaxZoom = 3.0;
     private const double ImagePreviewZoomStep = 0.15;
     private const string AppName = "Clipton";
+    private const int ImagePreviewTempMaxFiles = 20;
+    private static readonly TimeSpan ImagePreviewTempMaxAge = TimeSpan.FromHours(1);
+    private static readonly TimeSpan ImagePreviewTempDeleteDelay = TimeSpan.FromMinutes(10);
     private static readonly NativeMethods.LowLevelKeyboardProc s_keyboardProc = OnStaticKeyboardHook;
     private static readonly NativeMethods.LowLevelMouseProc s_mouseProc = OnStaticMouseHook;
     private static QuickMenuWindow? s_activeWindow;
@@ -138,6 +141,8 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     public event EventHandler? Dismissed;
 
     public string DisplayMode => "default";
+
+    public bool IsDismissed => _dismissed;
 
     public void FocusMenu()
     {
@@ -433,6 +438,24 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             return 1;
         }
 
+        if (modifiers == KeyModifierState.None && TryGetNumberShortcutIndex(key, out var numberShortcutIndex))
+        {
+            DispatcherQueue.TryEnqueue(() => InvokeNumberShortcut(numberShortcutIndex));
+            return 1;
+        }
+
+        if (modifiers == KeyModifierState.None && key == NativeMethods.VkE)
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (GetFocusedMenuItem() is { } item)
+                {
+                    InvokeEdit(item);
+                }
+            });
+            return 1;
+        }
+
         switch (key)
         {
             case NativeMethods.VkReturn:
@@ -470,6 +493,10 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                 if (GetFocusedMenuItem() is { } previewItem && HasImagePreview(previewItem))
                 {
                     DispatcherQueue.TryEnqueue(() => ToggleImagePreview(previewItem));
+                }
+                else if (GetFocusedMenuItem() is { PreviewInvoke: not null } textPreviewItem)
+                {
+                    DispatcherQueue.TryEnqueue(() => InvokePreview(textPreviewItem));
                 }
                 else if (GetFocusedImagePreviewCommand() is { } previewCommand)
                 {
@@ -615,6 +642,24 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             default:
                 return false;
         }
+    }
+
+    private static bool TryGetNumberShortcutIndex(int key, out int index)
+    {
+        if (key is >= 0x31 and <= 0x39)
+        {
+            index = key - 0x31;
+            return true;
+        }
+
+        if (key is >= 0x61 and <= 0x69)
+        {
+            index = key - 0x61;
+            return true;
+        }
+
+        index = -1;
+        return false;
     }
 
     private void ToggleDisplayMode(bool? revealMaskedItems = null, bool? showCapturedAt = null)
@@ -851,6 +896,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         actions.Children.Add(CreateImagePreviewActionButton("-", "Zoom out", () => AdjustImagePreviewZoom(-ImagePreviewZoomStep, "ImagePreviewFeedbackZoomOut"), fontFamily: "Segoe UI", fontSize: 22));
         actions.Children.Add(CreateImagePreviewActionButton("100%", "Reset zoom", () => SetImagePreviewZoom(1.0, "ImagePreviewFeedbackZoomReset"), fontFamily: "Segoe UI", fontSize: 12));
         actions.Children.Add(CreateImagePreviewActionButton("+", "Zoom in", () => AdjustImagePreviewZoom(ImagePreviewZoomStep, "ImagePreviewFeedbackZoomIn"), fontFamily: "Segoe UI", fontSize: 22));
+        actions.Children.Add(CreateImagePreviewActionButton("\uE711", "Close", HideImagePreview));
         Grid.SetRow(actions, 3);
         panel.Children.Add(actions);
         frame.Child = panel;
@@ -978,7 +1024,8 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     {
         try
         {
-            var directory = Path.Combine(Path.GetTempPath(), "Clipton", "ImagePreview");
+            var directory = GetImagePreviewTempDirectory();
+            CleanupImagePreviewTempFiles(directory);
             Directory.CreateDirectory(directory);
             var path = Path.Combine(directory, $"preview-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}.png");
             File.WriteAllBytes(path, imageBytes);
@@ -986,6 +1033,95 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             {
                 UseShellExecute = true
             });
+            ScheduleImagePreviewTempFileDeletion(path);
+        }
+        catch
+        {
+        }
+    }
+
+    internal static void CleanupImagePreviewTempFiles(bool deleteAll = false)
+    {
+        CleanupImagePreviewTempFiles(GetImagePreviewTempDirectory(), deleteAll);
+    }
+
+    private static string GetImagePreviewTempDirectory()
+    {
+        return Path.Combine(Path.GetTempPath(), "Clipton", "ImagePreview");
+    }
+
+    private static void CleanupImagePreviewTempFiles(string directoryPath, bool deleteAll = false)
+    {
+        try
+        {
+            var directory = new DirectoryInfo(directoryPath);
+            if (!directory.Exists)
+            {
+                return;
+            }
+
+            var cutoff = DateTime.UtcNow - ImagePreviewTempMaxAge;
+            var currentFiles = new List<FileInfo>();
+            foreach (var file in directory.EnumerateFiles("preview-*.png"))
+            {
+                if (deleteAll || file.CreationTimeUtc < cutoff)
+                {
+                    TryDeleteFile(file);
+                }
+                else
+                {
+                    currentFiles.Add(file);
+                }
+            }
+
+            if (currentFiles.Count <= ImagePreviewTempMaxFiles)
+            {
+                return;
+            }
+
+            foreach (var file in currentFiles
+                .OrderByDescending(file => file.CreationTimeUtc)
+                .Skip(ImagePreviewTempMaxFiles))
+            {
+                TryDeleteFile(file);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private static void ScheduleImagePreviewTempFileDeletion(string path)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(ImagePreviewTempDeleteDelay);
+                TryDeleteFile(path);
+            }
+            catch
+            {
+            }
+        });
+    }
+
+    private static void TryDeleteFile(FileInfo file)
+    {
+        try
+        {
+            file.Delete();
+        }
+        catch
+        {
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
         }
         catch
         {
@@ -1799,22 +1935,52 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             return;
         }
 
-        _flyout.Hide();
-        _appWindow?.Hide();
-        _ = Task.Delay(90).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
-        {
-            action();
-            Dismiss();
-        }));
+        BeginInvokeAndDismiss(action);
     }
 
     private void InvokePasteOption(QuickMenuPasteOption option)
+    {
+        BeginInvokeAndDismiss(option.Invoke);
+    }
+
+    private void InvokeEdit(QuickMenuItem item)
+    {
+        if (item.EditInvoke is null)
+        {
+            return;
+        }
+
+        BeginInvokeAndDismiss(item.EditInvoke);
+    }
+
+    private void InvokePreview(QuickMenuItem item)
+    {
+        if (item.PreviewInvoke is null)
+        {
+            return;
+        }
+
+        BeginInvokeAndDismiss(item.PreviewInvoke);
+    }
+
+    private void InvokeNumberShortcut(int index)
+    {
+        var item = _rootItems
+            .Where(item => item is { IsEnabled: true, IsSeparator: false, IsFolder: false, IsNumberShortcutEnabled: true })
+            .ElementAtOrDefault(index);
+        if (item is not null)
+        {
+            Invoke(item, asPlainText: false);
+        }
+    }
+
+    private void BeginInvokeAndDismiss(Action action)
     {
         _flyout.Hide();
         _appWindow?.Hide();
         _ = Task.Delay(90).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
         {
-            option.Invoke();
+            action();
             Dismiss();
         }));
     }
@@ -2127,10 +2293,13 @@ public sealed record QuickMenuItem(
     Func<byte[]?>? PreviewImageBytesProvider = null,
     Action? CopyInvoke = null,
     Action? CutInvoke = null,
+    Action? EditInvoke = null,
+    Action? PreviewInvoke = null,
     string? RevealedTitle = null,
     DateTimeOffset? CapturedAt = null,
     bool IsPinned = false,
-    IReadOnlyCollection<ClipboardFormatKind>? Formats = null)
+    IReadOnlyCollection<ClipboardFormatKind>? Formats = null,
+    bool IsNumberShortcutEnabled = false)
 {
     private IReadOnlyList<QuickMenuItem>? _resolvedChildren = Children;
 

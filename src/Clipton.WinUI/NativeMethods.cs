@@ -21,6 +21,7 @@ internal static class NativeMethods
     internal const byte VkRWin = 0x5C;
     internal const byte VkC = 0x43;
     internal const byte VkD = 0x44;
+    internal const byte VkE = 0x45;
     internal const byte VkM = 0x4D;
     internal const byte VkS = 0x53;
     internal const byte VkV = 0x56;
@@ -178,6 +179,12 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     internal static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowTextLengthW", SetLastError = true)]
+    internal static extern int GetWindowTextLength(IntPtr hWnd);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowTextW", CharSet = CharSet.Unicode, SetLastError = true)]
+    internal static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
 
     [DllImport("kernel32.dll")]
     internal static extern uint GetCurrentThreadId();

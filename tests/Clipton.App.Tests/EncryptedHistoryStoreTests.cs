@@ -16,7 +16,9 @@ public sealed class EncryptedHistoryStoreTests
             "history-1",
             DateTimeOffset.UtcNow,
             [ClipboardFormatKind.Text],
-            text: "Persistent text");
+            text: "Persistent text",
+            sourceApplicationName: "notepad",
+            sourceWindowTitle: "notes.txt");
 
         store.Save([snapshot]);
 
@@ -25,6 +27,8 @@ public sealed class EncryptedHistoryStoreTests
         Assert.Equal("history-1", item.Id);
         Assert.Equal("Persistent text", item.Text);
         Assert.Contains(ClipboardFormatKind.Text, item.Formats);
+        Assert.Equal("notepad", item.SourceApplicationName);
+        Assert.Equal("notes.txt", item.SourceWindowTitle);
     }
 
     [Fact]

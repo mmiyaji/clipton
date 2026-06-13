@@ -12,7 +12,9 @@ public sealed class ClipboardSnapshot
         string? rtf = null,
         string? html = null,
         byte[]? imagePng = null,
-        IReadOnlyList<string>? filePaths = null)
+        IReadOnlyList<string>? filePaths = null,
+        string? sourceApplicationName = null,
+        string? sourceWindowTitle = null)
     {
         Id = string.IsNullOrWhiteSpace(id) ? throw new ArgumentException("Id is required.", nameof(id)) : id;
         CapturedAt = capturedAt;
@@ -22,6 +24,8 @@ public sealed class ClipboardSnapshot
         Html = html;
         ImagePng = imagePng is null ? null : imagePng.ToArray();
         FilePaths = new ReadOnlyCollection<string>((filePaths ?? Array.Empty<string>()).ToArray());
+        SourceApplicationName = NormalizeMetadata(sourceApplicationName);
+        SourceWindowTitle = NormalizeMetadata(sourceWindowTitle);
     }
 
     public string Id { get; }
@@ -39,6 +43,10 @@ public sealed class ClipboardSnapshot
     public byte[]? ImagePng { get; }
 
     public IReadOnlyList<string> FilePaths { get; }
+
+    public string? SourceApplicationName { get; }
+
+    public string? SourceWindowTitle { get; }
 
     public string Preview
     {
@@ -71,5 +79,16 @@ public sealed class ClipboardSnapshot
 
             return "Clipboard item";
         }
+    }
+
+    private static string? NormalizeMetadata(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var normalized = string.Join(" ", value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return normalized.Length <= 180 ? normalized : normalized[..180];
     }
 }

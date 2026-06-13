@@ -12,6 +12,9 @@ namespace Clipton.App;
 
 public static class ClipboardBridge
 {
+    private const long MaxClipboardImageBytes = 32L * 1024 * 1024;
+    private const long MaxClipboardImagePixels = 32_000_000;
+
     public static ClipboardSnapshot? Capture()
     {
         return WithClipboardRetry(CaptureOnce);
@@ -125,7 +128,10 @@ public static class ClipboardBridge
             if (data.GetData(DataFormats.Bitmap, autoConvert: true) is BitmapSource bitmap)
             {
                 image = EncodePng(bitmap);
-                formats.Add(ClipboardFormatKind.Image);
+                if (image.Length > 0)
+                {
+                    formats.Add(ClipboardFormatKind.Image);
+                }
             }
         }
 
@@ -211,10 +217,20 @@ public static class ClipboardBridge
 
     private static byte[] EncodePng(BitmapSource bitmap)
     {
+        if ((long)bitmap.PixelWidth * bitmap.PixelHeight > MaxClipboardImagePixels)
+        {
+            return [];
+        }
+
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(bitmap));
         using var stream = new MemoryStream();
         encoder.Save(stream);
+        if (stream.Length > MaxClipboardImageBytes)
+        {
+            return [];
+        }
+
         return stream.ToArray();
     }
 

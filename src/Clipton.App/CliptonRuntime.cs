@@ -119,7 +119,10 @@ public sealed class CliptonRuntime : IDisposable
         }
         else
         {
+            History.Clear();
+            Settings.PinnedHistoryIds = [];
             _historyStore.Delete();
+            _mainWindow?.RefreshItems();
         }
 
         SaveSettings();

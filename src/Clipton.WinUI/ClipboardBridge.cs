@@ -11,6 +11,9 @@ namespace Clipton.WinUI;
 
 public static class ClipboardBridge
 {
+    private const long MaxClipboardImageSourceBytes = 32L * 1024 * 1024;
+    private const long MaxClipboardImagePixels = 32_000_000;
+
     public static ClipboardSnapshot? Capture() => WithClipboardRetry(CaptureOnce);
 
     public static string? GetPlainText(ClipboardSnapshot snapshot)
@@ -128,7 +131,7 @@ public static class ClipboardBridge
             if (data.Contains(StandardDataFormats.Bitmap))
             {
                 var bitmap = Wait(data.GetBitmapAsync);
-                image = EncodePng(ReadAllBytes(bitmap));
+                image = EncodePng(ReadAllBytes(bitmap, MaxClipboardImageSourceBytes));
                 if (image.Length > 0) formats.Add(ClipboardFormatKind.Image);
             }
 
@@ -208,12 +211,30 @@ public static class ClipboardBridge
         Clipboard.Flush();
     }
 
-    private static byte[] ReadAllBytes(RandomAccessStreamReference reference)
+    private static byte[] ReadAllBytes(RandomAccessStreamReference reference, long maxBytes)
     {
         using var randomAccessStream = Wait(reference.OpenReadAsync);
+        if (randomAccessStream.Size > (ulong)maxBytes)
+        {
+            AppDiagnostics.Info("Clipboard", $"Skipped clipboard image because the source stream was {randomAccessStream.Size} bytes.");
+            return [];
+        }
+
         using var stream = randomAccessStream.AsStreamForRead();
         using var output = new MemoryStream();
-        stream.CopyTo(output);
+        var buffer = new byte[81920];
+        int read;
+        while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            if (output.Length + read > maxBytes)
+            {
+                AppDiagnostics.Info("Clipboard", $"Skipped clipboard image because the source stream exceeded {maxBytes} bytes.");
+                return [];
+            }
+
+            output.Write(buffer, 0, read);
+        }
+
         return output.ToArray();
     }
 
@@ -251,12 +272,29 @@ public static class ClipboardBridge
 
     private static byte[] EncodePng(byte[] imageBytes)
     {
+        if (imageBytes.Length == 0)
+        {
+            return [];
+        }
+
         try
         {
             using var input = new MemoryStream(imageBytes);
             using var source = System.Drawing.Image.FromStream(input);
+            if ((long)source.Width * source.Height > MaxClipboardImagePixels)
+            {
+                AppDiagnostics.Info("Clipboard", $"Skipped clipboard image because its dimensions were {source.Width}x{source.Height}.");
+                return [];
+            }
+
             using var output = new MemoryStream();
             source.Save(output, ImageFormat.Png);
+            if (output.Length > MaxClipboardImageSourceBytes)
+            {
+                AppDiagnostics.Info("Clipboard", $"Skipped clipboard image because the encoded PNG was {output.Length} bytes.");
+                return [];
+            }
+
             return output.ToArray();
         }
         catch (Exception exception) when (exception is ArgumentException or ExternalException)

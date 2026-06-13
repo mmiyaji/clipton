@@ -151,6 +151,8 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
     public string DisplayMode => "rich";
 
+    public bool IsDismissed => _dismissed;
+
     public void FocusMenu()
     {
         InstallKeyboardHook();
@@ -191,6 +193,28 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
         RebuildItems();
         FocusMenu();
+    }
+
+    public void RefreshItems(IReadOnlyList<QuickMenuItem> items)
+    {
+        if (_dismissed)
+        {
+            return;
+        }
+
+        _items = items;
+        _rootItemsForSearch = items;
+        if (_navigationStack.Count > 0 || _searchBox.Visibility == Visibility.Visible)
+        {
+            _searchVersion++;
+            _searchResults = null;
+            _searchSourceTask = null;
+            return;
+        }
+
+        _selectedIndex = Math.Min(_selectedIndex, Math.Max(0, items.Count - 1));
+        RebuildItems();
+        QueueFocusRetry();
     }
 
     public void Dismiss()
@@ -668,7 +692,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         panel.Children.Add(_previewMetaText);
 
         var actions = new Grid { ColumnSpacing = 8 };
-        for (var i = 0; i < 4; i++)
+        for (var i = 0; i < 5; i++)
         {
             actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         }
@@ -677,6 +701,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         AddPreviewAction(actions, 1, "\uE8C8", _copyFeedbackText, CopySelectedImage);
         AddPreviewAction(actions, 2, "\uE8E5", "Plain text", InvokeSelectedPlainText);
         AddPreviewAction(actions, 3, "\uE74D", _cutFeedbackText, CutSelectedImage);
+        AddPreviewAction(actions, 4, "\uE711", "Close", HidePreviewOnly);
         Grid.SetRow(actions, 2);
         panel.Children.Add(actions);
 
@@ -1002,7 +1027,16 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private void OnKeyDown(object sender, KeyRoutedEventArgs args)
     {
         var key = args.Key;
-        var ctrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+        static bool IsDown(VirtualKey virtualKey) => Microsoft.UI.Input.InputKeyboardSource
+            .GetKeyStateForCurrentThread(virtualKey)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+        var ctrl = IsDown(VirtualKey.Control);
+        var hasShortcutModifier = ctrl
+            || IsDown(VirtualKey.Shift)
+            || IsDown(VirtualKey.Menu)
+            || IsDown(VirtualKey.LeftWindows)
+            || IsDown(VirtualKey.RightWindows);
         if (_folderLoading)
         {
             args.Handled = true;
@@ -1016,6 +1050,10 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
         switch (key)
         {
+            case var numberKey when !hasShortcutModifier && TryGetNumberShortcutIndex((int)numberKey, out var numberShortcutIndex):
+                args.Handled = true;
+                InvokeNumberShortcut(numberShortcutIndex);
+                break;
             case VirtualKey.Escape:
                 args.Handled = true;
                 Dismiss();
@@ -1047,6 +1085,14 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             case VirtualKey.Enter:
                 args.Handled = true;
                 InvokeSelected();
+                break;
+            case VirtualKey.Space:
+                args.Handled = true;
+                PreviewSelected();
+                break;
+            case VirtualKey.E when !hasShortcutModifier:
+                args.Handled = true;
+                EditSelected();
                 break;
             case VirtualKey.Left:
             case VirtualKey.Back:
@@ -1095,6 +1141,24 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
     private void SelectLast() => Select(_visibleItems.Count - 1);
 
+    private static bool TryGetNumberShortcutIndex(int key, out int index)
+    {
+        if (key is >= 0x31 and <= 0x39)
+        {
+            index = key - 0x31;
+            return true;
+        }
+
+        if (key is >= 0x61 and <= 0x69)
+        {
+            index = key - 0x61;
+            return true;
+        }
+
+        index = -1;
+        return false;
+    }
+
     private void InstallKeyboardHook()
     {
         s_activeWindow = this;
@@ -1142,7 +1206,14 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         var key = Marshal.ReadInt32(lParam);
-        var ctrl = (NativeMethods.GetAsyncKeyState(NativeMethods.VkControl) & 0x8000) != 0;
+        static bool IsDown(int virtualKey) => (NativeMethods.GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+
+        var ctrl = IsDown(NativeMethods.VkControl);
+        var hasShortcutModifier = ctrl
+            || IsDown(NativeMethods.VkShift)
+            || IsDown(NativeMethods.VkMenu)
+            || IsDown(NativeMethods.VkLWin)
+            || IsDown(NativeMethods.VkRWin);
         if (_folderLoading)
         {
             if (key == NativeMethods.VkEscape)
@@ -1191,6 +1262,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
         switch (key)
         {
+            case var numberKey when !hasShortcutModifier && TryGetNumberShortcutIndex(numberKey, out var numberShortcutIndex):
+                DispatcherQueue.TryEnqueue(() => InvokeNumberShortcut(numberShortcutIndex));
+                return 1;
             case NativeMethods.VkDown:
                 DispatcherQueue.TryEnqueue(() => MoveSelection(1));
                 return 1;
@@ -1218,6 +1292,12 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
                 return 1;
             case NativeMethods.VkReturn:
                 DispatcherQueue.TryEnqueue(InvokeSelected);
+                return 1;
+            case NativeMethods.VkSpace:
+                DispatcherQueue.TryEnqueue(PreviewSelected);
+                return 1;
+            case NativeMethods.VkE when !hasShortcutModifier:
+                DispatcherQueue.TryEnqueue(EditSelected);
                 return 1;
             case NativeMethods.VkEscape:
                 DispatcherQueue.TryEnqueue(Dismiss);
@@ -1252,6 +1332,61 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     }
 
     private void InvokeSelected() => InvokeItem(GetSelectedItem());
+
+    private void HidePreviewOnly()
+    {
+        _previewCard.Visibility = Visibility.Collapsed;
+        ResizeForPreview(showPreview: false);
+        FocusMenuNow();
+        QueueFocusRetry();
+    }
+
+    private void PreviewSelected()
+    {
+        var item = GetSelectedItem();
+        if (_folderLoading || item is null || !item.IsEnabled)
+        {
+            return;
+        }
+
+        if (item.PreviewImageBytesProvider is not null || item.IconImageBytes is { Length: > 0 })
+        {
+            _ = UpdatePreviewAsync(item);
+            return;
+        }
+
+        if (item.PreviewInvoke is not null)
+        {
+            BeginInvokeAndDismiss(item.PreviewInvoke);
+        }
+    }
+
+    private void EditSelected()
+    {
+        var item = GetSelectedItem();
+        if (_folderLoading || item?.EditInvoke is null || !item.IsEnabled)
+        {
+            return;
+        }
+
+        BeginInvokeAndDismiss(item.EditInvoke);
+    }
+
+    private void InvokeNumberShortcut(int index)
+    {
+        if (_folderLoading || _navigationStack.Count > 0 || _searchBox.Visibility == Visibility.Visible)
+        {
+            return;
+        }
+
+        var item = _items
+            .Where(item => item is { IsEnabled: true, IsSeparator: false, IsFolder: false, IsNumberShortcutEnabled: true })
+            .ElementAtOrDefault(index);
+        if (item is not null)
+        {
+            BeginInvokeAndDismiss(item.Invoke);
+        }
+    }
 
     private void OpenSelectedFolder()
     {
@@ -1787,7 +1922,10 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     {
         if (item.CapturedAt is { } capturedAt)
         {
-            return CreateRelativeTime(capturedAt);
+            var relativeTime = CreateRelativeTime(capturedAt);
+            return string.IsNullOrWhiteSpace(item.Subtitle)
+                ? relativeTime
+                : $"{relativeTime} · {item.Subtitle}";
         }
 
         return item.Subtitle;
