@@ -25,6 +25,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private const int ScreenEdgePadding = 8;
     private const int EstimatedRootFlyoutHeight = 420;
     private const int NativeResourceCollectionMinIntervalMilliseconds = 5000;
+    private const int InitialShowFlyoutDelayMilliseconds = 120;
     private const int DwmwaNcRenderingPolicy = 2;
     private const int DwmwaBorderColor = 34;
     private const int DwmncrpDisabled = 1;
@@ -76,6 +77,9 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private bool _dismissed;
     private bool _opened;
     private bool _reopening;
+    private bool _hostLoaded;
+    private bool _initialShowPending = true;
+    private bool _showFlyoutScheduled;
     private long _focusToken;
     private IReadOnlyList<QuickMenuItem> _currentItems;
     private bool _revealMaskedItems;
@@ -151,7 +155,10 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         DispatcherQueue.TryEnqueue(() =>
         {
             FocusHostWindow();
-            ShowFlyout();
+            if (_hostLoaded)
+            {
+                QueueShowFlyout(_initialShowPending ? InitialShowFlyoutDelayMilliseconds : 0);
+            }
         });
     }
 
@@ -167,6 +174,8 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         ReleaseMenuReferences();
         _dismissed = false;
         _opened = false;
+        _initialShowPending = false;
+        _showFlyoutScheduled = false;
         _rootItems = items;
         _currentItems = items;
         BuildFlyout();
@@ -239,8 +248,37 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         var dark = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase);
         _host.Background = new SolidColorBrush(dark ? Colors.Transparent : Colors.Transparent);
         _host.IsTabStop = true;
-        _host.Loaded += (_, _) => ShowFlyout();
+        _host.Loaded += (_, _) =>
+        {
+            _hostLoaded = true;
+            QueueShowFlyout(_initialShowPending ? InitialShowFlyoutDelayMilliseconds : 0);
+        };
         Content = _host;
+    }
+
+    private void QueueShowFlyout(int delayMilliseconds)
+    {
+        if (_showFlyoutScheduled || _opened || _dismissed)
+        {
+            return;
+        }
+
+        _showFlyoutScheduled = true;
+        if (delayMilliseconds <= 0)
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                _showFlyoutScheduled = false;
+                ShowFlyout();
+            });
+            return;
+        }
+
+        EnqueueAfterDelay(delayMilliseconds, () =>
+        {
+            _showFlyoutScheduled = false;
+            ShowFlyout();
+        });
     }
 
     private void ShowFlyout()
@@ -251,6 +289,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         _opened = true;
+        _initialShowPending = false;
         InstallKeyboardHook();
         InstallMouseHook();
         FocusHostWindow();
