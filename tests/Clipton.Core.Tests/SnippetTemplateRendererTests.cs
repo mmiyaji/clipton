@@ -5,6 +5,12 @@ namespace Clipton.Core.Tests;
 public sealed class SnippetTemplateRendererTests
 {
     [Fact]
+    public void Render_ReturnsEmptyTemplateUnchanged()
+    {
+        Assert.Equal(string.Empty, SnippetTemplateRenderer.Render(string.Empty));
+    }
+
+    [Fact]
     public void Render_ExpandsDateAndTimeVariables()
     {
         var now = new DateTimeOffset(2026, 5, 31, 9, 8, 7, TimeSpan.FromHours(9));
@@ -36,6 +42,20 @@ public sealed class SnippetTemplateRendererTests
     }
 
     [Fact]
+    public void Render_ExpandsIsoUtcAliasesAndCalendarParts()
+    {
+        var now = new DateTimeOffset(2026, 5, 31, 9, 8, 7, TimeSpan.FromHours(9));
+
+        var rendered = SnippetTemplateRenderer.Render(
+            "{{now}}|{{utcdatetime}}|{{utcnow}}|{{isodate}}|{{isodatetime}}|{{isoutc}}|{{year}}|{{month}}|{{day}}|{{isoweek}}|{{weekday:yyyy}}",
+            now);
+
+        Assert.Equal(
+            "2026-05-31 09:08|2026-05-31 00:08|2026-05-31 00:08|2026-05-31|2026-05-31T09:08:07.0000000+09:00|2026-05-31T00:08:07.0000000+00:00|2026|05|31|22|2026",
+            rendered);
+    }
+
+    [Fact]
     public void Render_ExpandsDateOffsetFunctions()
     {
         var now = new DateTimeOffset(2026, 5, 31, 9, 8, 7, TimeSpan.FromHours(9));
@@ -48,6 +68,18 @@ public sealed class SnippetTemplateRendererTests
     }
 
     [Fact]
+    public void Render_LeavesInvalidDateOffsetsUnchanged()
+    {
+        var now = new DateTimeOffset(2026, 5, 31, 9, 8, 7, TimeSpan.FromHours(9));
+
+        var rendered = SnippetTemplateRenderer.Render(
+            "{{adddays:x}} {{addmonths:x}} {{addyears:x}} {{addhours:x}} {{addminutes:x}}",
+            now);
+
+        Assert.Equal("{{adddays:x}} {{addmonths:x}} {{addyears:x}} {{addhours:x}} {{addminutes:x}}", rendered);
+    }
+
+    [Fact]
     public void Render_ExpandsRandomFunctionsWithRequestedLength()
     {
         var rendered = SnippetTemplateRenderer.Render("{{shortuuid}} {{randomhex:12}} {{randomnumber:4}}");
@@ -56,6 +88,21 @@ public sealed class SnippetTemplateRendererTests
         Assert.Matches("^[0-9a-f]{8}$", parts[0]);
         Assert.Matches("^[0-9a-f]{12}$", parts[1]);
         Assert.Matches("^[0-9]{4}$", parts[2]);
+    }
+
+    [Fact]
+    public void Render_RandomFunctionsFallbackAndClampLengths()
+    {
+        var rendered = SnippetTemplateRenderer.Render(
+            "{{randomhex:bad}} {{randomhex:0}} {{randomhex:65}} {{randomnumber:bad}} {{randomnumber:0}} {{randomnumber:10}}");
+        var parts = rendered.Split(' ');
+
+        Assert.Matches("^[0-9a-f]{8}$", parts[0]);
+        Assert.Matches("^[0-9a-f]{1}$", parts[1]);
+        Assert.Matches("^[0-9a-f]{64}$", parts[2]);
+        Assert.Matches("^[0-9]{6}$", parts[3]);
+        Assert.Matches("^[0-9]{1}$", parts[4]);
+        Assert.Matches("^[0-9]{9}$", parts[5]);
     }
 
     [Fact]
@@ -73,6 +120,30 @@ public sealed class SnippetTemplateRendererTests
         Assert.Equal(".md/.txt", SnippetTemplateRenderer.Render("{{fileextensions:/}}", filePaths: files));
         Assert.Equal(@"C:\Work", SnippetTemplateRenderer.Render("{{filedirectory}}", filePaths: files[..1]));
         Assert.Equal("2", SnippetTemplateRenderer.Render("{{filecount}}", filePaths: files));
+    }
+
+    [Fact]
+    public void Render_FileVariablesHandleNoFilesAliasesAndEscapedSeparators()
+    {
+        var files = new[]
+        {
+            @"C:\Work\Report.md",
+            @"C:\Work\Notes.txt"
+        };
+
+        Assert.Equal(string.Empty, SnippetTemplateRenderer.Render("{{filepath}}"));
+        Assert.Equal("0", SnippetTemplateRenderer.Render("{{filecount}}"));
+        Assert.Equal("Report.md" + Environment.NewLine + "Notes.txt", SnippetTemplateRenderer.Render("{{filenames:\\n}}", filePaths: files));
+        Assert.Equal("Report\tNotes", SnippetTemplateRenderer.Render("{{filenamewithoutextension:\\t}}", filePaths: files));
+        Assert.Equal("Report/Notes", SnippetTemplateRenderer.Render("{{filestems:/}}", filePaths: files));
+        Assert.Equal(".md/.txt", SnippetTemplateRenderer.Render("{{fileextensions:/}}", filePaths: files));
+        Assert.Equal(string.Empty, SnippetTemplateRenderer.Render("{{filedirectory}}", filePaths: ["relative"]));
+    }
+
+    [Fact]
+    public void Render_ExpandsLineBreakAliases()
+    {
+        Assert.Equal("a" + Environment.NewLine + Environment.NewLine + "b", SnippetTemplateRenderer.Render("a{{br}}{{newline}}b"));
     }
 
     [Fact]

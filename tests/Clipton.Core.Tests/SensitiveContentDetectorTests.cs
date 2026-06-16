@@ -6,6 +6,15 @@ namespace Clipton.Core.Tests;
 public sealed class SensitiveContentDetectorTests
 {
     [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ShouldMask_ReturnsFalseForNullOrWhitespace(string? text)
+    {
+        Assert.False(SensitiveContentDetector.ShouldMask(text));
+    }
+
+    [Theory]
     [InlineData("contact me at user@example.com")]
     [InlineData("api_key=abcdefghijklmnopqrstuvwxyz123456")]
     [InlineData("Store ID: 9NSS9P4F6S5M")]
@@ -19,6 +28,36 @@ public sealed class SensitiveContentDetectorTests
     public void ShouldMask_ReturnsFalseForOrdinaryText()
     {
         Assert.False(SensitiveContentDetector.ShouldMask("Hello, please review this message."));
+    }
+
+    [Fact]
+    public void ShouldMask_IgnoresInvalidDisabledAndBlankRules()
+    {
+        var rules = MaskRuleDefinitionDefaults.CreateDefaultRules();
+        rules.First(rule => rule.Id == MaskRuleIds.Email).Pattern = "[";
+        rules.First(rule => rule.Id == MaskRuleIds.ShortAlphanumericCode).Enabled = false;
+
+        Assert.False(SensitiveContentDetector.ShouldMask("user@example.com alpha-123", rules, ["alpha-\\d+"], customPatternsEnabled: false));
+    }
+
+    [Fact]
+    public void ShouldMask_DoesNotMaskInvalidCreditCardNumbers()
+    {
+        const string invalidCard = "4111 1111 1111 1112";
+        var rules = new MaskRuleSettings
+        {
+            Email = false,
+            CreditCard = true,
+            SecretKeyword = false,
+            BearerToken = false,
+            LongToken = false,
+            ShortAlphanumericCode = false,
+            PhoneNumber = false,
+            CustomPattern = false
+        };
+
+        Assert.False(SensitiveContentDetector.ShouldMask(invalidCard, rules: rules));
+        Assert.Null(SensitiveContentDetector.CreateMaskedPreview(invalidCard, rules: rules));
     }
 
     [Theory]
@@ -36,6 +75,24 @@ public sealed class SensitiveContentDetectorTests
     public void CreateMaskedPreview_ReturnsNullForOrdinaryText()
     {
         Assert.Null(SensitiveContentDetector.CreateMaskedPreview("Hello, please review this message."));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void CreateMaskedPreview_ReturnsNullForNullOrWhitespace(string? text)
+    {
+        Assert.Null(SensitiveContentDetector.CreateMaskedPreview(text));
+    }
+
+    [Fact]
+    public void CreateMaskedPreview_HandlesVisiblePrefixBounds()
+    {
+        Assert.Equal("Email \u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022", SensitiveContentDetector.CreateMaskedPreview("Email user@example.com", 0));
+        Assert.Equal(
+            "Email user@example.com\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022",
+            SensitiveContentDetector.CreateMaskedPreview("Email user@example.com", 100));
     }
 
     [Fact]
@@ -91,6 +148,22 @@ public sealed class SensitiveContentDetectorTests
     }
 
     [Fact]
+    public void CreatePreviewScanText_NormalizesShortTextAndHardCutsWithoutWordBoundary()
+    {
+        Assert.Equal("one two", SensitiveContentDetector.CreatePreviewScanText("  one\r\ntwo  ", maxLength: 20));
+        Assert.Equal(new string('x', 10), SensitiveContentDetector.CreatePreviewScanText(new string('x', 20), maxLength: 10));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void CreatePreviewScanText_ReturnsNullForNullOrWhitespace(string? text)
+    {
+        Assert.Null(SensitiveContentDetector.CreatePreviewScanText(text));
+    }
+
+    [Fact]
     public void CreatePreviewScanText_LimitsInvisibleTailBeforeMasking()
     {
         var text = $"{string.Concat(Enumerable.Repeat("note ", 260))} Store ID: 9NSS9P4F6S5M";
@@ -114,6 +187,27 @@ public sealed class SensitiveContentDetectorTests
         Assert.Contains(matches, match => match.RuleId == MaskRuleIds.Email && match.NameKey == "MaskRuleEmail");
         Assert.Contains(matches, match => match.RuleId == MaskRuleIds.ShortAlphanumericCode && match.NameKey == "MaskRuleShortAlphanumericCode");
         Assert.Contains(matches, match => match.IsCustomPattern && match.NameKey == "MaskRuleCustomPattern");
+    }
+
+    [Fact]
+    public void FindMatchedRules_ReturnsEmptyForWhitespaceAndWhenCustomPatternsAreDisabled()
+    {
+        Assert.Empty(SensitiveContentDetector.FindMatchedRules("   ", MaskRuleDefinitionDefaults.CreateDefaultRules(), ["alpha-\\d+"]));
+        Assert.Empty(SensitiveContentDetector.FindMatchedRules("Project alpha-123", [], ["alpha-\\d+"], customPatternsEnabled: false));
+    }
+
+    [Fact]
+    public void FindMatchedRules_DeduplicatesCustomPatterns()
+    {
+        var matches = SensitiveContentDetector.FindMatchedRules(
+            "Project alpha-123",
+            [],
+            [" alpha-\\d+ ", "alpha-\\d+"],
+            customPatternsEnabled: true);
+
+        var match = Assert.Single(matches);
+        Assert.True(match.IsCustomPattern);
+        Assert.Equal("alpha-\\d+", match.Pattern);
     }
 
     [Fact]

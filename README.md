@@ -33,6 +33,8 @@ The app starts in the tray. Double-click the tray icon to open the settings/hist
 dotnet test Clipton.slnx
 ```
 
+Coverage measurement is documented in [docs/COVERAGE.md](docs/COVERAGE.md).
+
 ## Local data
 
 Settings and snippets are stored under `%APPDATA%\Clipton`.

@@ -65,6 +65,159 @@ public sealed class EncryptedHistoryStoreTests
     }
 
     [Fact]
+    public void Load_ReturnsEmptyWhenHistoryDoesNotExist()
+    {
+        var root = CreateTestRoot();
+        var path = Path.Combine(root, "history.dat");
+        var store = new EncryptedHistoryStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Empty(loaded);
+        Assert.False(Directory.Exists(Path.Combine(root, "history")));
+    }
+
+    [Fact]
+    public void Load_ReturnsEmptyForCorruptedLegacyHistory()
+    {
+        var root = CreateTestRoot();
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, "history.dat");
+        File.WriteAllBytes(path, [1, 2, 3, 4]);
+        var store = new EncryptedHistoryStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Empty(loaded);
+        Assert.False(Directory.Exists(Path.Combine(root, "history")));
+    }
+
+    [Fact]
+    public void Load_ReturnsEmptyForUnsupportedSegmentedManifestVersion()
+    {
+        var root = CreateTestRoot();
+        var path = Path.Combine(root, "history.dat");
+        var store = new EncryptedHistoryStore(path);
+
+        store.Save([TextSnapshot("history-1", "one")]);
+        WriteManifest(root, version: 2, ["history-1"], ["history-1"], []);
+
+        Assert.Empty(store.Load());
+    }
+
+    [Fact]
+    public void Load_ReturnsEmptyWhenSegmentCannotBeDecrypted()
+    {
+        var root = CreateTestRoot();
+        var path = Path.Combine(root, "history.dat");
+        var store = new EncryptedHistoryStore(path);
+
+        store.Save([TextSnapshot("history-1", "one")]);
+        File.WriteAllBytes(Path.Combine(root, "history", "base.dat"), [1, 2, 3, 4]);
+
+        Assert.Empty(store.Load());
+    }
+
+    [Fact]
+    public void Load_ReadsProtectedCompatibilityManifest()
+    {
+        var root = CreateTestRoot();
+        var path = Path.Combine(root, "history.dat");
+        var store = new EncryptedHistoryStore(path);
+
+        store.Save([TextSnapshot("history-1", "one")]);
+        WriteProtectedManifest(root, version: 3, ["history-1"], ["history-1"], []);
+
+        var item = Assert.Single(store.Load());
+        Assert.Equal("one", item.Text);
+    }
+
+    [Fact]
+    public void Save_RecompactsWhenBaseSegmentIsMissing()
+    {
+        var root = CreateTestRoot();
+        var path = Path.Combine(root, "history.dat");
+        var store = new EncryptedHistoryStore(path);
+
+        store.Save([TextSnapshot("history-1", "one")]);
+        var basePath = Path.Combine(root, "history", "base.dat");
+        File.Delete(basePath);
+
+        store.Save([TextSnapshot("history-2", "two")]);
+
+        Assert.True(File.Exists(basePath));
+        Assert.False(File.Exists(Path.Combine(root, "history", "delta.dat")));
+        var item = Assert.Single(store.Load());
+        Assert.Equal("two", item.Text);
+    }
+
+    [Fact]
+    public void Save_RecompactsWhenAllBaseItemsAreRemoved()
+    {
+        var root = CreateTestRoot();
+        var path = Path.Combine(root, "history.dat");
+        var store = new EncryptedHistoryStore(path);
+        var baseItem = TextSnapshot("history-1", "one");
+
+        store.Save([baseItem]);
+        store.Save([TextSnapshot("history-2", "two"), baseItem]);
+        Assert.True(File.Exists(Path.Combine(root, "history", "delta.dat")));
+
+        store.Save([TextSnapshot("history-3", "three")]);
+
+        Assert.False(File.Exists(Path.Combine(root, "history", "delta.dat")));
+        var item = Assert.Single(store.Load());
+        Assert.Equal("three", item.Text);
+    }
+
+    [Fact]
+    public void Save_RecompactsWhenDeltaReachesThreshold()
+    {
+        var root = CreateTestRoot();
+        var path = Path.Combine(root, "history.dat");
+        var store = new EncryptedHistoryStore(path);
+        var baseItem = TextSnapshot("history-0", "zero");
+
+        store.Save([baseItem]);
+        var snapshots = Enumerable
+            .Range(1, 50)
+            .Select(index => TextSnapshot($"history-{index}", index.ToString()))
+            .Append(baseItem)
+            .ToArray();
+
+        store.Save(snapshots);
+
+        Assert.False(File.Exists(Path.Combine(root, "history", "delta.dat")));
+        var loaded = store.Load();
+        Assert.Equal(51, loaded.Count);
+        Assert.Equal("history-1", loaded[0].Id);
+        Assert.Equal("history-0", loaded[^1].Id);
+    }
+
+    [Fact]
+    public void Save_DropsRemovedDeltaItemsWithoutRewritingDelta()
+    {
+        var root = CreateTestRoot();
+        var path = Path.Combine(root, "history.dat");
+        var store = new EncryptedHistoryStore(path);
+        var baseItem = TextSnapshot("history-1", "one");
+        var deltaItem = TextSnapshot("history-2", "two");
+
+        store.Save([baseItem]);
+        store.Save([deltaItem, baseItem]);
+        var deltaPath = Path.Combine(root, "history", "delta.dat");
+        var before = File.GetLastWriteTimeUtc(deltaPath);
+        File.SetLastWriteTimeUtc(deltaPath, before.AddMinutes(-5));
+        before = File.GetLastWriteTimeUtc(deltaPath);
+
+        store.Save([baseItem]);
+
+        Assert.Equal(before, File.GetLastWriteTimeUtc(deltaPath));
+        var item = Assert.Single(store.Load());
+        Assert.Equal("history-1", item.Id);
+    }
+
+    [Fact]
     public void Load_MigratesLegacySingleFileHistory()
     {
         var root = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"));
@@ -81,9 +234,80 @@ public sealed class EncryptedHistoryStoreTests
         Assert.True(File.Exists($"{path}.legacy.bak"));
     }
 
+    [Fact]
+    public void Delete_RemovesLegacyFileAndSegmentedHistory()
+    {
+        var root = CreateTestRoot();
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, "history.dat");
+        File.WriteAllText(path, "legacy");
+        var store = new EncryptedHistoryStore(path);
+
+        store.Save([TextSnapshot("history-1", "one")]);
+        store.Delete();
+
+        Assert.False(File.Exists(path));
+        Assert.False(Directory.Exists(Path.Combine(root, "history")));
+    }
+
+    [Fact]
+    public void Delete_DoesNothingWhenHistoryFilesAreMissing()
+    {
+        var root = CreateTestRoot();
+        var path = Path.Combine(root, "history.dat");
+        var store = new EncryptedHistoryStore(path);
+
+        store.Delete();
+
+        Assert.False(File.Exists(path));
+        Assert.False(Directory.Exists(Path.Combine(root, "history")));
+    }
+
+    private static string CreateTestRoot()
+    {
+        return Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"));
+    }
+
     private static ClipboardSnapshot TextSnapshot(string id, string text)
     {
         return new ClipboardSnapshot(id, DateTimeOffset.UtcNow, [ClipboardFormatKind.Text], text: text);
+    }
+
+    private static void WriteManifest(
+        string root,
+        int version,
+        string[] orderedIds,
+        string[] baseIds,
+        string[] deltaIds)
+    {
+        var manifest = new
+        {
+            Version = version,
+            OrderedIds = orderedIds,
+            BaseIds = baseIds,
+            DeltaIds = deltaIds
+        };
+        var manifestPath = Path.Combine(root, "history", "manifest.dat");
+        File.WriteAllBytes(manifestPath, JsonSerializer.SerializeToUtf8Bytes(manifest));
+    }
+
+    private static void WriteProtectedManifest(
+        string root,
+        int version,
+        string[] orderedIds,
+        string[] baseIds,
+        string[] deltaIds)
+    {
+        var manifest = new
+        {
+            Version = version,
+            OrderedIds = orderedIds,
+            BaseIds = baseIds,
+            DeltaIds = deltaIds
+        };
+        var json = JsonSerializer.SerializeToUtf8Bytes(manifest);
+        var encrypted = ProtectedData.Protect(json, optionalEntropy: null, DataProtectionScope.CurrentUser);
+        File.WriteAllBytes(Path.Combine(root, "history", "manifest.dat"), encrypted);
     }
 
     private static void WriteLegacyHistory(string path, ClipboardSnapshot[] snapshots)
