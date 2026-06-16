@@ -1,6 +1,6 @@
 # Microsoft Store Asset Plan
 
-Last updated: 2026-06-01
+Last updated: 2026-06-17
 
 This file tracks Store submission assets for Clipton.
 
@@ -103,7 +103,7 @@ Technical targets:
    - Message: Clipton runs locally from the task tray.
 
 2. 0:05-0:15 - Quick menu.
-   - Focus Notepad, press Ctrl+Shift+V, open quick menu.
+   - Focus Notepad, press Ctrl+Alt+V, open quick menu.
    - Move with arrow keys, show Enter paste and plain text shortcut hint.
 
 3. 0:15-0:25 - Search and paste options.

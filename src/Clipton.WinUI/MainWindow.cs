@@ -576,7 +576,7 @@ public sealed class MainWindow : Window
     {
         _generalPage.Children.Add(PageHeader(_generalHeaderText, _generalDescriptionText));
         _generalPage.Children.Add(SectionHeader("ActivationSection"));
-        foreach (var hotkey in new[] { "Ctrl+Shift+V", "Ctrl+Alt+V", "Alt+Space" })
+        foreach (var hotkey in HotkeyGesture.Presets.Select(preset => preset.ToString()))
         {
             _hotkeyBox.Items.Add(new ComboBoxItem { Content = hotkey, Tag = hotkey });
         }

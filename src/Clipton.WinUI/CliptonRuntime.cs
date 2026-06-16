@@ -792,7 +792,7 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         _messageWindow = new HotkeyMessageWindow(ShowQuickMenuOnUiThread, CaptureClipboardOnUiThread);
-        RegisterHotkey();
+        RegisterHotkey(allowFallback: true);
         AppProfiler.Mark("Hotkey registered.");
         ScheduleClipboardCapture(IntPtr.Zero);
         AppProfiler.Mark("Initial clipboard capture scheduled.");
@@ -1029,19 +1029,58 @@ public sealed class CliptonRuntime : IDisposable
         }, TaskScheduler.Default);
     }
 
-    private bool RegisterHotkey()
+    private bool RegisterHotkey(bool allowFallback = false)
     {
         if (_messageWindow is null)
         {
             return false;
         }
 
-        if (!HotkeyGesture.TryParse(Settings.Hotkey, out var gesture))
+        if (!HotkeyGesture.TryParse(Settings.Hotkey, out var preferredGesture))
         {
-            gesture = HotkeyGesture.Default;
+            preferredGesture = HotkeyGesture.Default;
         }
 
-        return _messageWindow.Register(gesture);
+        if (_messageWindow.Register(preferredGesture))
+        {
+            SaveRegisteredHotkeyIfChanged(preferredGesture, allowFallback);
+            return true;
+        }
+
+        if (!allowFallback)
+        {
+            return false;
+        }
+
+        foreach (var fallbackGesture in HotkeyGesture.GetRegistrationCandidates(preferredGesture).Skip(1))
+        {
+            if (!_messageWindow.Register(fallbackGesture))
+            {
+                continue;
+            }
+
+            AppDiagnostics.Info("Hotkey", $"Fell back to available hotkey {fallbackGesture}.");
+            SaveRegisteredHotkeyIfChanged(fallbackGesture, save: true);
+            return true;
+        }
+
+        AppDiagnostics.Info("Hotkey", "No configured hotkey preset could be registered.");
+        return false;
+    }
+
+    private void SaveRegisteredHotkeyIfChanged(HotkeyGesture gesture, bool save)
+    {
+        var hotkey = gesture.ToString();
+        if (string.Equals(Settings.Hotkey, hotkey, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        Settings.Hotkey = hotkey;
+        if (save)
+        {
+            SaveSettings();
+        }
     }
 
     private void CreateTrayIcon()

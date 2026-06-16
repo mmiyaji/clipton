@@ -321,7 +321,9 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     {
         _ = Task.Delay(delayMilliseconds).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
         {
-            if (_dismissed || _focusToken != focusToken)
+            if (_dismissed
+                || _focusToken != focusToken
+                || GetFocusedMenuElement().Element is not null)
             {
                 return;
             }

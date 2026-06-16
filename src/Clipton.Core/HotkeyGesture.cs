@@ -12,7 +12,26 @@ public enum HotkeyModifiers
 
 public sealed record HotkeyGesture(HotkeyModifiers Modifiers, string Key)
 {
-    public static HotkeyGesture Default { get; } = new(HotkeyModifiers.Control | HotkeyModifiers.Shift, "V");
+    public static HotkeyGesture Default { get; } = new(HotkeyModifiers.Control | HotkeyModifiers.Alt, "V");
+
+    public static IReadOnlyList<HotkeyGesture> Presets { get; } =
+    [
+        Default,
+        new(HotkeyModifiers.Control | HotkeyModifiers.Alt, "SPACE"),
+        new(HotkeyModifiers.Control | HotkeyModifiers.Shift, "V")
+    ];
+
+    public static IEnumerable<HotkeyGesture> GetRegistrationCandidates(HotkeyGesture preferred)
+    {
+        yield return preferred;
+        foreach (var preset in Presets)
+        {
+            if (preset != preferred)
+            {
+                yield return preset;
+            }
+        }
+    }
 
     public override string ToString()
     {
@@ -37,7 +56,7 @@ public sealed record HotkeyGesture(HotkeyModifiers Modifiers, string Key)
             parts.Add("Win");
         }
 
-        parts.Add(Key.ToUpperInvariant());
+        parts.Add(FormatKey(Key));
         return string.Join("+", parts);
     }
 
@@ -108,5 +127,12 @@ public sealed record HotkeyGesture(HotkeyModifiers Modifiers, string Key)
         return key.StartsWith('F')
             && int.TryParse(key[1..], out var functionKey)
             && functionKey is >= 1 and <= 24;
+    }
+
+    private static string FormatKey(string key)
+    {
+        return string.Equals(key, "SPACE", StringComparison.OrdinalIgnoreCase)
+            ? "Space"
+            : key.ToUpperInvariant();
     }
 }
