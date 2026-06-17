@@ -1,0 +1,142 @@
+name: Validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "codex/**"
+      - "update/**"
+  workflow_dispatch:
+
+jobs:
+  unit-and-upgrade:
+    name: Unit and upgrade compatibility
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        timeout-minutes: 4
+        run: dotnet restore Clipton.slnx
+
+      - name: Run unit and upgrade tests
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          dotnet test Clipton.slnx `
+            -c Release `
+            --no-restore `
+            --blame-hang `
+            --blame-hang-timeout 2m `
+            --logger "trx;LogFileName=validation-tests.trx" `
+            -- `
+            RunConfiguration.TestSessionTimeout=480000
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-test-results
+          path: "**/TestResults/*.trx"
+          if-no-files-found: ignore
+          retention-days: 7
+
+  ui-smoke:
+    name: Quick menu UI smoke
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build WinUI smoke build
+        timeout-minutes: 7
+        shell: pwsh
+        run: |
+          dotnet build src\Clipton.WinUI\Clipton.WinUI.csproj `
+            -c Release `
+            -p:WindowsPackageType=None
+
+      - name: Run quick menu smoke
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $exe = "src\Clipton.WinUI\bin\Release\net8.0-windows10.0.19041.0\Clipton.WinUI.exe"
+          $dataDir = Join-Path $env:RUNNER_TEMP "clipton-e2e-data"
+          tools\e2e\quickmenu-e2e.ps1 `
+            -ExePath $exe `
+            -DataDir $dataDir `
+            -Hotkey "Ctrl+Alt+V" `
+            -ScenarioTimeoutSeconds 90 `
+            -KillExisting
+
+      - name: Upload UI smoke data
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-smoke-data
+          path: |
+            ${{ runner.temp }}/clipton-e2e-data
+          if-no-files-found: ignore
+          retention-days: 7
+
+  package-verify:
+    name: Store package verification
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build Store upload package
+        timeout-minutes: 22
+        shell: pwsh
+        run: |
+          msbuild packaging\Clipton.Package\Clipton.Package.wapproj `
+            /restore `
+            /m `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:AppxBundle=Always `
+            /p:UapAppxPackageBuildMode=StoreUpload
+
+      - name: Verify Store package artifacts
+        timeout-minutes: 3
+        shell: pwsh
+        run: tools\ci\verify-store-package.ps1
+
+      - name: Upload Store package artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipton-store-package-validation
+          path: |
+            packaging/Clipton.Package/bin/x64/Release/AppPackages/*.appxupload
+            packaging/Clipton.Package/bin/x64/Release/AppPackages/*.msixupload
+            packaging/Clipton.Package/bin/x64/Release/AppPackages/*.appxbundle
+            packaging/Clipton.Package/bin/x64/Release/AppPackages/*.msixbundle
+            packaging/Clipton.Package/bin/x64/Release/AppPackages/**/*.appxupload
+            packaging/Clipton.Package/bin/x64/Release/AppPackages/**/*.msixupload
+            packaging/Clipton.Package/bin/x64/Release/AppPackages/**/*.appxbundle
+            packaging/Clipton.Package/bin/x64/Release/AppPackages/**/*.msixbundle
+          if-no-files-found: ignore
+          retention-days: 7

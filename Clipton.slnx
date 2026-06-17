@@ -8,5 +8,6 @@
   <Folder Name="/tests/">
     <Project Path="tests/Clipton.App.Tests/Clipton.App.Tests.csproj" />
     <Project Path="tests/Clipton.Core.Tests/Clipton.Core.Tests.csproj" />
+    <Project Path="tests/Clipton.WinUI.Tests/Clipton.WinUI.Tests.csproj" />
   </Folder>
 </Solution>

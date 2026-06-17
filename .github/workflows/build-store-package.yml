@@ -9,6 +9,7 @@ on:
 jobs:
   build-store-package:
     runs-on: windows-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -18,14 +19,21 @@ jobs:
         uses: microsoft/setup-msbuild@v2
 
       - name: Build Store upload package
+        timeout-minutes: 22
         shell: pwsh
         run: |
           msbuild packaging\Clipton.Package\Clipton.Package.wapproj `
             /restore `
+            /m `
             /p:Configuration=Release `
             /p:Platform=x64 `
             /p:AppxBundle=Always `
             /p:UapAppxPackageBuildMode=StoreUpload
+
+      - name: Verify Store package artifacts
+        timeout-minutes: 3
+        shell: pwsh
+        run: tools\ci\verify-store-package.ps1
 
       - name: Upload Store package artifact
         uses: actions/upload-artifact@v4
