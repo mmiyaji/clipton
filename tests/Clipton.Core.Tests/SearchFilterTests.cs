@@ -119,6 +119,30 @@ public sealed class SearchFilterTests
         Assert.False(filter.MatchesDate(before.AddTicks(1)));
     }
 
+    [Fact]
+    public void MatchesDate_AppliesAfterOnlyFilter()
+    {
+        var filter = SearchFilter.Parse("after:2026-05-01");
+
+        Assert.True(filter.After.HasValue);
+        Assert.Null(filter.Before);
+        Assert.False(filter.MatchesDate(filter.After.Value.AddTicks(-1)));
+        Assert.True(filter.MatchesDate(filter.After.Value));
+        Assert.True(filter.MatchesDate(filter.After.Value.AddYears(1)));
+    }
+
+    [Fact]
+    public void MatchesDate_AppliesBeforeOnlyFilter()
+    {
+        var filter = SearchFilter.Parse("before:2026-05-30");
+
+        Assert.Null(filter.After);
+        Assert.True(filter.Before.HasValue);
+        Assert.True(filter.MatchesDate(filter.Before.Value.AddYears(-1)));
+        Assert.True(filter.MatchesDate(filter.Before.Value));
+        Assert.False(filter.MatchesDate(filter.Before.Value.AddTicks(1)));
+    }
+
     [Theory]
     [InlineData("rich", ClipboardFormatKind.RichText, ClipboardFormatKind.Text)]
     [InlineData("rtf", ClipboardFormatKind.RichText, ClipboardFormatKind.Html)]

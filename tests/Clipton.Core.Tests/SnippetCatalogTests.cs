@@ -52,6 +52,18 @@ public sealed class SnippetCatalogTests
     }
 
     [Fact]
+    public void Upsert_NormalizesNullFolderToRoot()
+    {
+        var catalog = new SnippetCatalog();
+
+        catalog.Upsert(new Snippet("Root", "Text", null!));
+
+        var snippet = Assert.Single(catalog.Snippets);
+        Assert.Equal(string.Empty, snippet.Folder);
+        Assert.Equal("Root", snippet.DisplayName);
+    }
+
+    [Fact]
     public void Remove_DeletesSnippetByNameIgnoringCase()
     {
         var catalog = new SnippetCatalog();
@@ -82,6 +94,20 @@ public sealed class SnippetCatalogTests
         Assert.Null(catalog.Find("Work/Templates", "Greeting"));
         Assert.Equal("Hi", catalog.Find("Private", "Greeting")?.Text);
         Assert.False(catalog.Remove("Work/Templates", "Greeting"));
+    }
+
+    [Fact]
+    public void Remove_ByFolderAndNameKeepsDifferentNamesInSameFolder()
+    {
+        var catalog = new SnippetCatalog();
+        catalog.Upsert(new Snippet("Greeting", "Hello", "Work"));
+        catalog.Upsert(new Snippet("Signature", "Regards", "Work"));
+
+        Assert.True(catalog.Remove("Work", "greeting"));
+
+        var snippet = Assert.Single(catalog.Snippets);
+        Assert.Equal("Signature", snippet.Name);
+        Assert.Null(catalog.Find("Work", "Greeting"));
     }
 
     [Fact]

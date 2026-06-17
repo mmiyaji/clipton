@@ -61,6 +61,48 @@ public sealed class SensitiveContentDetectorTests
     }
 
     [Theory]
+    [InlineData("1234 5678 9012")]
+    [InlineData("1234 5678 9012 3456 7890")]
+    public void ShouldMask_DoesNotMaskCreditCardLengthMismatches(string value)
+    {
+        var rules = new MaskRuleSettings
+        {
+            Email = false,
+            CreditCard = true,
+            SecretKeyword = false,
+            BearerToken = false,
+            LongToken = false,
+            ShortAlphanumericCode = false,
+            PhoneNumber = false,
+            CustomPattern = false
+        };
+
+        Assert.False(SensitiveContentDetector.ShouldMask(value, rules: rules));
+    }
+
+    [Theory]
+    [InlineData("1234 5678 9012")]
+    [InlineData("1234 5678 9012 3456 7890")]
+    public void ShouldMask_RejectsCreditCardMatchesOutsideSupportedDigitLengthWithEditedPattern(string value)
+    {
+        var definitions = MaskRuleDefinitionDefaults.CreateDefaultRules(new MaskRuleSettings
+        {
+            Email = false,
+            CreditCard = true,
+            SecretKeyword = false,
+            BearerToken = false,
+            LongToken = false,
+            ShortAlphanumericCode = false,
+            PhoneNumber = false,
+            CustomPattern = false
+        });
+        definitions.First(rule => rule.Id == MaskRuleIds.CreditCard).Pattern = @"\d+";
+
+        Assert.False(SensitiveContentDetector.ShouldMask(value, definitions, customPatternsEnabled: false));
+        Assert.Null(SensitiveContentDetector.CreateMaskedPreview(value, 3, definitions, customPatternsEnabled: false));
+    }
+
+    [Theory]
     [InlineData("contact me at user@example.com", "contact me at use\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022")]
     [InlineData("api_key=abcdefghijklmnopqrstuvwxyz123456", "api_key=abc\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022")]
     [InlineData("Authorization: bearer abcdefghijklmnopqrstuvwxyz123456", "Authorization: bearer abc\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022")]
@@ -190,6 +232,37 @@ public sealed class SensitiveContentDetectorTests
     }
 
     [Fact]
+    public void FindMatchedRules_ReturnsCreditCardRuleForValidLuhnNumber()
+    {
+        var matches = SensitiveContentDetector.FindMatchedRules(
+            "Card 4111 1111 1111 1111",
+            MaskRuleDefinitionDefaults.CreateDefaultRules());
+
+        Assert.Contains(matches, match => match.RuleId == MaskRuleIds.CreditCard);
+    }
+
+    [Fact]
+    public void FindMatchedRules_SkipsEnabledBuiltInRulesThatDoNotMatch()
+    {
+        var rules = MaskRuleDefinitionDefaults.CreateDefaultRules();
+
+        var matches = SensitiveContentDetector.FindMatchedRules("ordinary memo", rules, customPatternsEnabled: false);
+
+        Assert.Empty(matches);
+    }
+
+    [Fact]
+    public void FindMatchedRules_IgnoresInvalidCreditCardRegexRule()
+    {
+        var rules = MaskRuleDefinitionDefaults.CreateDefaultRules();
+        rules.First(rule => rule.Id == MaskRuleIds.CreditCard).Pattern = "[";
+
+        var matches = SensitiveContentDetector.FindMatchedRules("Card 4111 1111 1111 1111", rules);
+
+        Assert.DoesNotContain(matches, match => match.RuleId == MaskRuleIds.CreditCard);
+    }
+
+    [Fact]
     public void FindMatchedRules_ReturnsEmptyForWhitespaceAndWhenCustomPatternsAreDisabled()
     {
         Assert.Empty(SensitiveContentDetector.FindMatchedRules("   ", MaskRuleDefinitionDefaults.CreateDefaultRules(), ["alpha-\\d+"]));
@@ -208,6 +281,18 @@ public sealed class SensitiveContentDetectorTests
         var match = Assert.Single(matches);
         Assert.True(match.IsCustomPattern);
         Assert.Equal("alpha-\\d+", match.Pattern);
+    }
+
+    [Fact]
+    public void FindMatchedRules_SkipsCustomPatternWhenRegexDoesNotMatch()
+    {
+        var matches = SensitiveContentDetector.FindMatchedRules(
+            "Project beta",
+            [],
+            ["alpha-\\d+"],
+            customPatternsEnabled: true);
+
+        Assert.Empty(matches);
     }
 
     [Fact]
@@ -253,6 +338,12 @@ public sealed class SensitiveContentDetectorTests
     }
 
     [Fact]
+    public void ShouldMask_ReturnsFalseWhenValidCustomPatternDoesNotMatch()
+    {
+        Assert.False(SensitiveContentDetector.ShouldMask("Project code: beta", [], ["alpha-\\d+"], customPatternsEnabled: true));
+    }
+
+    [Fact]
     public void CreateMaskedPreview_MasksCustomPatternsWithConfiguredPrefix()
     {
         var preview = SensitiveContentDetector.CreateMaskedPreview(
@@ -264,11 +355,33 @@ public sealed class SensitiveContentDetectorTests
     }
 
     [Fact]
+    public void CreateMaskedPreview_UsesFallbackMaskForEditedSecretAndBearerPatternsWithoutGroups()
+    {
+        var rules = MaskRuleDefinitionDefaults.CreateDefaultRules();
+        rules.First(rule => rule.Id == MaskRuleIds.SecretKeyword).Pattern = "secret-token";
+        rules.First(rule => rule.Id == MaskRuleIds.BearerToken).Pattern = "bearer-token";
+
+        var preview = SensitiveContentDetector.CreateMaskedPreview(
+            "secret-token bearer-token",
+            2,
+            rules,
+            customPatternsEnabled: false);
+
+        Assert.Equal("se\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022 be\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022", preview);
+    }
+
+    [Fact]
     public void ValidateCustomPatterns_TrimsAndDropsInvalidPatterns()
     {
         var patterns = SensitiveContentDetector.ValidateCustomPatterns([" alpha-\\d+ ", "["]);
 
         Assert.Equal(["alpha-\\d+"], patterns);
         Assert.Equal(["["], SensitiveContentDetector.GetInvalidCustomPatterns([" alpha-\\d+ ", "["]));
+    }
+
+    [Fact]
+    public void GetInvalidCustomPatterns_ReturnsEmptyForNull()
+    {
+        Assert.Empty(SensitiveContentDetector.GetInvalidCustomPatterns(null));
     }
 }

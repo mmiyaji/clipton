@@ -21,6 +21,14 @@ public sealed class LocalizationCatalogTests
     }
 
     [Fact]
+    public void Translate_ReturnsKeyWhenMissingFromAllLocales()
+    {
+        var catalog = new LocalizationCatalog();
+
+        Assert.Equal("MissingKey", catalog.Translate("ja", "MissingKey"));
+    }
+
+    [Fact]
     public void Translate_MaskDescriptionsClarifyPreviewOnlyBehavior()
     {
         var catalog = new LocalizationCatalog();

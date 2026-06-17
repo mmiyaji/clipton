@@ -79,6 +79,20 @@ public sealed class SettingsStoreTests
     }
 
     [Fact]
+    public void Load_ReturnsDefaultsWhenSettingsJsonRootIsArray()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "[]");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Equal(200, loaded.MaxHistoryItems);
+        Assert.True(loaded.PersistEncryptedHistory);
+    }
+
+    [Fact]
     public void Load_PreservesExplicitEncryptedHistoryOptOut()
     {
         var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
@@ -181,6 +195,20 @@ public sealed class SettingsStoreTests
     }
 
     [Fact]
+    public void Load_BackfillsNullMaskRules()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"MaskRules":null}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.True(loaded.MaskRules.Email);
+        Assert.True(loaded.MaskRules.CustomPattern);
+    }
+
+    [Fact]
     public void Load_PreservesPartialMaskRuleOverrides()
     {
         var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
@@ -215,6 +243,41 @@ public sealed class SettingsStoreTests
         Assert.False(loadedRule.Enabled);
         Assert.Equal(@"\bSTORE-[A-Z0-9]{4}\b", loadedRule.Pattern);
         Assert.False(loaded.MaskRules.ShortAlphanumericCode);
+    }
+
+    [Fact]
+    public void Load_NormalizesConfiguredMaskRuleDefinitionFallbackFields()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """
+{
+  "MaskRuleDefinitions": [
+    { "Id": "email", "NameKey": " ", "Pattern": " ", "Enabled": false, "Order": 0 },
+    { "Id": "email", "NameKey": "Duplicate", "Pattern": "duplicate", "Enabled": true, "Order": 99 },
+    { "Id": "unknown", "NameKey": "Unknown", "Pattern": "unknown", "Enabled": true, "Order": 1 }
+  ]
+}
+""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+        var email = loaded.MaskRuleDefinitions.First(rule => rule.Id == MaskRuleIds.Email);
+
+        Assert.Equal("MaskRuleEmail", email.NameKey);
+        Assert.Contains("[A-Z0-9", email.Pattern);
+        Assert.False(email.Enabled);
+        Assert.Equal(10, email.Order);
+        Assert.DoesNotContain(loaded.MaskRuleDefinitions, rule => rule.Id == "unknown");
+    }
+
+    [Fact]
+    public void MaskRuleDefinitionDefaults_NormalizeReturnsDefaultsForNullDefinitions()
+    {
+        var normalized = MaskRuleDefinitionDefaults.Normalize(null);
+
+        Assert.Equal(MaskRuleDefinitionDefaults.CreateDefaultRules().Length, normalized.Length);
+        Assert.Contains(normalized, rule => rule.Id == MaskRuleIds.Email && rule.Enabled);
     }
 
     [Fact]
@@ -298,12 +361,45 @@ public sealed class SettingsStoreTests
         Assert.Equal(150, loaded.ClipboardCaptureDelayMilliseconds);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(50)]
+    [InlineData(100)]
+    [InlineData(150)]
+    [InlineData(250)]
+    [InlineData(500)]
+    [InlineData(1000)]
+    public void Load_PreservesSupportedClipboardCaptureDelays(int delay)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, $$"""{"ClipboardCaptureDelayMilliseconds":{{delay}}}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Equal(delay, loaded.ClipboardCaptureDelayMilliseconds);
+    }
+
     [Fact]
     public void Load_NormalizesUnknownImagePreviewSizeToMedium()
     {
         var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, """{"QuickMenuImagePreviewSize":"huge"}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Equal("medium", loaded.QuickMenuImagePreviewSize);
+    }
+
+    [Fact]
+    public void Load_NormalizesNullImagePreviewSizeToMedium()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"QuickMenuImagePreviewSize":null}""");
         var store = new JsonSettingsStore(path);
 
         var loaded = store.Load();
@@ -383,6 +479,20 @@ public sealed class SettingsStoreTests
         Assert.Equal("P", loaded.QuickMenuShortcuts.PastePlainText);
         Assert.Equal("Ctrl+M", loaded.QuickMenuShortcuts.ToggleMaskReveal);
         Assert.Equal("Ctrl+D", loaded.QuickMenuShortcuts.ToggleCapturedAt);
+    }
+
+    [Fact]
+    public void Load_NormalizesShortcutContainingOnlySeparators()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"QuickMenuShortcuts":{"Search":"+","PastePlainText":"Ctrl + Alt + P"}}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Equal("Ctrl+F", loaded.QuickMenuShortcuts.Search);
+        Assert.Equal("T", loaded.QuickMenuShortcuts.PastePlainText);
     }
 
     [Fact]

@@ -154,6 +154,32 @@ public sealed class ClipboardHistoryTests
     }
 
     [Fact]
+    public void CreateFingerprint_IncludesNonEmptyImagesAndIgnoresEmptyImages()
+    {
+        var emptyImage = new ClipboardSnapshot(
+            "empty-image",
+            DateTimeOffset.UtcNow,
+            [ClipboardFormatKind.Text, ClipboardFormatKind.Image],
+            text: "same",
+            imagePng: []);
+        var sameEmptyImage = new ClipboardSnapshot(
+            "same-empty-image",
+            DateTimeOffset.UtcNow,
+            [ClipboardFormatKind.Text, ClipboardFormatKind.Image],
+            text: "same",
+            imagePng: []);
+        var nonEmptyImage = new ClipboardSnapshot(
+            "non-empty-image",
+            DateTimeOffset.UtcNow,
+            [ClipboardFormatKind.Text, ClipboardFormatKind.Image],
+            text: "same",
+            imagePng: [1, 2, 3]);
+
+        Assert.Equal(ClipboardHistory.CreateFingerprint(emptyImage), ClipboardHistory.CreateFingerprint(sameEmptyImage));
+        Assert.NotEqual(ClipboardHistory.CreateFingerprint(emptyImage), ClipboardHistory.CreateFingerprint(nonEmptyImage));
+    }
+
+    [Fact]
     public void AppendOlder_AddsToEndAndSkipsDuplicates()
     {
         var history = new ClipboardHistory(capacity: 10);

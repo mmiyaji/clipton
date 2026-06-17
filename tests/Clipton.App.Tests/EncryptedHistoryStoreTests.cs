@@ -65,6 +65,26 @@ public sealed class EncryptedHistoryStoreTests
     }
 
     [Fact]
+    public void Save_TreatsUnreadableDeltaAsEmptyWhenAppending()
+    {
+        var root = CreateTestRoot();
+        var path = Path.Combine(root, "history.dat");
+        var store = new EncryptedHistoryStore(path);
+        var baseItem = TextSnapshot("history-1", "one");
+        var removedDeltaItem = TextSnapshot("history-2", "two");
+        var newDeltaItem = TextSnapshot("history-3", "three");
+
+        store.Save([baseItem]);
+        store.Save([removedDeltaItem, baseItem]);
+        File.WriteAllBytes(Path.Combine(root, "history", "delta.dat"), [1, 2, 3, 4]);
+
+        store.Save([newDeltaItem, baseItem]);
+
+        var loaded = store.Load();
+        Assert.Equal(["history-3", "history-1"], loaded.Select(item => item.Id));
+    }
+
+    [Fact]
     public void Load_ReturnsEmptyWhenHistoryDoesNotExist()
     {
         var root = CreateTestRoot();
@@ -78,12 +98,51 @@ public sealed class EncryptedHistoryStoreTests
     }
 
     [Fact]
+    public void SaveAndLoad_WorksWithRelativeLegacyPath()
+    {
+        var root = CreateTestRoot();
+        Directory.CreateDirectory(root);
+        var previous = Environment.CurrentDirectory;
+        try
+        {
+            Environment.CurrentDirectory = root;
+            var store = new EncryptedHistoryStore("history.dat");
+
+            store.Save([TextSnapshot("history-1", "one")]);
+
+            var item = Assert.Single(store.Load());
+            Assert.Equal("one", item.Text);
+            Assert.True(File.Exists(Path.Combine(root, "history", "base.dat")));
+        }
+        finally
+        {
+            Environment.CurrentDirectory = previous;
+        }
+    }
+
+    [Fact]
     public void Load_ReturnsEmptyForCorruptedLegacyHistory()
     {
         var root = CreateTestRoot();
         Directory.CreateDirectory(root);
         var path = Path.Combine(root, "history.dat");
         File.WriteAllBytes(path, [1, 2, 3, 4]);
+        var store = new EncryptedHistoryStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Empty(loaded);
+        Assert.False(Directory.Exists(Path.Combine(root, "history")));
+    }
+
+    [Fact]
+    public void Load_ReturnsEmptyForProtectedNullLegacyHistory()
+    {
+        var root = CreateTestRoot();
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, "history.dat");
+        var encrypted = ProtectedData.Protect("null"u8.ToArray(), optionalEntropy: null, DataProtectionScope.CurrentUser);
+        File.WriteAllBytes(path, encrypted);
         var store = new EncryptedHistoryStore(path);
 
         var loaded = store.Load();
@@ -103,6 +162,25 @@ public sealed class EncryptedHistoryStoreTests
         WriteManifest(root, version: 2, ["history-1"], ["history-1"], []);
 
         Assert.Empty(store.Load());
+    }
+
+    [Fact]
+    public void Load_IgnoresMissingBaseSegmentAndReturnsDeltaItems()
+    {
+        var root = CreateTestRoot();
+        var path = Path.Combine(root, "history.dat");
+        var store = new EncryptedHistoryStore(path);
+        var baseItem = TextSnapshot("history-1", "one");
+        var deltaItem = TextSnapshot("history-2", "two");
+
+        store.Save([baseItem]);
+        store.Save([deltaItem, baseItem]);
+        File.Delete(Path.Combine(root, "history", "base.dat"));
+
+        var loaded = store.Load();
+
+        var item = Assert.Single(loaded);
+        Assert.Equal("history-2", item.Id);
     }
 
     [Fact]

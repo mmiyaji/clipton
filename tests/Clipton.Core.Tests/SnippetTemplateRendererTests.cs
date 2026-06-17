@@ -162,8 +162,10 @@ public sealed class SnippetTemplateRendererTests
         Assert.Equal("Report.md" + Environment.NewLine + "Notes.txt", SnippetTemplateRenderer.Render("{{filenames:\\n}}", filePaths: files));
         Assert.Equal("Report\tNotes", SnippetTemplateRenderer.Render("{{filenamewithoutextension:\\t}}", filePaths: files));
         Assert.Equal("Report/Notes", SnippetTemplateRenderer.Render("{{filestems:/}}", filePaths: files));
+        Assert.Equal("Report", SnippetTemplateRenderer.Render("{{filestem}}", filePaths: files[..1]));
         Assert.Equal(".md/.txt", SnippetTemplateRenderer.Render("{{fileextensions:/}}", filePaths: files));
         Assert.Equal(string.Empty, SnippetTemplateRenderer.Render("{{filedirectory}}", filePaths: ["relative"]));
+        Assert.Equal(string.Empty, SnippetTemplateRenderer.Render("{{filedirectory}}", filePaths: [string.Empty]));
     }
 
     [Fact]

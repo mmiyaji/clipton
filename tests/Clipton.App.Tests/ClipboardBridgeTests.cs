@@ -95,6 +95,28 @@ public sealed class ClipboardBridgeTests
     }
 
     [Fact]
+    public void CaptureFrom_EmptyFileDropListDoesNotAddFileDropFormat()
+    {
+        var data = new DataObject();
+        data.SetText("Text", TextDataFormat.UnicodeText);
+        data.SetData(DataFormats.FileDrop, Array.Empty<string>());
+
+        var snapshot = ClipboardBridge.CaptureFrom(data);
+
+        Assert.NotNull(snapshot);
+        Assert.Contains(ClipboardFormatKind.Text, snapshot.Formats);
+        Assert.DoesNotContain(ClipboardFormatKind.FileDrop, snapshot.Formats);
+    }
+
+    [Fact]
+    public void CaptureFrom_IgnoresFileDropFormatWhenDataReturnsNullFileArray()
+    {
+        var snapshot = ClipboardBridge.CaptureFrom(new NullFileDropDataObject());
+
+        Assert.Null(snapshot);
+    }
+
+    [Fact]
     public void CreateDataObject_WritesPlainTextWhenRequested()
     {
         var snapshot = new ClipboardSnapshot("text", DateTimeOffset.UtcNow, [ClipboardFormatKind.Text], text: "Hello");
@@ -197,6 +219,36 @@ public sealed class ClipboardBridgeTests
     }
 
     [Fact]
+    public void CaptureFrom_IgnoresBitmapFormatWhenDataIsNotBitmapSource()
+    {
+        var data = new DataObject();
+        data.SetText("Text", TextDataFormat.UnicodeText);
+        data.SetData(DataFormats.Bitmap, "not a bitmap");
+
+        var snapshot = ClipboardBridge.CaptureFrom(data);
+
+        Assert.NotNull(snapshot);
+        Assert.Contains(ClipboardFormatKind.Text, snapshot.Formats);
+        Assert.DoesNotContain(ClipboardFormatKind.Image, snapshot.Formats);
+    }
+
+    [Fact]
+    public void CaptureFrom_IgnoresBitmapAbovePixelLimit()
+    {
+        const int width = 8_000;
+        const int height = 5_000;
+        var stride = (width + 7) / 8;
+        var pixels = new byte[stride * height];
+        var bitmap = BitmapSource.Create(width, height, 96, 96, PixelFormats.BlackWhite, null, pixels, stride);
+        var data = new DataObject();
+        data.SetImage(bitmap);
+
+        var snapshot = ClipboardBridge.CaptureFrom(data);
+
+        Assert.Null(snapshot);
+    }
+
+    [Fact]
     public void CreateDataObject_WritesImage()
     {
         var snapshot = new ClipboardSnapshot("image", DateTimeOffset.UtcNow, [ClipboardFormatKind.Image], imagePng: CreatePngBytes());
@@ -221,6 +273,41 @@ public sealed class ClipboardBridgeTests
         Assert.NotNull(captured);
         Assert.Equal(original.Text, captured.Text);
         Assert.Equal(original.Rtf, captured.Rtf);
+    }
+
+    private sealed class NullFileDropDataObject : System.Windows.IDataObject
+    {
+        public object? GetData(string format) => null;
+
+        public object? GetData(Type format) => null;
+
+        public object? GetData(string format, bool autoConvert) => null;
+
+        public bool GetDataPresent(string format) => format == DataFormats.FileDrop;
+
+        public bool GetDataPresent(Type format) => false;
+
+        public bool GetDataPresent(string format, bool autoConvert) => format == DataFormats.FileDrop;
+
+        public string[] GetFormats() => [DataFormats.FileDrop];
+
+        public string[] GetFormats(bool autoConvert) => [DataFormats.FileDrop];
+
+        public void SetData(string format, object data)
+        {
+        }
+
+        public void SetData(Type format, object data)
+        {
+        }
+
+        public void SetData(string format, object data, bool autoConvert)
+        {
+        }
+
+        public void SetData(object data)
+        {
+        }
     }
 
     private static byte[] CreatePngBytes()
