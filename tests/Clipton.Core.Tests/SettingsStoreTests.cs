@@ -65,6 +65,20 @@ public sealed class SettingsStoreTests
     }
 
     [Fact]
+    public void Load_ReturnsDefaultsWhenSettingsJsonIsNullLiteral()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "null");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Equal(200, loaded.MaxHistoryItems);
+        Assert.True(loaded.PersistEncryptedHistory);
+    }
+
+    [Fact]
     public void Load_PreservesExplicitEncryptedHistoryOptOut()
     {
         var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
@@ -218,6 +232,20 @@ public sealed class SettingsStoreTests
     }
 
     [Fact]
+    public void Load_NormalizesDarkThemeAndJapaneseLocaleCaseInsensitively()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"Locale":"JA","Theme":"DARK","MaxHistoryItems":200}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Equal("ja", loaded.Locale);
+        Assert.Equal("dark", loaded.Theme);
+    }
+
+    [Fact]
     public void Load_PreservesSystemThemeAndLocaleSettings()
     {
         var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
@@ -245,6 +273,19 @@ public sealed class SettingsStoreTests
     }
 
     [Fact]
+    public void Load_ClampsHistoryLimitToMinimum()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"MaxHistoryItems":0}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Equal(1, loaded.MaxHistoryItems);
+    }
+
+    [Fact]
     public void Load_NormalizesUnsupportedClipboardCaptureDelay()
     {
         var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
@@ -268,6 +309,22 @@ public sealed class SettingsStoreTests
         var loaded = store.Load();
 
         Assert.Equal("medium", loaded.QuickMenuImagePreviewSize);
+    }
+
+    [Theory]
+    [InlineData("none")]
+    [InlineData("small")]
+    [InlineData("large")]
+    public void Load_PreservesSupportedImagePreviewSizes(string size)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, $$"""{"QuickMenuImagePreviewSize":"{{size.ToUpperInvariant()}}"}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Equal(size, loaded.QuickMenuImagePreviewSize);
     }
 
     [Fact]
@@ -310,5 +367,56 @@ public sealed class SettingsStoreTests
         Assert.Equal("Ctrl+P", loaded.QuickMenuShortcuts.PastePlainText);
         Assert.Equal("Ctrl+M", loaded.QuickMenuShortcuts.ToggleMaskReveal);
         Assert.Equal("D", loaded.QuickMenuShortcuts.ToggleCapturedAt);
+    }
+
+    [Fact]
+    public void Load_NormalizesShortcutWhitespaceControlAliasAndBlankValues()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"QuickMenuShortcuts":{"Search":" Control + s ","PastePlainText":" p ","ToggleMaskReveal":" ","ToggleCapturedAt":" Control + d "}}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Equal("Ctrl+S", loaded.QuickMenuShortcuts.Search);
+        Assert.Equal("P", loaded.QuickMenuShortcuts.PastePlainText);
+        Assert.Equal("Ctrl+M", loaded.QuickMenuShortcuts.ToggleMaskReveal);
+        Assert.Equal("Ctrl+D", loaded.QuickMenuShortcuts.ToggleCapturedAt);
+    }
+
+    [Fact]
+    public void Load_BackfillsNullQuickMenuShortcuts()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"QuickMenuShortcuts":null}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Equal("Ctrl+F", loaded.QuickMenuShortcuts.Search);
+        Assert.Equal("T", loaded.QuickMenuShortcuts.PastePlainText);
+    }
+
+    [Fact]
+    public void Save_WritesRelativePathInCurrentDirectory()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var previous = Environment.CurrentDirectory;
+        try
+        {
+            Environment.CurrentDirectory = root;
+            var store = new JsonSettingsStore("settings.json");
+
+            store.Save(new CliptonSettings { Locale = "ja" });
+
+            Assert.True(File.Exists(Path.Combine(root, "settings.json")));
+        }
+        finally
+        {
+            Environment.CurrentDirectory = previous;
+        }
     }
 }

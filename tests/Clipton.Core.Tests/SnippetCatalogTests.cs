@@ -4,6 +4,16 @@ namespace Clipton.Core.Tests;
 
 public sealed class SnippetCatalogTests
 {
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Upsert_RejectsMissingName(string name)
+    {
+        var catalog = new SnippetCatalog();
+
+        Assert.Throws<ArgumentException>(() => catalog.Upsert(new Snippet(name, "text")));
+    }
+
     [Fact]
     public void Upsert_ReplacesSnippetByNameIgnoringCase()
     {
@@ -30,6 +40,18 @@ public sealed class SnippetCatalogTests
     }
 
     [Fact]
+    public void Upsert_TrimsNameAndNormalizesFolder()
+    {
+        var catalog = new SnippetCatalog();
+
+        catalog.Upsert(new Snippet("  Reply  ", "Thanks", @" Work \ Templates "));
+
+        var snippet = Assert.Single(catalog.Snippets);
+        Assert.Equal("Reply", snippet.Name);
+        Assert.Equal("Work/Templates", snippet.Folder);
+    }
+
+    [Fact]
     public void Remove_DeletesSnippetByNameIgnoringCase()
     {
         var catalog = new SnippetCatalog();
@@ -37,6 +59,29 @@ public sealed class SnippetCatalogTests
 
         Assert.True(catalog.Remove("greeting"));
         Assert.Empty(catalog.Snippets);
+    }
+
+    [Fact]
+    public void Remove_ReturnsFalseWhenNameDoesNotExist()
+    {
+        var catalog = new SnippetCatalog();
+        catalog.Upsert(new Snippet("Greeting", "Hello"));
+
+        Assert.False(catalog.Remove("Missing"));
+        Assert.Single(catalog.Snippets);
+    }
+
+    [Fact]
+    public void Remove_DeletesSnippetByFolderAndName()
+    {
+        var catalog = new SnippetCatalog();
+        catalog.Upsert(new Snippet("Greeting", "Hello", @"Work\Templates"));
+        catalog.Upsert(new Snippet("Greeting", "Hi", "Private"));
+
+        Assert.True(catalog.Remove("Work/Templates", "greeting"));
+        Assert.Null(catalog.Find("Work/Templates", "Greeting"));
+        Assert.Equal("Hi", catalog.Find("Private", "Greeting")?.Text);
+        Assert.False(catalog.Remove("Work/Templates", "Greeting"));
     }
 
     [Fact]
@@ -49,6 +94,27 @@ public sealed class SnippetCatalogTests
 
         Assert.NotNull(snippet);
         Assert.Equal("Secrets / ApiKey", snippet.DisplayName);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void FindByText_ReturnsNullForMissingText(string? text)
+    {
+        var catalog = new SnippetCatalog();
+
+        Assert.Null(catalog.FindByText(text));
+    }
+
+    [Fact]
+    public void FindByText_KeepsFirstSnippetForDuplicateText()
+    {
+        var catalog = new SnippetCatalog();
+
+        catalog.Upsert(new Snippet("First", "shared", "A"));
+        catalog.Upsert(new Snippet("Second", "shared", "B"));
+
+        Assert.Equal("A / First", catalog.FindByText("shared")?.DisplayName);
     }
 
     [Fact]

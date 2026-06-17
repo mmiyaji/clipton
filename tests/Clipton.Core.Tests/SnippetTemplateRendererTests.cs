@@ -106,6 +106,17 @@ public sealed class SnippetTemplateRendererTests
     }
 
     [Fact]
+    public void Render_ExpandsGuidUuidAndRandomAliases()
+    {
+        var rendered = SnippetTemplateRenderer.Render("{{guid}} {{uuid}} {{random:5}}");
+        var parts = rendered.Split(' ');
+
+        Assert.True(Guid.TryParse(parts[0], out _));
+        Assert.True(Guid.TryParse(parts[1], out _));
+        Assert.Matches("^[0-9a-f]{5}$", parts[2]);
+    }
+
+    [Fact]
     public void Render_ExpandsFileVariables()
     {
         var files = new[]
@@ -120,6 +131,21 @@ public sealed class SnippetTemplateRendererTests
         Assert.Equal(".md/.txt", SnippetTemplateRenderer.Render("{{fileextensions:/}}", filePaths: files));
         Assert.Equal(@"C:\Work", SnippetTemplateRenderer.Render("{{filedirectory}}", filePaths: files[..1]));
         Assert.Equal("2", SnippetTemplateRenderer.Render("{{filecount}}", filePaths: files));
+    }
+
+    [Fact]
+    public void Render_ExpandsSingularFileVariableAliases()
+    {
+        var files = new[]
+        {
+            @"C:\Work\Report.md"
+        };
+
+        Assert.Equal(@"C:\Work\Report.md", SnippetTemplateRenderer.Render("{{filepath}}", filePaths: files));
+        Assert.Equal("Report.md", SnippetTemplateRenderer.Render("{{filename}}", filePaths: files));
+        Assert.Equal("Report", SnippetTemplateRenderer.Render("{{filenamewithoutextension}}", filePaths: files));
+        Assert.Equal(".md", SnippetTemplateRenderer.Render("{{fileextension}}", filePaths: files));
+        Assert.Equal(@"C:\Work", SnippetTemplateRenderer.Render("{{filedirectories}}", filePaths: files));
     }
 
     [Fact]
@@ -138,6 +164,14 @@ public sealed class SnippetTemplateRendererTests
         Assert.Equal("Report/Notes", SnippetTemplateRenderer.Render("{{filestems:/}}", filePaths: files));
         Assert.Equal(".md/.txt", SnippetTemplateRenderer.Render("{{fileextensions:/}}", filePaths: files));
         Assert.Equal(string.Empty, SnippetTemplateRenderer.Render("{{filedirectory}}", filePaths: ["relative"]));
+    }
+
+    [Fact]
+    public void Render_UsesDefaultWeekdayFormatWhenNoFormatIsProvided()
+    {
+        var now = new DateTimeOffset(2026, 5, 31, 9, 8, 7, TimeSpan.FromHours(9));
+
+        Assert.False(string.IsNullOrWhiteSpace(SnippetTemplateRenderer.Render("{{weekday}}", now)));
     }
 
     [Fact]

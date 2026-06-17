@@ -27,6 +27,11 @@ public sealed class JsonSettingsStore
         {
             settings = JsonSerializer.Deserialize<CliptonSettings>(json, Options) ?? new CliptonSettings();
             using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return new CliptonSettings();
+            }
+
             historyPersistenceConfigured = document.RootElement.TryGetProperty(nameof(CliptonSettings.HistoryPersistenceConfigured), out _);
             maskRuleDefinitionsConfigured = document.RootElement.TryGetProperty(nameof(CliptonSettings.MaskRuleDefinitions), out _);
         }

@@ -2,7 +2,7 @@
 
 Clipton tracks C1 coverage as Cobertura `branch-rate`.
 
-The current unit coverage gate is 90% or higher for code that can be exercised deterministically by unit tests:
+The current unit coverage gate is 95% or higher for code that can be exercised deterministically by unit tests:
 
 - `Clipton.Core` is measured from `Clipton.Core.Tests`.
 - `Clipton.App` is measured from `Clipton.App.Tests` for non-UI logic seams.
@@ -37,4 +37,4 @@ artifacts\tools\reportgenerator.exe "-reports:artifacts\coverage\core\**\coverag
 Get-Content artifacts\coverage\merged\Summary.txt
 ```
 
-The merged summary must show `Branch coverage` at 90% or higher.
+The merged summary must show `Branch coverage` at 95% or higher.

@@ -32,6 +32,8 @@ public sealed class HotkeyGestureTests
     [InlineData("Ctrl+Shift+V", HotkeyModifiers.Control | HotkeyModifiers.Shift, "V")]
     [InlineData("Control + Alt + Space", HotkeyModifiers.Control | HotkeyModifiers.Alt, "SPACE")]
     [InlineData("Win+V", HotkeyModifiers.Windows, "V")]
+    [InlineData("Alt+F24", HotkeyModifiers.Alt, "F24")]
+    [InlineData("Windows+0", HotkeyModifiers.Windows, "0")]
     public void TryParse_ParsesSupportedGestures(string value, HotkeyModifiers modifiers, string key)
     {
         Assert.True(HotkeyGesture.TryParse(value, out var gesture));
@@ -39,12 +41,27 @@ public sealed class HotkeyGestureTests
         Assert.Equal(key, gesture.Key);
     }
 
+    [Fact]
+    public void ToString_IncludesAllModifiersInStableOrder()
+    {
+        var gesture = new HotkeyGesture(
+            HotkeyModifiers.Control | HotkeyModifiers.Shift | HotkeyModifiers.Alt | HotkeyModifiers.Windows,
+            "space");
+
+        Assert.Equal("Ctrl+Shift+Alt+Win+Space", gesture.ToString());
+    }
+
     [Theory]
     [InlineData("")]
+    [InlineData("   ")]
     [InlineData("V")]
     [InlineData("Ctrl")]
     [InlineData("Shift+V")]
     [InlineData("Ctrl+Escape")]
+    [InlineData("Ctrl+?")]
+    [InlineData("Ctrl+F0")]
+    [InlineData("Ctrl+F25")]
+    [InlineData("Ctrl+Fx")]
     public void TryParse_RejectsInvalidGestures(string value)
     {
         Assert.False(HotkeyGesture.TryParse(value, out _));

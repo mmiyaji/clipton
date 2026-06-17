@@ -38,6 +38,18 @@ public sealed class InferredJsonFormatterTests
         Assert.Equal("\"a,b,c\"", json);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(",value")]
+    [InlineData("a\tb\tc")]
+    public void Format_FallsBackToJsonStringForNonObjectInput(string text)
+    {
+        var json = InferredJsonFormatter.Format(text);
+
+        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(text), json);
+    }
+
     [Fact]
     public void Format_ConvertsPlainLinesToEmptyStringValues()
     {
@@ -60,6 +72,18 @@ public sealed class InferredJsonFormatterTests
 {
   "name": "Clipton",
   "memo": ""
+}
+"""), Normalize(json));
+    }
+
+    [Fact]
+    public void Format_ConvertsEmptySeparatedValueToEmptyString()
+    {
+        var json = InferredJsonFormatter.Format("name,");
+
+        Assert.Equal(Normalize("""
+{
+  "name": ""
 }
 """), Normalize(json));
     }

@@ -32,6 +32,19 @@ public sealed class ClipboardBridgeTests
     }
 
     [Fact]
+    public void GetPlainText_PrefersExistingTextBeforeExtracting()
+    {
+        var snapshot = new ClipboardSnapshot(
+            "mixed",
+            DateTimeOffset.UtcNow,
+            [ClipboardFormatKind.Text, ClipboardFormatKind.Html],
+            text: "Plain",
+            html: "Version:1.0\r\nStartHTML:00000097\r\nEndHTML:00000160\r\nStartFragment:00000129\r\nEndFragment:00000129\r\n<html><body><!--StartFragment-->HTML<!--EndFragment--></body></html>");
+
+        Assert.Equal("Plain", ClipboardBridge.GetPlainText(snapshot));
+    }
+
+    [Fact]
     public void CaptureFrom_ExtractsPlainTextFromHtmlWhenUnicodeTextIsMissing()
     {
         var data = new DataObject();
@@ -67,6 +80,21 @@ public sealed class ClipboardBridgeTests
     }
 
     [Fact]
+    public void CaptureFrom_ReadsFileDropList()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-file-drop.txt");
+        var files = new System.Collections.Specialized.StringCollection { path };
+        var data = new DataObject();
+        data.SetFileDropList(files);
+
+        var snapshot = ClipboardBridge.CaptureFrom(data);
+
+        Assert.NotNull(snapshot);
+        Assert.Contains(ClipboardFormatKind.FileDrop, snapshot.Formats);
+        Assert.Equal([path], snapshot.FilePaths);
+    }
+
+    [Fact]
     public void CreateDataObject_WritesPlainTextWhenRequested()
     {
         var snapshot = new ClipboardSnapshot("text", DateTimeOffset.UtcNow, [ClipboardFormatKind.Text], text: "Hello");
@@ -89,6 +117,16 @@ public sealed class ClipboardBridgeTests
         var data = ClipboardBridge.CreateDataObject(snapshot, asPlainText: true);
 
         Assert.Equal("HTML only", data.GetText(TextDataFormat.UnicodeText));
+    }
+
+    [Fact]
+    public void CreateDataObject_EmptySnapshotWritesNoFormats()
+    {
+        var snapshot = new ClipboardSnapshot("empty", DateTimeOffset.UtcNow, []);
+
+        var data = ClipboardBridge.CreateDataObject(snapshot, asPlainText: false);
+
+        Assert.False(data.GetFormats().Any());
     }
 
     [Fact]
@@ -123,6 +161,26 @@ public sealed class ClipboardBridgeTests
     }
 
     [Fact]
+    public void CreateDataObject_FileDropTakesPrecedenceOverImageAndText()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-test-file.txt");
+        var image = CreatePngBytes();
+        var snapshot = new ClipboardSnapshot(
+            "file-first",
+            DateTimeOffset.UtcNow,
+            [ClipboardFormatKind.Text, ClipboardFormatKind.Image, ClipboardFormatKind.FileDrop],
+            text: "Text",
+            imagePng: image,
+            filePaths: [path]);
+
+        var data = ClipboardBridge.CreateDataObject(snapshot, asPlainText: false);
+
+        Assert.Contains(path, data.GetFileDropList().Cast<string>());
+        Assert.False(data.ContainsText());
+        Assert.Null(data.GetImage());
+    }
+
+    [Fact]
     public void CaptureFrom_ReadsImage()
     {
         byte[] pixels = [0, 128, 255, 255];
@@ -141,13 +199,7 @@ public sealed class ClipboardBridgeTests
     [Fact]
     public void CreateDataObject_WritesImage()
     {
-        byte[] pixels = [0, 128, 255, 255];
-        var bitmap = BitmapSource.Create(1, 1, 96, 96, PixelFormats.Bgra32, null, pixels, 4);
-        var encoder = new PngBitmapEncoder();
-        encoder.Frames.Add(BitmapFrame.Create(bitmap));
-        using var stream = new MemoryStream();
-        encoder.Save(stream);
-        var snapshot = new ClipboardSnapshot("image", DateTimeOffset.UtcNow, [ClipboardFormatKind.Image], imagePng: stream.ToArray());
+        var snapshot = new ClipboardSnapshot("image", DateTimeOffset.UtcNow, [ClipboardFormatKind.Image], imagePng: CreatePngBytes());
 
         var data = ClipboardBridge.CreateDataObject(snapshot, asPlainText: false);
 
@@ -169,5 +221,16 @@ public sealed class ClipboardBridgeTests
         Assert.NotNull(captured);
         Assert.Equal(original.Text, captured.Text);
         Assert.Equal(original.Rtf, captured.Rtf);
+    }
+
+    private static byte[] CreatePngBytes()
+    {
+        byte[] pixels = [0, 128, 255, 255];
+        var bitmap = BitmapSource.Create(1, 1, 96, 96, PixelFormats.Bgra32, null, pixels, 4);
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using var stream = new MemoryStream();
+        encoder.Save(stream);
+        return stream.ToArray();
     }
 }
