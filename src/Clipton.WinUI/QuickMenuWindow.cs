@@ -510,6 +510,10 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                         }
                     });
                 }
+                else if (GetFocusedPasteOption() is { } focusedPasteOption)
+                {
+                    DispatcherQueue.TryEnqueue(() => InvokePasteOption(focusedPasteOption));
+                }
                 else if (GetFocusedPasteOptionsSubItem() is { } subItemQuickItem)
                 {
                     // In-folder items with paste options are MenuFlyoutSubItems;
@@ -1887,6 +1891,11 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private QuickMenuImagePreviewCommand? GetFocusedImagePreviewCommand()
     {
         return GetFocusedMenuElement().Tag as QuickMenuImagePreviewCommand;
+    }
+
+    private QuickMenuPasteOption? GetFocusedPasteOption()
+    {
+        return GetFocusedMenuElement().Tag as QuickMenuPasteOption;
     }
 
     private QuickMenuItem? GetFocusedPasteOptionsSubItem()

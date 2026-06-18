@@ -103,6 +103,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private bool _folderLoading;
     private bool _searchBoxFocused;
     private bool _startInSearchMode;
+    private QuickMenuPasteOption? _focusedPasteOption;
     private IReadOnlyList<QuickMenuItem> _rootItemsForSearch = [];
     private QuickMenuItem[]? _searchResults;
     private Task<QuickMenuItem[]>? _searchSourceTask;
@@ -900,7 +901,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         return trailing;
     }
 
-    private void ShowPasteOptions(QuickMenuItem item, FrameworkElement anchor)
+    private void ShowPasteOptions(QuickMenuItem item, FrameworkElement anchor, bool focusOptions = false)
     {
         if (item.PasteOptions is not { Count: > 0 })
         {
@@ -916,7 +917,12 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             flyout.Items.Add(CreatePasteOptionMenuItem(option));
         }
 
+        flyout.Closed += (_, _) => _focusedPasteOption = null;
         flyout.ShowAt(anchor);
+        if (focusOptions)
+        {
+            FocusWhenLoaded(FirstFocusableItem(flyout.Items));
+        }
     }
 
     private MenuFlyoutItem CreatePasteOptionMenuItem(QuickMenuPasteOption option)
@@ -927,8 +933,50 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             Icon = CreateOptionIcon(option),
             Tag = option
         };
+        TrackPasteOptionFocus(optionItem, option);
         optionItem.Click += (_, _) => InvokePasteOption(option);
         return optionItem;
+    }
+
+    private void TrackPasteOptionFocus(MenuFlyoutItem item, QuickMenuPasteOption option)
+    {
+        item.GotFocus += (_, _) => _focusedPasteOption = option;
+        item.LostFocus += (_, _) =>
+        {
+            if (ReferenceEquals(_focusedPasteOption, option))
+            {
+                _focusedPasteOption = null;
+            }
+        };
+    }
+
+    private QuickMenuPasteOption? GetFocusedPasteOption() => _focusedPasteOption;
+
+    private static MenuFlyoutItemBase? FirstFocusableItem(IEnumerable<MenuFlyoutItemBase> items)
+    {
+        return items.FirstOrDefault(item => item is not MenuFlyoutSeparator && item.IsEnabled);
+    }
+
+    private static void FocusWhenLoaded(MenuFlyoutItemBase? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        if (item.IsLoaded)
+        {
+            item.Focus(FocusState.Keyboard);
+            return;
+        }
+
+        RoutedEventHandler? handler = null;
+        handler = (_, _) =>
+        {
+            item.Loaded -= handler;
+            item.Focus(FocusState.Keyboard);
+        };
+        item.Loaded += handler;
     }
 
     private UIElement CreateItemIcon(QuickMenuItem item)
@@ -1048,6 +1096,17 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             return;
         }
 
+        if (GetFocusedPasteOption() is { } focusedPasteOption)
+        {
+            if (key == VirtualKey.Enter)
+            {
+                args.Handled = true;
+                InvokePasteOption(focusedPasteOption);
+            }
+
+            return;
+        }
+
         switch (key)
         {
             case var numberKey when !hasShortcutModifier && TryGetNumberShortcutIndex((int)numberKey, out var numberShortcutIndex):
@@ -1101,7 +1160,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
                 break;
             case VirtualKey.Right:
                 args.Handled = true;
-                OpenSelectedFolder();
+                OpenSelectedDetails();
                 break;
             case VirtualKey.C when ctrl:
                 args.Handled = true;
@@ -1224,6 +1283,17 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             return 1;
         }
 
+        if (GetFocusedPasteOption() is { } focusedPasteOption)
+        {
+            if (key == NativeMethods.VkReturn)
+            {
+                DispatcherQueue.TryEnqueue(() => InvokePasteOption(focusedPasteOption));
+                return 1;
+            }
+
+            return NativeMethods.CallNextHookEx(s_keyboardHook, nCode, wParam, lParam);
+        }
+
         // While the search box is editing, only list navigation is intercepted;
         // everything else (letters, Left/Right, Backspace, Home/End, Ctrl+C...)
         // must reach the text box.
@@ -1288,7 +1358,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
                 DispatcherQueue.TryEnqueue(NavigateBack);
                 return 1;
             case NativeMethods.VkRight:
-                DispatcherQueue.TryEnqueue(OpenSelectedFolder);
+                DispatcherQueue.TryEnqueue(OpenSelectedDetails);
                 return 1;
             case NativeMethods.VkReturn:
                 DispatcherQueue.TryEnqueue(InvokeSelected);
@@ -1393,6 +1463,26 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         if (GetSelectedItem() is { IsFolder: true } folder)
         {
             InvokeItem(folder);
+        }
+    }
+
+    private void OpenSelectedDetails()
+    {
+        var item = GetSelectedItem();
+        if (item is null)
+        {
+            return;
+        }
+
+        if (item.IsFolder)
+        {
+            InvokeItem(item);
+            return;
+        }
+
+        if (item.PasteOptions is { Count: > 0 } && _itemCards.ElementAtOrDefault(_selectedIndex) is { } anchor)
+        {
+            ShowPasteOptions(item, anchor, focusOptions: true);
         }
     }
 

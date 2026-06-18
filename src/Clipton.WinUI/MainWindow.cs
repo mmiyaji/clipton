@@ -150,6 +150,8 @@ public sealed class MainWindow : Window
     private readonly Button _termsButton = new();
     private readonly Button _privacyButton = new();
     private readonly Button _donationButton = new();
+    private readonly TextBlock _donationFallbackText = new();
+    private readonly HyperlinkButton _donationLinkButton = new();
     private readonly Button _exitApplicationButton = new();
     private readonly Button _openLogsButton = new();
     private readonly Button _clearLogsButton = new();
@@ -430,7 +432,10 @@ public sealed class MainWindow : Window
         SetCommandButton(_deleteSnippetButton, "\uE74D", t("Delete"));
         _termsButton.Content = t("TermsOfUse");
         _privacyButton.Content = t("PrivacyPolicy");
+        _donationFallbackText.Text = t("BuyMeACoffee");
+        _donationLinkButton.Content = t("DonationOpenBuyMeACoffee");
         AutomationProperties.SetName(_donationButton, t("BuyMeACoffee"));
+        AutomationProperties.SetName(_donationLinkButton, t("DonationOpenBuyMeACoffee"));
         SetCommandButton(_exitApplicationButton, "\uE8BB", t("ExitApplication"));
         SetCommandButton(_openLogsButton, "\uE838", t("OpenLogs"));
         SetCommandButton(_clearLogsButton, "\uE74D", t("ClearLogs"));
@@ -478,24 +483,24 @@ public sealed class MainWindow : Window
         ApplyMaskRuleDefinitionsToUi();
         _maskCustomPatternToggle.IsOn = _runtime.Settings.MaskRules.CustomPattern;
         EnsureHistoryLimitComboItem(_runtime.Settings.MaxHistoryItems);
-        SetComboSelection(_maxHistoryItemsBox, _runtime.Settings.MaxHistoryItems.ToString());
-        SetComboSelection(_clipboardCaptureDelayBox, _runtime.Settings.ClipboardCaptureDelayMilliseconds.ToString());
-        SetComboSelection(_quickMenuTopLevelHistoryItemsBox, _runtime.Settings.QuickMenuTopLevelHistoryItems.ToString());
+        SetComboSelection(_maxHistoryItemsBox, _runtime.Settings.MaxHistoryItems.ToString(), refreshSelectionBox: true);
+        SetComboSelection(_clipboardCaptureDelayBox, _runtime.Settings.ClipboardCaptureDelayMilliseconds.ToString(), refreshSelectionBox: true);
+        SetComboSelection(_quickMenuTopLevelHistoryItemsBox, _runtime.Settings.QuickMenuTopLevelHistoryItems.ToString(), refreshSelectionBox: true);
         _quickMenuShowCapturedAtToggle.IsOn = _runtime.Settings.QuickMenuShowCapturedAt;
         _quickMenuShowShortcutHintsToggle.IsOn = _runtime.Settings.QuickMenuShowShortcutHints;
         _startupToggle.IsEnabled = !_runtime.IsSafeMode;
         RefreshToggleStateLabels();
         RefreshLocalizedTextBlocks();
         EnsureHotkeyComboItem(_runtime.Settings.Hotkey);
-        SetComboSelection(_hotkeyBox, _runtime.Settings.Hotkey);
-        SetComboSelection(_themeBox, _runtime.Settings.Theme);
-        SetComboSelection(_localeBox, _runtime.Settings.Locale);
-        SetComboSelection(_quickMenuDisplayModeBox, _runtime.Settings.QuickMenuDisplayMode);
-        SetComboSelection(_quickMenuImagePreviewSizeBox, _runtime.Settings.QuickMenuImagePreviewSize);
-        SetComboSelection(_quickMenuSearchShortcutBox, _runtime.Settings.QuickMenuShortcuts.Search);
-        SetComboSelection(_quickMenuPlainTextShortcutBox, _runtime.Settings.QuickMenuShortcuts.PastePlainText);
-        SetComboSelection(_quickMenuMaskShortcutBox, _runtime.Settings.QuickMenuShortcuts.ToggleMaskReveal);
-        SetComboSelection(_quickMenuCapturedAtShortcutBox, _runtime.Settings.QuickMenuShortcuts.ToggleCapturedAt);
+        SetComboSelection(_hotkeyBox, _runtime.Settings.Hotkey, refreshSelectionBox: true);
+        SetComboSelection(_themeBox, _runtime.Settings.Theme, refreshSelectionBox: true);
+        SetComboSelection(_localeBox, _runtime.Settings.Locale, refreshSelectionBox: true);
+        SetComboSelection(_quickMenuDisplayModeBox, _runtime.Settings.QuickMenuDisplayMode, refreshSelectionBox: true);
+        SetComboSelection(_quickMenuImagePreviewSizeBox, _runtime.Settings.QuickMenuImagePreviewSize, refreshSelectionBox: true);
+        SetComboSelection(_quickMenuSearchShortcutBox, _runtime.Settings.QuickMenuShortcuts.Search, refreshSelectionBox: true);
+        SetComboSelection(_quickMenuPlainTextShortcutBox, _runtime.Settings.QuickMenuShortcuts.PastePlainText, refreshSelectionBox: true);
+        SetComboSelection(_quickMenuMaskShortcutBox, _runtime.Settings.QuickMenuShortcuts.ToggleMaskReveal, refreshSelectionBox: true);
+        SetComboSelection(_quickMenuCapturedAtShortcutBox, _runtime.Settings.QuickMenuShortcuts.ToggleCapturedAt, refreshSelectionBox: true);
         UpdateSelectedSnippetText();
         UpdateHistorySearchStatus();
         UpdateMaskTestPreview();
@@ -1815,9 +1820,8 @@ public sealed class MainWindow : Window
         _aboutPage.Children.Add(Card(info));
 
         var documents = new StackPanel { Spacing = 10 };
-        documents.Children.Add(LocalizedText("LegalDescription",
+        documents.Children.Add(DescriptionText("LegalDescription",
             fontSize: 14,
-            foreground: DescriptionBrush(),
             wrapping: TextWrapping.Wrap));
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Spacing = 8 };
         _termsButton.Click += (_, _) => OpenExternalUrl(TermsUrl);
@@ -1837,9 +1841,8 @@ public sealed class MainWindow : Window
         _donationPage.Children.Add(PageHeader(_donationHeaderText, _donationDescriptionText));
 
         var content = new StackPanel { Spacing = 14 };
-        content.Children.Add(LocalizedText("DonationSupportMessage",
+        content.Children.Add(DescriptionText("DonationSupportMessage",
             fontSize: 14,
-            foreground: DescriptionBrush(),
             wrapping: TextWrapping.Wrap));
 
         var bannerImage = new Image
@@ -1849,13 +1852,10 @@ public sealed class MainWindow : Window
             Height = 60,
             Stretch = Stretch.Uniform
         };
-        var fallbackText = new TextBlock
-        {
-            Text = _runtime.Translate("BuyMeACoffee"),
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Padding = new Thickness(18, 12, 18, 12)
-        };
-        bannerImage.ImageFailed += (_, _) => _donationButton.Content = fallbackText;
+        _donationFallbackText.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+        _donationFallbackText.Padding = new Thickness(18, 12, 18, 12);
+        _donationFallbackText.Text = _runtime.Translate("BuyMeACoffee");
+        bannerImage.ImageFailed += (_, _) => _donationButton.Content = _donationFallbackText;
 
         _donationButton.Padding = new Thickness(0);
         _donationButton.BorderThickness = new Thickness(0);
@@ -1867,23 +1867,20 @@ public sealed class MainWindow : Window
         ToolTipService.SetToolTip(_donationButton, DonationUrl);
         content.Children.Add(_donationButton);
 
-        var linkText = new HyperlinkButton
-        {
-            Content = _runtime.Translate("DonationOpenBuyMeACoffee"),
-            Padding = new Thickness(0),
-            HorizontalAlignment = HorizontalAlignment.Left
-        };
-        AutomationProperties.SetName(linkText, _runtime.Translate("DonationOpenBuyMeACoffee"));
-        ToolTipService.SetToolTip(linkText, DonationUrl);
-        linkText.Click += (_, _) => OpenExternalUrl(DonationUrl);
+        _donationLinkButton.Content = _runtime.Translate("DonationOpenBuyMeACoffee");
+        _donationLinkButton.Padding = new Thickness(0);
+        _donationLinkButton.HorizontalAlignment = HorizontalAlignment.Left;
+        AutomationProperties.SetName(_donationLinkButton, _runtime.Translate("DonationOpenBuyMeACoffee"));
+        ToolTipService.SetToolTip(_donationLinkButton, DonationUrl);
+        _donationLinkButton.Click += (_, _) => OpenExternalUrl(DonationUrl);
 
-        var urlText = new TextBlock
+        var urlText = TrackDescriptionText(new TextBlock
         {
             Text = DonationUrl,
             FontSize = 12,
             Foreground = DescriptionBrush(),
             TextWrapping = TextWrapping.Wrap
-        };
+        });
 
         content.Children.Add(new StackPanel
         {
@@ -1891,7 +1888,7 @@ public sealed class MainWindow : Window
             Margin = new Thickness(1, -6, 0, 0),
             Children =
             {
-                linkText,
+                _donationLinkButton,
                 urlText
             }
         });
@@ -4104,12 +4101,17 @@ public sealed class MainWindow : Window
             : null;
     }
 
-    private static void SetComboSelection(ComboBox comboBox, string tag)
+    private static void SetComboSelection(ComboBox comboBox, string tag, bool refreshSelectionBox = false)
     {
         foreach (ComboBoxItem item in comboBox.Items)
         {
             if (Equals(item.Tag, tag))
             {
+                if (refreshSelectionBox && ReferenceEquals(comboBox.SelectedItem, item))
+                {
+                    comboBox.SelectedItem = null;
+                }
+
                 comboBox.SelectedItem = item;
                 return;
             }
