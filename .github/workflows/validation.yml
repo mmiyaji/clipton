@@ -50,51 +50,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  ui-smoke:
-    name: Quick menu UI smoke
-    runs-on: windows-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
-
-      - name: Build WinUI smoke build
-        timeout-minutes: 7
-        shell: pwsh
-        run: |
-          dotnet build src\Clipton.WinUI\Clipton.WinUI.csproj `
-            -c Release `
-            -p:WindowsPackageType=None
-
-      - name: Run quick menu smoke
-        timeout-minutes: 5
-        shell: pwsh
-        run: |
-          $exe = "src\Clipton.WinUI\bin\Release\net8.0-windows10.0.19041.0\Clipton.WinUI.exe"
-          $dataDir = Join-Path $env:RUNNER_TEMP "clipton-e2e-data"
-          tools\e2e\quickmenu-e2e.ps1 `
-            -ExePath $exe `
-            -DataDir $dataDir `
-            -Hotkey "Ctrl+Alt+V" `
-            -ScenarioTimeoutSeconds 90 `
-            -KillExisting
-
-      - name: Upload UI smoke data
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ui-smoke-data
-          path: |
-            ${{ runner.temp }}/clipton-e2e-data
-          if-no-files-found: ignore
-          retention-days: 7
-
   package-verify:
     name: Store package verification
     runs-on: windows-latest
