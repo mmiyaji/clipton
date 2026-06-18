@@ -2,6 +2,13 @@ using System.Text.Json;
 
 namespace Clipton.Core;
 
+/// <summary>
+/// Reads and writes Clipton settings JSON with compatibility normalization.
+/// </summary>
+/// <remarks>
+/// Deserialization stays forgiving: malformed or older files fall back to defaults, and
+/// unsupported option values are normalized before the runtime observes them.
+/// </remarks>
 public sealed class JsonSettingsStore
 {
     private readonly string _path;
@@ -12,6 +19,9 @@ public sealed class JsonSettingsStore
         _path = path;
     }
 
+    /// <summary>
+    /// Loads settings from disk and normalizes missing, legacy or out-of-range values.
+    /// </summary>
     public CliptonSettings Load()
     {
         if (!File.Exists(_path))
@@ -40,6 +50,9 @@ public sealed class JsonSettingsStore
             return new CliptonSettings();
         }
 
+        // Older settings files did not have an explicit history-persistence choice.
+        // Preserve the historical default of encrypted local history instead of treating
+        // the missing boolean as an opt-out.
         if (!historyPersistenceConfigured)
         {
             settings.PersistEncryptedHistory = true;
@@ -61,6 +74,9 @@ public sealed class JsonSettingsStore
         return settings;
     }
 
+    /// <summary>
+    /// Normalizes and writes settings to disk, creating the containing directory if needed.
+    /// </summary>
     public void Save(CliptonSettings settings)
     {
         settings.QuickMenuDisplayMode = NormalizeQuickMenuDisplayMode(settings.QuickMenuDisplayMode);
@@ -79,6 +95,9 @@ public sealed class JsonSettingsStore
         settings.MaskRules ??= new MaskRuleSettings();
         var customPatternEnabled = settings.MaskRules.CustomPattern;
         var definitionsLookDefault = DefinitionsMatchDefaults(settings.MaskRuleDefinitions);
+        // If a file only contains generated defaults, keep deriving definitions from the
+        // legacy switch model so older toggles remain authoritative. Once the user edits
+        // definitions, the definition array becomes the source of truth.
         settings.MaskRuleDefinitions = preferConfiguredDefinitions && !definitionsLookDefault
             ? MaskRuleDefinitionDefaults.Normalize(settings.MaskRuleDefinitions, settings.MaskRules)
             : MaskRuleDefinitionDefaults.CreateDefaultRules(settings.MaskRules);

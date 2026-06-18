@@ -1,19 +1,41 @@
 namespace Clipton.Core;
 
+/// <summary>
+/// Modifier flags accepted by Clipton's global hotkey parser.
+/// </summary>
 [Flags]
 public enum HotkeyModifiers
 {
+    /// <summary>No modifier keys.</summary>
     None = 0,
+
+    /// <summary>The Alt modifier.</summary>
     Alt = 1,
+
+    /// <summary>The Control modifier.</summary>
     Control = 2,
+
+    /// <summary>The Shift modifier.</summary>
     Shift = 4,
+
+    /// <summary>The Windows logo key modifier.</summary>
     Windows = 8
 }
 
+/// <summary>
+/// User-configurable global hotkey gesture.
+/// </summary>
+/// <remarks>
+/// The parser accepts a deliberately small gesture surface. Global hotkeys are shared
+/// with Windows and every running app, so unsupported keys and Shift-only shortcuts are
+/// rejected instead of being normalized into potentially invasive registrations.
+/// </remarks>
 public sealed record HotkeyGesture(HotkeyModifiers Modifiers, string Key)
 {
+    /// <summary>Default gesture used on first launch and when parsing fails.</summary>
     public static HotkeyGesture Default { get; } = new(HotkeyModifiers.Control | HotkeyModifiers.Alt, "V");
 
+    /// <summary>Fallback registrations attempted when the preferred gesture is unavailable.</summary>
     public static IReadOnlyList<HotkeyGesture> Presets { get; } =
     [
         Default,
@@ -21,6 +43,9 @@ public sealed record HotkeyGesture(HotkeyModifiers Modifiers, string Key)
         new(HotkeyModifiers.Control | HotkeyModifiers.Shift, "V")
     ];
 
+    /// <summary>
+    /// Returns the preferred gesture followed by safe presets, without duplicates.
+    /// </summary>
     public static IEnumerable<HotkeyGesture> GetRegistrationCandidates(HotkeyGesture preferred)
     {
         yield return preferred;
@@ -33,6 +58,7 @@ public sealed record HotkeyGesture(HotkeyModifiers Modifiers, string Key)
         }
     }
 
+    /// <summary>Formats the gesture in the same text form accepted by <see cref="TryParse"/>.</summary>
     public override string ToString()
     {
         var parts = new List<string>();
@@ -60,6 +86,10 @@ public sealed record HotkeyGesture(HotkeyModifiers Modifiers, string Key)
         return string.Join("+", parts);
     }
 
+    /// <summary>
+    /// Parses a user or settings value into a supported global hotkey gesture.
+    /// </summary>
+    /// <returns><see langword="true"/> when the value is syntactically valid and safe to register.</returns>
     public static bool TryParse(string value, out HotkeyGesture gesture)
     {
         gesture = Default;

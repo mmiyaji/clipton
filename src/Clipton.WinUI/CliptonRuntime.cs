@@ -17,8 +17,18 @@ using Imaging = System.Drawing.Imaging;
 
 namespace Clipton.WinUI;
 
+/// <summary>
+/// Coordinates Clipton's app lifetime, settings, clipboard capture, history and paste actions.
+/// </summary>
+/// <remarks>
+/// UI windows stay thin and call into this runtime for stateful operations. The runtime
+/// owns persistence and OS integrations so behavior remains consistent between the tray,
+/// settings window and quick menu surfaces.
+/// </remarks>
 public sealed class CliptonRuntime : IDisposable
 {
+    // Only a small prefix of persisted history is loaded at startup. Older items stay on
+    // disk and are paged in when the UI asks for more, keeping startup and memory bounded.
     private const int HistorySaveDebounceMilliseconds = 500;
     private const int InitialPersistedHistoryLoadCount = 10;
     private const int ResidentHistoryFlushOverflowCount = 2;
@@ -65,6 +75,11 @@ public sealed class CliptonRuntime : IDisposable
     private uint _lastCapturedClipboardSequence;
     private CancellationTokenSource? _clipboardCaptureDelay;
 
+    /// <summary>
+    /// Creates the runtime and loads settings, snippets and the initial resident history.
+    /// </summary>
+    /// <param name="dataDirectory">Optional test or custom data directory.</param>
+    /// <param name="isSafeMode">When true, disables startup-registration changes.</param>
     public CliptonRuntime(string? dataDirectory = null, bool isSafeMode = false)
     {
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
@@ -101,36 +116,54 @@ public sealed class CliptonRuntime : IDisposable
         AppProfiler.Mark($"History loaded. count={History.Items.Count}; persisted={_persistedHistoryCount}");
     }
 
+    /// <summary>Current normalized settings model.</summary>
     public CliptonSettings Settings { get; }
 
+    /// <summary>Directory that owns settings, snippets, history and generated assets.</summary>
     public string DataDirectory { get; }
 
+    /// <summary>Default app-data directory used when no custom directory is configured.</summary>
     public string DefaultDataDirectory => AppDataDirectorySettings.DefaultDirectory;
 
+    /// <summary>Configured app-data directory to use after restart, when present.</summary>
     public string? ConfiguredDataDirectory => AppDataDirectorySettings.LoadConfiguredDirectory();
 
+    /// <summary>True when operations with external side effects should be reduced.</summary>
     public bool IsSafeMode { get; }
 
+    /// <summary>Resident clipboard history prefix.</summary>
     public ClipboardHistory History { get; }
 
+    /// <summary>In-memory snippet catalog.</summary>
     public SnippetCatalog Snippets { get; }
 
+    /// <summary>Count of persisted history items that are not currently resident.</summary>
     public int UnloadedPersistedHistoryCount => Math.Max(0, _persistedHistoryCount - _loadedPersistedHistoryCount);
 
+    /// <summary>Total history count available to the UI under the current capacity.</summary>
     public int AvailableHistoryCount => Math.Min(Settings.MaxHistoryItems, History.Items.Count + UnloadedPersistedHistoryCount);
 
+    /// <summary>Locale after resolving the system setting.</summary>
     public string EffectiveLocale => ResolveLocale(Settings.Locale);
 
+    /// <summary>Theme after resolving the system setting.</summary>
     public string EffectiveTheme => ResolveTheme(Settings.Theme);
 
+    /// <summary>Translates a UI text key for the effective locale.</summary>
     public string Translate(string key) => _localization.Translate(EffectiveLocale, key);
 
+    /// <summary>Product version displayed in settings.</summary>
     public string AppVersion => GetAppVersion();
 
+    /// <summary>Packaging/runtime status displayed in settings.</summary>
     public string PackageStatus => GetPackageStatus();
 
+    /// <summary>True once shutdown has started.</summary>
     public bool IsExiting { get; private set; }
 
+    /// <summary>
+    /// Starts tray, lifetime window and clipboard services when onboarding is complete.
+    /// </summary>
     public void Start()
     {
         EnsureDefaultSnippets();
@@ -376,6 +409,14 @@ public sealed class CliptonRuntime : IDisposable
         SaveSettings();
     }
 
+    /// <summary>
+    /// Enables or disables encrypted local history persistence.
+    /// </summary>
+    /// <remarks>
+    /// Disabling persistence is also a user data deletion operation. The runtime clears
+    /// resident history, persisted history, pinned ids, thumbnails and temp paste files so
+    /// the setting means "do not keep history" rather than merely "stop future writes".
+    /// </remarks>
     public void SetPersistEncryptedHistory(bool enabled)
     {
         Settings.PersistEncryptedHistory = enabled;
@@ -564,6 +605,9 @@ public sealed class CliptonRuntime : IDisposable
 
     public bool IsHistoryPinned(string id) => Settings.PinnedHistoryIds.Contains(id, StringComparer.Ordinal);
 
+    /// <summary>
+    /// Pages older persisted history into the resident history prefix.
+    /// </summary>
     public void LoadMorePersistedHistory(int count = QuickMenuHistoryBuckets.BucketSize)
     {
         if (count <= 0)
@@ -611,6 +655,9 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
+    /// <summary>
+    /// Exports the currently resident history items to a portable JSON file.
+    /// </summary>
     public int ExportHistory(string path)
     {
         var items = History.Items.Select(HistoryExportItemDto.FromSnapshot).ToArray();
@@ -618,6 +665,9 @@ public sealed class CliptonRuntime : IDisposable
         return items.Length;
     }
 
+    /// <summary>
+    /// Imports history JSON into the resident history, using normal history de-duplication.
+    /// </summary>
     public int ImportHistory(string path)
     {
         var dto = ReadExportFile<HistoryExportDto>(path);
@@ -635,6 +685,9 @@ public sealed class CliptonRuntime : IDisposable
         return Math.Max(0, History.Items.Count - before);
     }
 
+    /// <summary>
+    /// Previews how a history import would affect the resident history and configured capacity.
+    /// </summary>
     public HistoryImportPreview PreviewImportHistory(string path)
     {
         var dto = ReadExportFile<HistoryExportDto>(path);
@@ -1706,6 +1759,8 @@ public sealed class CliptonRuntime : IDisposable
         FinishHistoryPersist(plan);
     }
 
+    // Background saves are chained through _historyPersistChain so slow disk or DPAPI work
+    // cannot reorder older snapshots after newer snapshots.
     private void SaveHistoryInBackground()
     {
         Interlocked.Increment(ref _historySaveVersion);
@@ -1729,6 +1784,8 @@ public sealed class CliptonRuntime : IDisposable
 
     private HistoryPersistPlan CreateHistoryPersistPlan()
     {
+        // Capture the save inputs on the UI thread before persistence moves to a worker.
+        // The resident history list can change during clipboard captures and UI commands.
         return new HistoryPersistPlan(
             Settings.PersistEncryptedHistory,
             History.Items.ToArray(),
@@ -1741,6 +1798,8 @@ public sealed class CliptonRuntime : IDisposable
     {
         lock (_historyPersistChainGate)
         {
+            // ContinueWith intentionally serializes all persistence work behind the last
+            // scheduled write, regardless of whether callers requested sync or background save.
             var task = _historyPersistChain.ContinueWith(
                 _ => PersistHistory(plan),
                 CancellationToken.None,
@@ -1761,6 +1820,8 @@ public sealed class CliptonRuntime : IDisposable
                 return;
             }
 
+            // If older items are still only on disk, merge by id order in the store instead
+            // of saving only the resident prefix.
             if (plan.UnloadedCount > 0)
             {
                 _historyStore.SavePreservingOlder(plan.Snapshots, plan.LoadedPersistedCount, plan.Capacity);
@@ -1803,6 +1864,8 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
+        // Coalesce clipboard-change bursts. The version check prevents an older debounce
+        // task from saving after a newer immediate/background save has been requested.
         var version = Interlocked.Increment(ref _historySaveVersion);
         var cts = new CancellationTokenSource();
         CancellationTokenSource? previous;
@@ -2514,6 +2577,13 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
+    /// <summary>
+    /// Builds the display model for one history item, applying masking and thumbnail policy.
+    /// </summary>
+    /// <remarks>
+    /// Masking affects only the preview text and metadata label. The original snapshot
+    /// remains available for paste operations.
+    /// </remarks>
     public HistoryItemViewModel CreateHistoryItemViewModel(ClipboardSnapshot snapshot, bool includeThumbnail = true)
     {
         var formats = CreateFormatSummary(snapshot.Formats);
@@ -2946,14 +3016,27 @@ internal enum MaskedHistoryKind
     RegisteredSnippet
 }
 
+/// <summary>
+/// Image paste transformations exposed by the quick menu.
+/// </summary>
 public enum ImagePasteMode
 {
+    /// <summary>Paste the original captured image payload.</summary>
     Original,
+
+    /// <summary>Paste image bytes as PNG bitmap data.</summary>
     Png,
+
+    /// <summary>Paste image bytes converted to JPEG bitmap data.</summary>
     Jpeg,
+
+    /// <summary>Paste a temporary PNG file path as a file drop.</summary>
     File
 }
 
+/// <summary>
+/// Summary of a history import before the user confirms it.
+/// </summary>
 public sealed record HistoryImportPreview(
     int SourceItems,
     int UniqueItems,
@@ -2961,6 +3044,9 @@ public sealed record HistoryImportPreview(
     int RemovedByCapacityItems,
     int Capacity);
 
+/// <summary>
+/// Summary of a snippet import before the user confirms it.
+/// </summary>
 public sealed record SnippetImportPreview(
     int SourceItems,
     int ValidItems,

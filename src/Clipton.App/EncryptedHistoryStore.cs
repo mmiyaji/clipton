@@ -5,8 +5,18 @@ using Clipton.Core;
 
 namespace Clipton.App;
 
+/// <summary>
+/// Legacy WPF history store protected with Windows user-scoped DPAPI.
+/// </summary>
+/// <remarks>
+/// This implementation keeps the segmented version 3 format used by the WPF app. The
+/// WinUI store can read newer formats separately, so changes here should prioritize
+/// compatibility with existing WPF data files.
+/// </remarks>
 public sealed class EncryptedHistoryStore
 {
+    // Version 3 stores a compact encrypted base plus a small encrypted delta. This keeps
+    // repeated saves cheap while avoiding a rewrite of the whole history on every capture.
     private const int FormatVersion = 3;
     private const int CompactDeltaThreshold = 50;
     private readonly string _legacyPath;
@@ -16,6 +26,9 @@ public sealed class EncryptedHistoryStore
     private readonly string _deltaPath;
     private readonly object _syncRoot = new();
 
+    /// <summary>
+    /// Creates a store rooted next to the legacy single-file history path.
+    /// </summary>
     public EncryptedHistoryStore(string path)
     {
         _legacyPath = path;
@@ -26,6 +39,9 @@ public sealed class EncryptedHistoryStore
         _deltaPath = Path.Combine(_directory, "delta.dat");
     }
 
+    /// <summary>
+    /// Loads history from segmented storage, upgrading the older single-file format when found.
+    /// </summary>
     public IReadOnlyList<ClipboardSnapshot> Load()
     {
         lock (_syncRoot)
@@ -46,6 +62,9 @@ public sealed class EncryptedHistoryStore
         }
     }
 
+    /// <summary>
+    /// Saves the full resident history, compacting when the delta becomes too large.
+    /// </summary>
     public void Save(IEnumerable<ClipboardSnapshot> snapshots)
     {
         lock (_syncRoot)
@@ -91,6 +110,9 @@ public sealed class EncryptedHistoryStore
         }
     }
 
+    /// <summary>
+    /// Deletes both legacy and segmented history files.
+    /// </summary>
     public void Delete()
     {
         lock (_syncRoot)
@@ -261,6 +283,8 @@ public sealed class EncryptedHistoryStore
         var json = JsonSerializer.SerializeToUtf8Bytes(manifest, new JsonSerializerOptions { WriteIndented = true });
         var tempPath = Path.Combine(_directory, $"manifest.dat.{Guid.NewGuid():N}.tmp");
         File.WriteAllBytes(tempPath, json);
+        // Manifest replacement is atomic from the app's perspective; encrypted payloads
+        // are written first and become visible only after the manifest moves into place.
         File.Move(tempPath, _manifestPath, overwrite: true);
     }
 

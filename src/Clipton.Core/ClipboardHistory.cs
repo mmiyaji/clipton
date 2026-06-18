@@ -3,6 +3,15 @@ using System.Text;
 
 namespace Clipton.Core;
 
+/// <summary>
+/// In-memory clipboard history with newest-first ordering and content de-duplication.
+/// </summary>
+/// <remarks>
+/// History keeps parallel indexes for ids and fingerprints so common UI operations stay
+/// O(1) even when a larger persisted history is paged into memory. Fingerprints are based
+/// on clipboard payload only; source metadata is display context and should not split
+/// otherwise identical history items.
+/// </remarks>
 public sealed class ClipboardHistory
 {
     private readonly List<ClipboardSnapshot> _items = new();
@@ -11,6 +20,11 @@ public sealed class ClipboardHistory
     private readonly Dictionary<string, string> _fingerprintsById = new(StringComparer.Ordinal);
     private string? _lastFingerprint;
 
+    /// <summary>
+    /// Creates an empty history with a maximum resident item count.
+    /// </summary>
+    /// <param name="capacity">Maximum number of snapshots retained in memory.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="capacity"/> is not positive.</exception>
     public ClipboardHistory(int capacity = 30)
     {
         if (capacity <= 0)
@@ -21,10 +35,20 @@ public sealed class ClipboardHistory
         Capacity = capacity;
     }
 
+    /// <summary>Maximum number of snapshots retained in newest-first order.</summary>
     public int Capacity { get; private set; }
 
+    /// <summary>Resident history items, newest first.</summary>
     public IReadOnlyList<ClipboardSnapshot> Items => _items;
 
+    /// <summary>
+    /// Adds a newly captured snapshot to the front of history.
+    /// </summary>
+    /// <remarks>
+    /// Consecutive duplicates are ignored so clipboard-change storms do not create noise.
+    /// Non-consecutive duplicates are moved to the front by removing the older occurrence.
+    /// </remarks>
+    /// <returns><see langword="true"/> when history changed.</returns>
     public bool Add(ClipboardSnapshot snapshot)
     {
         var fingerprint = CreateFingerprint(snapshot);
@@ -53,6 +77,14 @@ public sealed class ClipboardHistory
         return true;
     }
 
+    /// <summary>
+    /// Appends an older persisted snapshot while paging history from storage.
+    /// </summary>
+    /// <remarks>
+    /// This preserves newest-first ordering without updating the consecutive duplicate
+    /// guard used for live clipboard captures.
+    /// </remarks>
+    /// <returns><see langword="true"/> when the snapshot was not already represented.</returns>
     public bool AppendOlder(ClipboardSnapshot snapshot)
     {
         var fingerprint = CreateFingerprint(snapshot);
@@ -75,6 +107,7 @@ public sealed class ClipboardHistory
         return true;
     }
 
+    /// <summary>Removes all resident items and resets duplicate tracking.</summary>
     public void Clear()
     {
         _items.Clear();
@@ -84,6 +117,10 @@ public sealed class ClipboardHistory
         _lastFingerprint = null;
     }
 
+    /// <summary>
+    /// Removes one resident snapshot by id.
+    /// </summary>
+    /// <returns><see langword="true"/> when an item was removed.</returns>
     public bool Remove(string id)
     {
         var removed = _itemsById.TryGetValue(id, out var item) && RemoveTracked(item);
@@ -95,6 +132,14 @@ public sealed class ClipboardHistory
         return removed;
     }
 
+    /// <summary>
+    /// Evicts resident snapshots after the specified newest item count.
+    /// </summary>
+    /// <remarks>
+    /// Callers use the returned snapshots to keep persistence in sync while reducing
+    /// memory pressure from long histories.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="count"/> is negative.</exception>
     public IReadOnlyList<ClipboardSnapshot> UnloadOlderBeyond(int count)
     {
         if (count < 0)
@@ -121,8 +166,13 @@ public sealed class ClipboardHistory
         return removed;
     }
 
+    /// <summary>Finds a resident snapshot by id.</summary>
     public ClipboardSnapshot? Find(string id) => _itemsById.GetValueOrDefault(id);
 
+    /// <summary>
+    /// Changes the resident capacity and trims older items if needed.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="capacity"/> is not positive.</exception>
     public void SetCapacity(int capacity)
     {
         if (capacity <= 0)
@@ -162,6 +212,13 @@ public sealed class ClipboardHistory
         return removed;
     }
 
+    /// <summary>
+    /// Creates the payload fingerprint used for history de-duplication.
+    /// </summary>
+    /// <remarks>
+    /// The hash includes supported content formats and payload bytes, but deliberately
+    /// ignores id, capture time and source metadata.
+    /// </remarks>
     public static string CreateFingerprint(ClipboardSnapshot snapshot)
     {
         using var sha = SHA256.Create();

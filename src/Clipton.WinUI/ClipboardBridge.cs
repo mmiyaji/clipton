@@ -9,13 +9,29 @@ using Windows.Storage.Streams;
 
 namespace Clipton.WinUI;
 
+/// <summary>
+/// Converts between WinRT clipboard data packages and Clipton core snapshots.
+/// </summary>
+/// <remarks>
+/// Clipboard access is inherently best-effort because other processes can hold the
+/// clipboard open. Public operations therefore retry transient COM/clipboard failures and
+/// return no data instead of surfacing clipboard contention to UI code.
+/// </remarks>
 public static class ClipboardBridge
 {
+    // Bound image reads before decoding so a single clipboard bitmap cannot dominate
+    // memory or UI responsiveness.
     private const long MaxClipboardImageSourceBytes = 32L * 1024 * 1024;
     private const long MaxClipboardImagePixels = 32_000_000;
 
+    /// <summary>
+    /// Captures the current clipboard into a supported snapshot, or <see langword="null"/>.
+    /// </summary>
     public static ClipboardSnapshot? Capture() => WithClipboardRetry(CaptureOnce);
 
+    /// <summary>
+    /// Returns plain text from a snapshot, deriving it from rich formats when needed.
+    /// </summary>
     public static string? GetPlainText(ClipboardSnapshot snapshot)
     {
         return !string.IsNullOrEmpty(snapshot.Text)
@@ -23,6 +39,9 @@ public static class ClipboardBridge
             : ExtractPlainText(snapshot.Rtf, snapshot.Html);
     }
 
+    /// <summary>
+    /// Places a snapshot back on the clipboard, optionally reducing it to plain text.
+    /// </summary>
     public static void Put(ClipboardSnapshot snapshot, bool asPlainText)
     {
         WithClipboardRetry(() =>
@@ -32,6 +51,7 @@ public static class ClipboardBridge
         });
     }
 
+    /// <summary>Places plain text on the clipboard.</summary>
     public static void PutText(string text)
     {
         WithClipboardRetry(() =>
@@ -44,6 +64,7 @@ public static class ClipboardBridge
         });
     }
 
+    /// <summary>Places PNG image bytes on the clipboard as a bitmap.</summary>
     public static void PutImagePng(byte[] imagePng)
     {
         WithClipboardRetry(() =>
@@ -53,6 +74,7 @@ public static class ClipboardBridge
         });
     }
 
+    /// <summary>Converts PNG bytes to JPEG and places the result on the clipboard.</summary>
     public static void PutImageJpeg(byte[] imagePng)
     {
         WithClipboardRetry(() =>
@@ -62,6 +84,7 @@ public static class ClipboardBridge
         });
     }
 
+    /// <summary>Places one existing file path on the clipboard as a file drop.</summary>
     public static void PutFileDrop(string path)
     {
         WithClipboardRetry(() =>
@@ -71,6 +94,9 @@ public static class ClipboardBridge
         });
     }
 
+    /// <summary>
+    /// Creates a text snapshot from a snippet without touching the system clipboard.
+    /// </summary>
     public static ClipboardSnapshot FromSnippet(Snippet snippet)
     {
         return new ClipboardSnapshot(Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, [ClipboardFormatKind.Text], text: snippet.Text);
@@ -163,6 +189,8 @@ public static class ClipboardBridge
             return;
         }
 
+        // Preserve richer non-text payloads before rebuilding a text data package. File
+        // drops and images usually cannot be faithfully represented by text alone.
         if (snapshot.FilePaths.Count > 0)
         {
             PutFiles(snapshot.FilePaths);
@@ -328,6 +356,8 @@ public static class ClipboardBridge
             }
         }
 
+        // One final attempt outside the retry filter records exhausted failures while
+        // still letting successful late clipboard releases complete normally.
         try
         {
             return action();

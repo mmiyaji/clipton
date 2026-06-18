@@ -1,5 +1,14 @@
 namespace Clipton.Core;
 
+/// <summary>
+/// Parsed clipboard-history search query.
+/// </summary>
+/// <remarks>
+/// The filter supports free-text terms plus small key/value operators such as
+/// <c>type:image</c>, <c>pinned:true</c>, <c>url:false</c>, <c>after:2026-06-01</c>
+/// and <c>before:2026-06-30</c>. Unknown operators are treated as text terms so
+/// older app versions and user typos degrade to normal search instead of hiding results.
+/// </remarks>
 public sealed class SearchFilter
 {
     private readonly string[] _terms;
@@ -22,20 +31,30 @@ public sealed class SearchFilter
         Before = before;
     }
 
+    /// <summary>Original query text after outer whitespace is trimmed.</summary>
     public string Query { get; }
 
+    /// <summary>Normalized format/type operator, when present.</summary>
     public string? Type { get; }
 
+    /// <summary>Optional pinned-state operator.</summary>
     public bool? Pinned { get; }
 
+    /// <summary>Optional URL-presence operator.</summary>
     public bool? HasUrl { get; }
 
+    /// <summary>Inclusive lower timestamp bound.</summary>
     public DateTimeOffset? After { get; }
 
+    /// <summary>Inclusive upper timestamp bound.</summary>
     public DateTimeOffset? Before { get; }
 
+    /// <summary>True when the query has no text terms and no active operators.</summary>
     public bool IsEmpty => _terms.Length == 0 && Type is null && Pinned is null && HasUrl is null && After is null && Before is null;
 
+    /// <summary>
+    /// Parses user-entered search text into a reusable filter object.
+    /// </summary>
     public static SearchFilter Parse(string? query)
     {
         var tokens = Tokenize(query ?? string.Empty);
@@ -77,6 +96,8 @@ public sealed class SearchFilter
                     break;
                 case "before":
                 case "to":
+                    // "before" is a user-facing inclusive upper bound. Most users enter
+                    // dates, so keep the whole day instead of stopping at midnight.
                     before = ParseDate(value)?.AddDays(1).AddTicks(-1);
                     break;
                 default:
@@ -88,6 +109,12 @@ public sealed class SearchFilter
         return new SearchFilter(query?.Trim() ?? string.Empty, terms.ToArray(), type, pinned, hasUrl, after, before);
     }
 
+    /// <summary>
+    /// Tests free-text terms against lazily produced searchable text.
+    /// </summary>
+    /// <remarks>
+    /// The factory avoids building expensive rich previews when the query has no text terms.
+    /// </remarks>
     public bool MatchesText(Func<string?> textFactory)
     {
         if (_terms.Length == 0)
@@ -99,16 +126,20 @@ public sealed class SearchFilter
         return _terms.All(term => text.Contains(term, StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>Tests the captured timestamp against parsed bounds.</summary>
     public bool MatchesDate(DateTimeOffset capturedAt)
     {
         return (After is null || capturedAt >= After)
             && (Before is null || capturedAt <= Before);
     }
 
+    /// <summary>Tests an item's pinned state against the optional pinned operator.</summary>
     public bool MatchesPinned(bool isPinned) => Pinned is null || Pinned == isPinned;
 
+    /// <summary>Tests URL presence against the optional URL operator.</summary>
     public bool MatchesUrl(bool hasUrl) => HasUrl is null || HasUrl == hasUrl;
 
+    /// <summary>Tests clipboard formats against the optional type/format operator.</summary>
     public bool MatchesType(IEnumerable<ClipboardFormatKind> formats)
     {
         if (Type is null)

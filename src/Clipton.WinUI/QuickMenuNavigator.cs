@@ -1,5 +1,12 @@
 namespace Clipton.WinUI;
 
+/// <summary>
+/// Pure navigation state for a hierarchical quick menu.
+/// </summary>
+/// <remarks>
+/// This class contains no UI framework types so keyboard navigation can be tested without
+/// opening WinUI menus. Disabled items are never selected by movement or direct selection.
+/// </remarks>
 public sealed class QuickMenuNavigator
 {
     private readonly Stack<(string Title, IReadOnlyList<QuickMenuItem> Items, int SelectedIndex)> _backStack = new();
@@ -11,11 +18,19 @@ public sealed class QuickMenuNavigator
         SelectedIndex = FirstEnabledIndex(items);
     }
 
+    /// <summary>Current folder title.</summary>
     public string Title { get; private set; }
+
+    /// <summary>Items in the current folder.</summary>
     public IReadOnlyList<QuickMenuItem> Items { get; private set; }
+
+    /// <summary>Selected item index, or -1 when no enabled item exists.</summary>
     public int SelectedIndex { get; private set; }
+
+    /// <summary>Selected item, or <see langword="null"/> when selection is invalid.</summary>
     public QuickMenuItem? SelectedItem => SelectedIndex >= 0 && SelectedIndex < Items.Count ? Items[SelectedIndex] : null;
 
+    /// <summary>Selects an enabled item by index.</summary>
     public void Select(int index)
     {
         if (index >= 0 && index < Items.Count && Items[index].IsEnabled)
@@ -24,6 +39,9 @@ public sealed class QuickMenuNavigator
         }
     }
 
+    /// <summary>
+    /// Moves selection by a signed delta, wrapping and skipping disabled items.
+    /// </summary>
     public bool MoveSelection(int delta)
     {
         if (Items.Count == 0)
@@ -45,6 +63,9 @@ public sealed class QuickMenuNavigator
         return false;
     }
 
+    /// <summary>
+    /// Opens the selected folder and stores current state for back navigation.
+    /// </summary>
     public bool OpenSelectedFolder()
     {
         var selected = SelectedItem;
@@ -61,6 +82,7 @@ public sealed class QuickMenuNavigator
         return true;
     }
 
+    /// <summary>Returns to the previous folder, restoring its previous selection.</summary>
     public bool NavigateBack()
     {
         if (_backStack.Count == 0)

@@ -3,6 +3,15 @@ using System.Text.RegularExpressions;
 
 namespace Clipton.Core;
 
+/// <summary>
+/// Detects and masks sensitive-looking text for history previews.
+/// </summary>
+/// <remarks>
+/// Detection is preview-only: the original clipboard payload remains unchanged so paste
+/// fidelity is preserved. Custom patterns are compiled with a timeout and invalid
+/// patterns are ignored by matching APIs, which keeps history rendering resilient to
+/// user-supplied regular expressions.
+/// </remarks>
 public static class SensitiveContentDetector
 {
     private const int DefaultVisiblePrefixLength = 3;
@@ -11,6 +20,9 @@ public static class SensitiveContentDetector
     private static readonly TimeSpan CustomPatternTimeout = TimeSpan.FromMilliseconds(120);
     private static readonly ConcurrentDictionary<string, Regex> RegexCache = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Returns whether text matches any enabled built-in or custom masking rule.
+    /// </summary>
     public static bool ShouldMask(string? text, IEnumerable<string>? customPatterns = null, MaskRuleSettings? rules = null)
     {
         rules ??= new MaskRuleSettings();
@@ -21,6 +33,9 @@ public static class SensitiveContentDetector
             rules.CustomPattern);
     }
 
+    /// <summary>
+    /// Returns whether text matches any supplied masking rule definition.
+    /// </summary>
     public static bool ShouldMask(
         string? text,
         IEnumerable<MaskRuleDefinition>? maskRuleDefinitions,
@@ -58,6 +73,12 @@ public static class SensitiveContentDetector
         return customPatternsEnabled && MatchesCustomPattern(text, customPatterns);
     }
 
+    /// <summary>
+    /// Returns the enabled rules that match the supplied text.
+    /// </summary>
+    /// <remarks>
+    /// Duplicate rule/pattern pairs are collapsed so the UI can show a concise explanation.
+    /// </remarks>
     public static MaskRuleMatch[] FindMatchedRules(
         string? text,
         IEnumerable<MaskRuleDefinition>? maskRuleDefinitions,
@@ -102,6 +123,9 @@ public static class SensitiveContentDetector
             .ToArray();
     }
 
+    /// <summary>
+    /// Creates a masked preview using the settings-shaped rule model.
+    /// </summary>
     public static string? CreateMaskedPreview(
         string? text,
         int visiblePrefixLength = DefaultVisiblePrefixLength,
@@ -117,6 +141,13 @@ public static class SensitiveContentDetector
             rules.CustomPattern);
     }
 
+    /// <summary>
+    /// Normalizes and truncates text before preview scanning.
+    /// </summary>
+    /// <remarks>
+    /// Scanning only the preview-sized prefix bounds regex cost and avoids masking rules
+    /// being driven by text the user will not see in the list.
+    /// </remarks>
     public static string? CreatePreviewScanText(string? text, int maxLength = DefaultPreviewScanLength)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -139,6 +170,12 @@ public static class SensitiveContentDetector
         return normalized[..splitAt].TrimEnd();
     }
 
+    /// <summary>
+    /// Creates a masked preview using explicit rule definitions.
+    /// </summary>
+    /// <returns>
+    /// A masked string when at least one replacement changed the text; otherwise <see langword="null"/>.
+    /// </returns>
     public static string? CreateMaskedPreview(
         string? text,
         int visiblePrefixLength,
@@ -189,11 +226,17 @@ public static class SensitiveContentDetector
         return null;
     }
 
+    /// <summary>
+    /// Returns valid custom regular expressions after trimming blanks and duplicates.
+    /// </summary>
     public static string[] ValidateCustomPatterns(IEnumerable<string>? customPatterns)
     {
         return GetValidCustomPatterns(customPatterns);
     }
 
+    /// <summary>
+    /// Returns custom regular expressions that cannot be compiled by the detector.
+    /// </summary>
     public static string[] GetInvalidCustomPatterns(IEnumerable<string>? customPatterns)
     {
         if (customPatterns is null)
@@ -320,6 +363,8 @@ public static class SensitiveContentDetector
     {
         try
         {
+            // Cache compiled regexes because history lists can re-evaluate the same rules
+            // for many items during scrolling and search.
             regex = RegexCache.GetOrAdd(pattern, static key => CreateRegex(key));
             return true;
         }
@@ -362,4 +407,7 @@ public static class SensitiveContentDetector
     }
 }
 
+/// <summary>
+/// Describes one rule that matched sensitive-looking preview text.
+/// </summary>
 public sealed record MaskRuleMatch(string RuleId, string NameKey, string Pattern, bool IsCustomPattern);

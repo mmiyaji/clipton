@@ -1,5 +1,13 @@
 namespace Clipton.Core;
 
+/// <summary>
+/// User settings persisted as JSON.
+/// </summary>
+/// <remarks>
+/// Property names are part of the settings-file compatibility contract. Prefer adding
+/// new nullable/defaulted properties and normalizing them in <see cref="JsonSettingsStore"/>
+/// instead of renaming or removing existing ones.
+/// </remarks>
 public sealed class CliptonSettings
 {
     public string Hotkey { get; set; } = HotkeyGesture.Default.ToString();
@@ -57,6 +65,13 @@ public sealed class CliptonSettings
     public string Locale { get; set; } = "system";
 }
 
+/// <summary>
+/// Backward-compatible switch set for built-in masking rules.
+/// </summary>
+/// <remarks>
+/// Newer settings also persist <see cref="MaskRuleDefinition"/> values; this shape is
+/// kept so older files and simple option UIs can still be normalized.
+/// </remarks>
 public sealed class MaskRuleSettings
 {
     public bool Email { get; set; } = true;
@@ -76,6 +91,9 @@ public sealed class MaskRuleSettings
     public bool CustomPattern { get; set; } = true;
 }
 
+/// <summary>
+/// Configurable masking rule definition used by preview masking.
+/// </summary>
 public sealed class MaskRuleDefinition
 {
     public string Id { get; set; } = string.Empty;
@@ -91,6 +109,9 @@ public sealed class MaskRuleDefinition
     public int Order { get; set; }
 }
 
+/// <summary>
+/// Stable identifiers for built-in masking rules.
+/// </summary>
 public static class MaskRuleIds
 {
     public const string Email = "email";
@@ -102,8 +123,14 @@ public static class MaskRuleIds
     public const string PhoneNumber = "phone-number";
 }
 
+/// <summary>
+/// Factory and normalization helpers for built-in masking rule definitions.
+/// </summary>
 public static class MaskRuleDefinitionDefaults
 {
+    /// <summary>
+    /// Creates the default ordered rule set, applying legacy boolean settings when supplied.
+    /// </summary>
     public static MaskRuleDefinition[] CreateDefaultRules(MaskRuleSettings? settings = null)
     {
         settings ??= new MaskRuleSettings();
@@ -126,6 +153,14 @@ public static class MaskRuleDefinitionDefaults
         ];
     }
 
+    /// <summary>
+    /// Merges persisted definitions onto known built-in defaults.
+    /// </summary>
+    /// <remarks>
+    /// Unknown ids are ignored deliberately. Built-in rule ids are the compatibility
+    /// boundary; accepting unknown persisted rules here would turn arbitrary settings
+    /// data into executable regular expressions.
+    /// </remarks>
     public static MaskRuleDefinition[] Normalize(IEnumerable<MaskRuleDefinition>? definitions, MaskRuleSettings? fallbackSettings = null)
     {
         var defaults = CreateDefaultRules(fallbackSettings);
@@ -155,6 +190,9 @@ public static class MaskRuleDefinitionDefaults
         .ToArray();
     }
 
+    /// <summary>
+    /// Converts rule definitions back into the legacy switch model.
+    /// </summary>
     public static MaskRuleSettings ToSettings(IEnumerable<MaskRuleDefinition>? definitions)
     {
         var byId = Normalize(definitions).ToDictionary(rule => rule.Id, StringComparer.Ordinal);
@@ -185,6 +223,13 @@ public static class MaskRuleDefinitionDefaults
     }
 }
 
+/// <summary>
+/// User-configurable keyboard shortcuts inside the quick menu.
+/// </summary>
+/// <remarks>
+/// The allowed value set is intentionally small because these shortcuts are resolved in
+/// menu key handlers, not in a full command binding system.
+/// </remarks>
 public sealed class QuickMenuShortcutSettings
 {
     public const string DefaultSearch = "Ctrl+F";

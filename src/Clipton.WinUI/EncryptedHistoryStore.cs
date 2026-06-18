@@ -4,8 +4,19 @@ using Clipton.Core;
 
 namespace Clipton.WinUI;
 
+/// <summary>
+/// Persists clipboard history using Windows user-scoped DPAPI.
+/// </summary>
+/// <remarks>
+/// Current history uses an itemized format: a plaintext manifest stores ordering and each
+/// payload is encrypted in its own file. Older single-file, segmented and chunked formats
+/// remain readable so users can upgrade without losing local history.
+/// </remarks>
 public sealed class EncryptedHistoryStore
 {
+    // Format 5 separates ordering from encrypted item payloads. Keeping items individual
+    // makes small saves cheaper and lets the runtime page older history without decrypting
+    // everything at startup.
     private const int FormatVersion = 5;
     private const int ChunkedFormatVersion = 4;
     private const int LegacySegmentedFormatVersion = 3;
@@ -21,6 +32,10 @@ public sealed class EncryptedHistoryStore
     private readonly string _itemsDirectory;
     private readonly object _syncRoot = new();
 
+    /// <summary>
+    /// Creates a store rooted next to the legacy encrypted history file path.
+    /// </summary>
+    /// <param name="path">Path used by legacy single-file history.</param>
     public EncryptedHistoryStore(string path)
     {
         _legacyPath = path;
@@ -34,6 +49,9 @@ public sealed class EncryptedHistoryStore
         _itemsDirectory = Path.Combine(_directory, "items");
     }
 
+    /// <summary>
+    /// Loads all supported history items, upgrading legacy single-file history when found.
+    /// </summary>
     public IReadOnlyList<ClipboardSnapshot> Load()
     {
         lock (_syncRoot)
@@ -54,6 +72,9 @@ public sealed class EncryptedHistoryStore
         }
     }
 
+    /// <summary>
+    /// Returns the persisted item count without decrypting item payloads when possible.
+    /// </summary>
     public int Count()
     {
         lock (_syncRoot)
@@ -67,6 +88,12 @@ public sealed class EncryptedHistoryStore
         }
     }
 
+    /// <summary>
+    /// Loads a newest-first range from the persisted history.
+    /// </summary>
+    /// <param name="offset">Zero-based item offset.</param>
+    /// <param name="count">Maximum number of items to load.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="offset"/> is negative.</exception>
     public IReadOnlyList<ClipboardSnapshot> LoadRange(int offset, int count)
     {
         if (offset < 0)
@@ -114,11 +141,17 @@ public sealed class EncryptedHistoryStore
         }
     }
 
+    /// <summary>
+    /// Loads the newest persisted items.
+    /// </summary>
     public IReadOnlyList<ClipboardSnapshot> LoadRecent(int count)
     {
         return LoadRange(0, count);
     }
 
+    /// <summary>
+    /// Replaces persisted history with the supplied resident snapshots.
+    /// </summary>
     public void Save(IEnumerable<ClipboardSnapshot> snapshots)
     {
         lock (_syncRoot)
@@ -129,6 +162,14 @@ public sealed class EncryptedHistoryStore
         }
     }
 
+    /// <summary>
+    /// Saves resident snapshots while preserving older persisted items that are not loaded.
+    /// </summary>
+    /// <remarks>
+    /// The runtime only keeps a prefix of large histories in memory. This method merges
+    /// that prefix with still-persisted older ids so settings changes or new captures do
+    /// not accidentally truncate the rest of the user's history.
+    /// </remarks>
     public void SavePreservingOlder(IEnumerable<ClipboardSnapshot> snapshots, int loadedPersistedCount, int capacity)
     {
         lock (_syncRoot)
@@ -160,6 +201,9 @@ public sealed class EncryptedHistoryStore
         }
     }
 
+    /// <summary>
+    /// Deletes every persisted history representation owned by this store.
+    /// </summary>
     public void Delete()
     {
         lock (_syncRoot)
@@ -314,6 +358,8 @@ public sealed class EncryptedHistoryStore
             }
         }
 
+        // The manifest is the ordering source of truth; item files not referenced by it
+        // are stale encrypted payloads and should be removed after each complete save.
         if (Directory.Exists(_itemsDirectory))
         {
             foreach (var file in Directory.EnumerateFiles(_itemsDirectory, "*.dat"))
@@ -720,6 +766,7 @@ public sealed class EncryptedHistoryStore
         var json = JsonSerializer.SerializeToUtf8Bytes(manifest, new JsonSerializerOptions { WriteIndented = true });
         var tempPath = Path.Combine(_directory, $"manifest.dat.{Guid.NewGuid():N}.tmp");
         File.WriteAllBytes(tempPath, json);
+        // Replace through a temp file so crashes never leave a partially written manifest.
         File.Move(tempPath, _manifestPath, overwrite: true);
     }
 

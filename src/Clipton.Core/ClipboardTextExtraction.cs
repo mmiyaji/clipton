@@ -3,8 +3,20 @@ using System.Text.RegularExpressions;
 
 namespace Clipton.Core;
 
+/// <summary>
+/// Extracts displayable plain text from rich clipboard formats.
+/// </summary>
+/// <remarks>
+/// This is intentionally lightweight rather than a full RTF or HTML renderer. The goal is
+/// to produce a useful preview and plain-text paste fallback without taking dependencies
+/// on UI frameworks inside the core library.
+/// </remarks>
 public static class ClipboardTextExtraction
 {
+    /// <summary>
+    /// Extracts plain text, preferring RTF because it usually preserves copied editor text
+    /// more directly than HTML clipboard fragments.
+    /// </summary>
     public static string? ExtractPlainText(string? rtf, string? html)
     {
         var fromRtf = ExtractPlainTextFromRtf(rtf);
@@ -17,6 +29,9 @@ public static class ClipboardTextExtraction
         return string.IsNullOrWhiteSpace(fromHtml) ? null : fromHtml;
     }
 
+    /// <summary>
+    /// Performs a best-effort plain-text extraction from a simple RTF payload.
+    /// </summary>
     public static string? ExtractPlainTextFromRtf(string? rtf)
     {
         if (string.IsNullOrWhiteSpace(rtf))
@@ -31,6 +46,9 @@ public static class ClipboardTextExtraction
         return text.Trim();
     }
 
+    /// <summary>
+    /// Performs a best-effort plain-text extraction from HTML or Windows HTML clipboard data.
+    /// </summary>
     public static string? ExtractPlainTextFromHtml(string? html)
     {
         if (string.IsNullOrWhiteSpace(html))

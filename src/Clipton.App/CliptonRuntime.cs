@@ -11,6 +11,13 @@ using Forms = System.Windows.Forms;
 
 namespace Clipton.App;
 
+/// <summary>
+/// Coordinates the legacy WPF app lifetime, settings, clipboard capture and paste actions.
+/// </summary>
+/// <remarks>
+/// This runtime mirrors the same core concepts as the WinUI runtime but keeps WPF-specific
+/// tray, window and clipboard integrations isolated from <c>Clipton.Core</c>.
+/// </remarks>
 public sealed class CliptonRuntime : IDisposable
 {
     private readonly LocalizationCatalog _localization = new();
@@ -22,6 +29,9 @@ public sealed class CliptonRuntime : IDisposable
     private MainWindow? _mainWindow;
     private QuickMenuWindow? _quickMenuWindow;
 
+    /// <summary>
+    /// Creates the runtime and loads settings, snippets and persisted history.
+    /// </summary>
     public CliptonRuntime()
     {
         var appData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Clipton");
@@ -41,14 +51,19 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
+    /// <summary>Current normalized settings model.</summary>
     public CliptonSettings Settings { get; }
 
+    /// <summary>Resident clipboard history.</summary>
     public ClipboardHistory History { get; }
 
+    /// <summary>In-memory snippet catalog.</summary>
     public SnippetCatalog Snippets { get; }
 
+    /// <summary>Translates a UI text key for the configured locale.</summary>
     public string Translate(string key) => _localization.Translate(Settings.Locale, key);
 
+    /// <summary>Starts clipboard capture, hotkey registration and the tray icon.</summary>
     public void Start()
     {
         EnsureDefaultSnippets();
@@ -109,6 +124,13 @@ public sealed class CliptonRuntime : IDisposable
         SaveSettings();
     }
 
+    /// <summary>
+    /// Enables or disables encrypted local history persistence.
+    /// </summary>
+    /// <remarks>
+    /// Disabling persistence is also a user data deletion operation for this legacy app:
+    /// resident history, pinned ids and encrypted files are cleared together.
+    /// </remarks>
     public void SetPersistEncryptedHistory(bool enabled)
     {
         Settings.PersistEncryptedHistory = enabled;

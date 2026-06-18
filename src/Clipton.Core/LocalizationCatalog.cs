@@ -2,6 +2,14 @@ using System.Collections.ObjectModel;
 
 namespace Clipton.Core;
 
+/// <summary>
+/// In-process localization table for Clipton UI text.
+/// </summary>
+/// <remarks>
+/// Resources are kept in code so the WinUI and legacy WPF surfaces can share stable keys
+/// without separate resource-manager wiring. Missing keys fall back through English and
+/// then to the key itself.
+/// </remarks>
 public sealed class LocalizationCatalog
 {
     private readonly IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> _resources;
@@ -558,6 +566,9 @@ public sealed class LocalizationCatalog
             });
     }
 
+    /// <summary>
+    /// Translates a key for the requested locale, falling back to English and then the key.
+    /// </summary>
     public string Translate(string locale, string key)
     {
         if (_resources.TryGetValue(locale, out var localized) && localized.TryGetValue(key, out var value))

@@ -10,16 +10,31 @@ using TextDataFormat = System.Windows.TextDataFormat;
 
 namespace Clipton.App;
 
+/// <summary>
+/// Converts between WPF clipboard data objects and Clipton core snapshots.
+/// </summary>
+/// <remarks>
+/// Public clipboard operations retry transient clipboard contention. Pure conversion
+/// methods are kept public so tests can exercise format behavior without touching the
+/// shared system clipboard.
+/// </remarks>
 public static class ClipboardBridge
 {
+    // Decode limits protect the UI process from oversized bitmap clipboard payloads.
     private const long MaxClipboardImageBytes = 32L * 1024 * 1024;
     private const long MaxClipboardImagePixels = 32_000_000;
 
+    /// <summary>
+    /// Captures the current clipboard into a supported snapshot, or <see langword="null"/>.
+    /// </summary>
     public static ClipboardSnapshot? Capture()
     {
         return WithClipboardRetry(CaptureOnce);
     }
 
+    /// <summary>
+    /// Returns plain text from a snapshot, deriving it from rich formats when needed.
+    /// </summary>
     public static string? GetPlainText(ClipboardSnapshot snapshot)
     {
         return !string.IsNullOrEmpty(snapshot.Text)
@@ -27,6 +42,9 @@ public static class ClipboardBridge
             : ExtractPlainText(snapshot.Rtf, snapshot.Html);
     }
 
+    /// <summary>
+    /// Places a snapshot back on the clipboard, optionally reducing it to plain text.
+    /// </summary>
     public static void Put(ClipboardSnapshot snapshot, bool asPlainText)
     {
         WithClipboardRetry(() =>
@@ -36,6 +54,7 @@ public static class ClipboardBridge
         });
     }
 
+    /// <summary>Places plain text on the clipboard.</summary>
     public static void PutText(string text)
     {
         WithClipboardRetry(() =>
@@ -45,6 +64,9 @@ public static class ClipboardBridge
         });
     }
 
+    /// <summary>
+    /// Creates a text snapshot from a snippet without touching the system clipboard.
+    /// </summary>
     public static ClipboardSnapshot FromSnippet(Snippet snippet)
     {
         return new ClipboardSnapshot(Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, [ClipboardFormatKind.Text], text: snippet.Text);
@@ -62,8 +84,12 @@ public static class ClipboardBridge
         }
     }
 
-    // Pure transformation from an in-memory data object; unit-testable without
-    // touching the shared system clipboard.
+    /// <summary>
+    /// Converts an in-memory WPF data object into a snapshot.
+    /// </summary>
+    /// <remarks>
+    /// This pure transformation is unit-testable without touching the shared system clipboard.
+    /// </remarks>
     public static ClipboardSnapshot? CaptureFrom(System.Windows.IDataObject? data)
     {
         if (data is null)
@@ -148,8 +174,12 @@ public static class ClipboardBridge
         Clipboard.SetDataObject(CreateDataObject(snapshot, asPlainText), copy: true);
     }
 
-    // Pure transformation to an in-memory data object; unit-testable without
-    // touching the shared system clipboard.
+    /// <summary>
+    /// Converts a snapshot into an in-memory WPF data object.
+    /// </summary>
+    /// <remarks>
+    /// This pure transformation is unit-testable without touching the shared system clipboard.
+    /// </remarks>
     public static DataObject CreateDataObject(ClipboardSnapshot snapshot, bool asPlainText)
     {
         var data = new DataObject();

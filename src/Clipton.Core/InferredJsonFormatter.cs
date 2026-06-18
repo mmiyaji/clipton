@@ -3,10 +3,21 @@ using System.Text.Json.Nodes;
 
 namespace Clipton.Core;
 
+/// <summary>
+/// Converts clipboard text into a JSON representation for quick paste transformations.
+/// </summary>
+/// <remarks>
+/// The formatter first preserves already-valid JSON, then accepts simple one-separator
+/// key/value lines, and finally falls back to a JSON string. That order avoids surprising
+/// users by reinterpreting structured data that is already valid JSON.
+/// </remarks>
 public static class InferredJsonFormatter
 {
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 
+    /// <summary>
+    /// Formats the supplied text as existing JSON, inferred object JSON, or a JSON string.
+    /// </summary>
     public static string Format(string text)
     {
         if (TryFormatExistingJson(text) is { } existingJson)

@@ -1,13 +1,26 @@
 namespace Clipton.Core;
 
+/// <summary>
+/// Mutable in-memory catalog of snippets indexed by folder/name and exact text.
+/// </summary>
+/// <remarks>
+/// Folder/name lookups are case-insensitive for user convenience, while text lookups are
+/// ordinal so registered snippets can mask matching history items only when the stored
+/// text is exactly the same.
+/// </remarks>
 public sealed class SnippetCatalog
 {
     private readonly List<Snippet> _snippets = new();
     private readonly Dictionary<string, Snippet> _snippetsByKey = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Snippet> _snippetsByText = new(StringComparer.Ordinal);
 
+    /// <summary>Snippets in display order.</summary>
     public IReadOnlyList<Snippet> Snippets => _snippets;
 
+    /// <summary>
+    /// Inserts or replaces a snippet identified by normalized folder and name.
+    /// </summary>
+    /// <exception cref="ArgumentException">Thrown when the snippet name is empty.</exception>
     public void Upsert(Snippet snippet)
     {
         if (string.IsNullOrWhiteSpace(snippet.Name))
@@ -35,6 +48,9 @@ public sealed class SnippetCatalog
         }
     }
 
+    /// <summary>
+    /// Removes snippets with the supplied name from any folder.
+    /// </summary>
     public bool Remove(string name)
     {
         var removed = _snippets.RemoveAll(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)) > 0;
@@ -46,6 +62,9 @@ public sealed class SnippetCatalog
         return removed;
     }
 
+    /// <summary>
+    /// Removes a snippet by normalized folder and name.
+    /// </summary>
     public bool Remove(string folder, string name)
     {
         var removed = _snippets.RemoveAll(item =>
@@ -59,8 +78,10 @@ public sealed class SnippetCatalog
         return removed;
     }
 
+    /// <summary>Finds a snippet by normalized folder and case-insensitive name.</summary>
     public Snippet? Find(string folder, string name) => _snippetsByKey.GetValueOrDefault(CreateKey(NormalizeFolder(folder), name.Trim()));
 
+    /// <summary>Finds the first snippet whose body exactly matches the supplied text.</summary>
     public Snippet? FindByText(string? text)
     {
         if (string.IsNullOrEmpty(text))
@@ -88,6 +109,7 @@ public sealed class SnippetCatalog
                 .Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
     }
 
+    // Unit separator keeps folder/name keys reversible even when user text contains slashes.
     private static string CreateKey(string folder, string name) => $"{folder}\u001F{name}";
 
     private void RebuildIndexes()

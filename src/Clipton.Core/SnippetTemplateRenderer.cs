@@ -4,10 +4,25 @@ using System.Text.RegularExpressions;
 
 namespace Clipton.Core;
 
+/// <summary>
+/// Renders supported snippet variables just before paste.
+/// </summary>
+/// <remarks>
+/// Rendering is intentionally side-effect free except for random and GUID variables. File
+/// variables are supplied by the caller so the core library never reads the system
+/// clipboard directly.
+/// </remarks>
 public static class SnippetTemplateRenderer
 {
     private static readonly Regex TokenPattern = new(@"\{\{\s*(?<name>[a-zA-Z][a-zA-Z0-9_]*)(?:\s*:\s*(?<format>[^}]*?)|\(\s*(?<formatParen>.*?)\s*\))?\s*\}\}", RegexOptions.Compiled);
 
+    /// <summary>
+    /// Expands known variables in a snippet template.
+    /// </summary>
+    /// <param name="template">Template text containing tokens such as <c>{{date}}</c>.</param>
+    /// <param name="now">Optional timestamp override for deterministic tests.</param>
+    /// <param name="filePaths">Optional current clipboard file paths for file variables.</param>
+    /// <returns>The rendered template, preserving unknown variables unchanged.</returns>
     public static string Render(string template, DateTimeOffset? now = null, IReadOnlyList<string>? filePaths = null)
     {
         if (string.IsNullOrEmpty(template))
@@ -89,6 +104,8 @@ public static class SnippetTemplateRenderer
     private static string NormalizeQuotedValue(string value)
     {
         var trimmed = value;
+        // Quoted formats let users keep intentional whitespace without the quotes
+        // becoming part of the rendered output.
         return trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[^1] == '"'
             ? trimmed[1..^1]
             : trimmed;
