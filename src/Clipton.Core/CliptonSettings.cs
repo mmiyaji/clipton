@@ -42,7 +42,7 @@ public sealed class CliptonSettings
 
     public bool QuickMenuShowCapturedAt { get; set; }
 
-    public bool QuickMenuShowShortcutHints { get; set; } = true;
+    public bool QuickMenuShowShortcutHints { get; set; }
 
     public QuickMenuShortcutSettings QuickMenuShortcuts { get; set; } = new();
 

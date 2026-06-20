@@ -22,7 +22,7 @@ public sealed class SettingsStoreTests
         Assert.Equal("Ctrl+M", loaded.QuickMenuShortcuts.ToggleMaskReveal);
         Assert.Equal("Ctrl+D", loaded.QuickMenuShortcuts.ToggleCapturedAt);
         Assert.False(loaded.QuickMenuShowCapturedAt);
-        Assert.True(loaded.QuickMenuShowShortcutHints);
+        Assert.False(loaded.QuickMenuShowShortcutHints);
         Assert.Equal(150, loaded.ClipboardCaptureDelayMilliseconds);
         Assert.False(loaded.DiagnosticLoggingEnabled);
         Assert.True(loaded.FolderMode);
