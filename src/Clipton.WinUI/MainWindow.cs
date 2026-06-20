@@ -265,7 +265,7 @@ public sealed class MainWindow : Window
 
     public void HideHistoryPageForLock()
     {
-        if (_selectedPageIndex == 1)
+        if (IsProtectedPageIndex(_selectedPageIndex))
         {
             SelectPage(0);
         }
@@ -284,7 +284,7 @@ public sealed class MainWindow : Window
             return true;
         }
 
-        if (_selectedPageIndex == 1)
+        if (IsProtectedPageIndex(_selectedPageIndex))
         {
             SelectPage(0);
         }
@@ -2438,7 +2438,7 @@ public sealed class MainWindow : Window
             return;
         }
 
-        _runtime.ResetHistoryAccessLockAndClearHistory();
+        _runtime.ResetHistoryAccessLockAndClearProtectedData();
         ResetHistoryAccessLockControls();
     }
 
@@ -3834,7 +3834,7 @@ public sealed class MainWindow : Window
 
     private async Task SelectPageAsync(int index)
     {
-        if (index == 1 && !await EnsureHistoryAccessUnlockedAsync(showWindow: false))
+        if (IsProtectedPageIndex(index) && !await EnsureHistoryAccessUnlockedAsync(showWindow: false))
         {
             RestoreNavigationSelection();
             return;
@@ -3842,6 +3842,8 @@ public sealed class MainWindow : Window
 
         SelectPage(index);
     }
+
+    private static bool IsProtectedPageIndex(int index) => index is 1 or 4;
 
     private void SelectPage(int index)
     {

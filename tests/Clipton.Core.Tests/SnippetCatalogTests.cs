@@ -111,6 +111,20 @@ public sealed class SnippetCatalogTests
     }
 
     [Fact]
+    public void Clear_RemovesSnippetsAndLookupIndexes()
+    {
+        var catalog = new SnippetCatalog();
+        catalog.Upsert(new Snippet("Token", "secret-token", "Secrets"));
+        catalog.Upsert(new Snippet("Greeting", "Hello", "Work"));
+
+        catalog.Clear();
+
+        Assert.Empty(catalog.Snippets);
+        Assert.Null(catalog.Find("Secrets", "Token"));
+        Assert.Null(catalog.FindByText("secret-token"));
+    }
+
+    [Fact]
     public void FindByText_ReturnsRegisteredSnippet()
     {
         var catalog = new SnippetCatalog();

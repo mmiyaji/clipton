@@ -78,6 +78,14 @@ public sealed class SnippetCatalog
         return removed;
     }
 
+    /// <summary>Removes every snippet and clears lookup indexes.</summary>
+    public void Clear()
+    {
+        _snippets.Clear();
+        _snippetsByKey.Clear();
+        _snippetsByText.Clear();
+    }
+
     /// <summary>Finds a snippet by normalized folder and case-insensitive name.</summary>
     public Snippet? Find(string folder, string name) => _snippetsByKey.GetValueOrDefault(CreateKey(NormalizeFolder(folder), name.Trim()));
 

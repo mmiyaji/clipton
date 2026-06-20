@@ -480,7 +480,9 @@ public sealed class CliptonRuntime : IDisposable
         _richQuickMenu?.Dismiss();
     }
 
-    public void ResetHistoryAccessLockAndClearHistory()
+    public void ResetHistoryAccessLockAndClearHistory() => ResetHistoryAccessLockAndClearProtectedData();
+
+    public void ResetHistoryAccessLockAndClearProtectedData()
     {
         Settings.HistoryAccessLockEnabled = false;
         Settings.HistoryAccessLockPinSalt = string.Empty;
@@ -490,6 +492,7 @@ public sealed class CliptonRuntime : IDisposable
         _defaultQuickMenu?.Dismiss();
         _richQuickMenu?.Dismiss();
         ClearHistory();
+        ClearSnippets();
     }
 
     public void RefreshHistoryAccessUnlockWindow()
@@ -902,6 +905,13 @@ public sealed class CliptonRuntime : IDisposable
         SaveSettings();
         SaveHistory();
         ClearHistoryImageFiles();
+        _mainWindow?.RefreshItems();
+    }
+
+    public void ClearSnippets()
+    {
+        Snippets.Clear();
+        SaveSnippets(_snippetPath, Snippets);
         _mainWindow?.RefreshItems();
     }
 
@@ -2148,6 +2158,12 @@ public sealed class CliptonRuntime : IDisposable
 
     private void EnsureDefaultSnippets()
     {
+        // An existing empty file means snippets were intentionally cleared.
+        if (Snippets.Snippets.Count == 0 && File.Exists(_snippetPath))
+        {
+            return;
+        }
+
         var changed = false;
         if (Snippets.Snippets.Count == 0)
         {

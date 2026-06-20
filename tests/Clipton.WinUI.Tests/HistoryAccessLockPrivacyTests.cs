@@ -27,10 +27,11 @@ public sealed class HistoryAccessLockPrivacyTests
     }
 
     [Fact]
-    public void ResetHistoryAccessLockAndClearHistory_RemovesCredentialAndHistory()
+    public void ResetHistoryAccessLockAndClearProtectedData_RemovesCredentialHistoryAndSnippets()
     {
         var root = CreateTestRoot();
         var historyPath = Path.Combine(root, "history.dat");
+        var snippetsPath = Path.Combine(root, "snippets.json");
         var store = new EncryptedHistoryStore(historyPath);
         store.Save([new ClipboardSnapshot(
             "history-1",
@@ -38,14 +39,22 @@ public sealed class HistoryAccessLockPrivacyTests
             [ClipboardFormatKind.Text],
             text: "private clipboard text")]);
         using var runtime = new CliptonRuntime(root, isSafeMode: true);
+        runtime.UpsertSnippet("Secrets", "ApiKey", "private snippet text");
         runtime.ConfigureHistoryAccessLock("2468", timeoutMinutes: 15);
 
-        runtime.ResetHistoryAccessLockAndClearHistory();
+        Assert.Contains("private snippet text", File.ReadAllText(snippetsPath), StringComparison.Ordinal);
+
+        runtime.ResetHistoryAccessLockAndClearProtectedData();
 
         Assert.False(runtime.IsHistoryAccessLockConfigured);
         Assert.False(runtime.IsHistoryAccessLockEnabled);
         Assert.Empty(runtime.History.Items);
         Assert.Empty(new EncryptedHistoryStore(historyPath).Load());
+        Assert.Empty(runtime.Snippets.Snippets);
+
+        var persistedSnippetsJson = File.ReadAllText(snippetsPath);
+        Assert.DoesNotContain("private snippet text", persistedSnippetsJson, StringComparison.Ordinal);
+        Assert.Empty(JsonSerializer.Deserialize<Snippet[]>(persistedSnippetsJson) ?? []);
 
         var loadedSettings = new JsonSettingsStore(Path.Combine(root, "settings.json")).Load();
         Assert.False(loadedSettings.HistoryAccessLockEnabled);
