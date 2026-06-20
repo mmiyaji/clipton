@@ -480,6 +480,18 @@ public sealed class CliptonRuntime : IDisposable
         _richQuickMenu?.Dismiss();
     }
 
+    public void ResetHistoryAccessLockAndClearHistory()
+    {
+        Settings.HistoryAccessLockEnabled = false;
+        Settings.HistoryAccessLockPinSalt = string.Empty;
+        Settings.HistoryAccessLockPinHash = string.Empty;
+        Settings.HistoryAccessLockTimeoutMinutes = HistoryAccessLockCredential.DefaultTimeoutMinutes;
+        _historyAccessUnlockedUntilUtc = null;
+        _defaultQuickMenu?.Dismiss();
+        _richQuickMenu?.Dismiss();
+        ClearHistory();
+    }
+
     public void RefreshHistoryAccessUnlockWindow()
     {
         if (IsHistoryAccessUnlocked())

@@ -107,6 +107,7 @@ public sealed class MainWindow : Window
     private readonly ToggleSwitch _historyAccessLockToggle = CompactToggle();
     private readonly ComboBox _historyAccessLockTimeoutBox = new();
     private readonly Button _historyAccessLockPinButton = new();
+    private readonly Button _historyAccessLockResetButton = new();
     private readonly Button _historyAccessLockNowButton = new();
     private readonly TextBlock _historyAccessLockStatusText = Description();
     private readonly ToggleSwitch _maskSensitiveContentToggle = CompactToggle();
@@ -546,6 +547,7 @@ public sealed class MainWindow : Window
         SetComboBoxText(_historyAccessLockTimeoutBox, "30", string.Format(t("Minutes"), 30));
         SetComboBoxText(_historyAccessLockTimeoutBox, "60", string.Format(t("Minutes"), 60));
         SetCommandButton(_historyAccessLockPinButton, "\uE72E", _runtime.IsHistoryAccessLockConfigured ? t("ChangePin") : t("SetPin"));
+        SetCommandButton(_historyAccessLockResetButton, "\uE777", t("ResetPin"));
         SetCommandButton(_historyAccessLockNowButton, "\uE785", t("LockNow"));
         _startupToggle.IsOn = _runtime.Settings.StartWithWindows;
         _hideSettingsWindowOnStartupToggle.IsOn = _runtime.Settings.HideSettingsWindowOnStartup;
@@ -1067,6 +1069,7 @@ public sealed class MainWindow : Window
         _historyAccessLockToggle.Toggled += async (_, _) => await ChangeHistoryAccessLockEnabledAsync();
         _historyAccessLockTimeoutBox.SelectionChanged += (_, _) => ChangeHistoryAccessLockTimeout();
         _historyAccessLockPinButton.Click += async (_, _) => await ChangeHistoryAccessPinAsync();
+        _historyAccessLockResetButton.Click += async (_, _) => await ConfirmAndResetHistoryAccessLockAsync();
         _historyAccessLockNowButton.Click += (_, _) =>
         {
             _runtime.LockHistoryAccess();
@@ -1075,6 +1078,7 @@ public sealed class MainWindow : Window
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         buttons.Children.Add(_historyAccessLockPinButton);
+        buttons.Children.Add(_historyAccessLockResetButton);
         buttons.Children.Add(_historyAccessLockNowButton);
         buttons.Children.Add(ToggleActionHost(_historyAccessLockToggle));
 
@@ -2422,6 +2426,22 @@ public sealed class MainWindow : Window
         ResetHistoryAccessLockControls();
     }
 
+    private async Task ConfirmAndResetHistoryAccessLockAsync()
+    {
+        var confirmed = await ConfirmDialogAsync(
+            _runtime.Translate("ConfirmResetHistoryAccessLockTitle"),
+            _runtime.Translate("ConfirmResetHistoryAccessLockMessage"),
+            _runtime.Translate("ResetPinAndClearHistory"),
+            _runtime.Translate("Cancel"));
+        if (!confirmed)
+        {
+            return;
+        }
+
+        _runtime.ResetHistoryAccessLockAndClearHistory();
+        ResetHistoryAccessLockControls();
+    }
+
     private void ChangeHistoryAccessLockTimeout()
     {
         if (_loading)
@@ -2461,8 +2481,10 @@ public sealed class MainWindow : Window
         var configured = _runtime.IsHistoryAccessLockConfigured;
         var enabled = _runtime.IsHistoryAccessLockEnabled;
         SetCommandButton(_historyAccessLockPinButton, "\uE72E", configured ? _runtime.Translate("ChangePin") : _runtime.Translate("SetPin"));
+        SetCommandButton(_historyAccessLockResetButton, "\uE777", _runtime.Translate("ResetPin"));
         SetCommandButton(_historyAccessLockNowButton, "\uE785", _runtime.Translate("LockNow"));
         _historyAccessLockTimeoutBox.IsEnabled = configured;
+        _historyAccessLockResetButton.IsEnabled = configured;
         _historyAccessLockNowButton.IsEnabled = enabled;
         _historyAccessLockStatusText.Text = !configured
             ? _runtime.Translate("HistoryAccessLockStatusNotConfigured")
