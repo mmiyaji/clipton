@@ -156,9 +156,16 @@ public static class ClipboardBridge
 
             if (data.Contains(StandardDataFormats.Bitmap))
             {
-                var bitmap = Wait(data.GetBitmapAsync);
-                image = EncodePng(ReadAllBytes(bitmap, MaxClipboardImageSourceBytes));
-                if (image.Length > 0) formats.Add(ClipboardFormatKind.Image);
+                try
+                {
+                    var bitmap = Wait(data.GetBitmapAsync);
+                    image = EncodePng(ReadAllBytes(bitmap, MaxClipboardImageSourceBytes));
+                    if (image.Length > 0) formats.Add(ClipboardFormatKind.Image);
+                }
+                catch (Exception exception) when (exception is ExternalException or COMException or UnauthorizedAccessException or IOException)
+                {
+                    AppDiagnostics.Log(exception, "Clipboard image capture");
+                }
             }
 
             return formats.Count == 0
@@ -189,24 +196,45 @@ public static class ClipboardBridge
             return;
         }
 
-        // Preserve richer non-text payloads before rebuilding a text data package. File
-        // drops and images usually cannot be faithfully represented by text alone.
+        // File drops are restored through StorageItems; text and bitmap formats can be
+        // combined in one package so mixed Office payloads keep both representations.
         if (snapshot.FilePaths.Count > 0)
         {
             PutFiles(snapshot.FilePaths);
             return;
         }
 
+        var data = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
+        var hasContent = false;
+        if (!string.IsNullOrEmpty(snapshot.Text))
+        {
+            data.SetText(snapshot.Text);
+            hasContent = true;
+        }
+
+        if (!string.IsNullOrEmpty(snapshot.Rtf))
+        {
+            data.SetRtf(snapshot.Rtf);
+            hasContent = true;
+        }
+
+        if (!string.IsNullOrEmpty(snapshot.Html))
+        {
+            data.SetHtmlFormat(snapshot.Html);
+            hasContent = true;
+        }
+
         if (snapshot.ImagePng is { Length: > 0 })
         {
-            PutBitmap(snapshot.ImagePng);
+            SetBitmap(data, snapshot.ImagePng);
+            hasContent = true;
+        }
+
+        if (!hasContent)
+        {
             return;
         }
 
-        var data = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
-        if (!string.IsNullOrEmpty(snapshot.Text)) data.SetText(snapshot.Text);
-        if (!string.IsNullOrEmpty(snapshot.Rtf)) data.SetRtf(snapshot.Rtf);
-        if (!string.IsNullOrEmpty(snapshot.Html)) data.SetHtmlFormat(snapshot.Html);
         Clipboard.SetContent(data);
         Clipboard.Flush();
     }
@@ -230,13 +258,18 @@ public static class ClipboardBridge
 
     private static void PutBitmap(byte[] bytes)
     {
+        var data = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
+        SetBitmap(data, bytes);
+        Clipboard.SetContent(data);
+        Clipboard.Flush();
+    }
+
+    private static void SetBitmap(DataPackage data, byte[] bytes)
+    {
         var stream = new InMemoryRandomAccessStream();
         stream.WriteAsync(bytes.AsBuffer()).AsTask().GetAwaiter().GetResult();
         stream.Seek(0);
-        var data = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
         data.SetBitmap(RandomAccessStreamReference.CreateFromStream(stream));
-        Clipboard.SetContent(data);
-        Clipboard.Flush();
     }
 
     private static byte[] ReadAllBytes(RandomAccessStreamReference reference, long maxBytes)

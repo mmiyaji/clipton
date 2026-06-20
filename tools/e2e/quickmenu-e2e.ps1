@@ -272,8 +272,30 @@ try {
     Assert $reopenedMenu "menu reopens via hotkey"
     Start-Sleep -Milliseconds 600
     Assert ((Get-FocusedName) -like "E2E item*") "initial focus set on reopen" "(focused: '$(Get-FocusedName)')"
-    Send-Key -Key 0x1B
-    Wait-Until { (Get-MenuItems -AppPid $app.Id).Count -eq 0 } 3000 | Out-Null
+
+    # --- scenario 8: Enter invokes the focused paste option ---------------
+    Send-Key -Key 0x27
+    $pasteOptionsVisible = Wait-Until {
+        $optionNames = (Get-MenuItems -AppPid $app.Id) | ForEach-Object { $_.Current.Name }
+        $optionNames -contains "Paste lowercase"
+    } 3000
+    Assert $pasteOptionsVisible "Right opens paste options for focused history item" "(focused: '$(Get-FocusedName)')"
+
+    $lowercaseFocused = $false
+    for ($i = 0; $i -lt 12 -and -not $lowercaseFocused; $i++) {
+        if ((Get-FocusedName) -eq "Paste lowercase") { $lowercaseFocused = $true; break }
+        Send-Key -Key 0x28
+    }
+    Assert $lowercaseFocused "Down navigates to paste lowercase option" "(focused: '$(Get-FocusedName)')"
+
+    Send-Key -Key 0x0D
+    $lowercaseClipboard = Wait-Until {
+        try { (Get-Clipboard -Raw -ErrorAction Stop) -eq "e2e item 10" } catch { $false }
+    } 4000
+    Assert $lowercaseClipboard "Enter invokes focused paste option instead of current item" "(clipboard: '$(Get-Clipboard -Raw -ErrorAction SilentlyContinue)')"
+
+    $dismissedAfterPaste = Wait-Until { (Get-MenuItems -AppPid $app.Id).Count -eq 0 } 3000
+    Assert $dismissedAfterPaste "menu dismisses after paste option invoke" "(count: $((Get-MenuItems -AppPid $app.Id).Count))"
 
     Write-Output ""
     if ($script:failures -eq 0) {

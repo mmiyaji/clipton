@@ -201,7 +201,6 @@ public static class ClipboardBridge
         if (snapshot.ImagePng is { Length: > 0 })
         {
             data.SetImage(DecodePng(snapshot.ImagePng));
-            return data;
         }
 
         if (!string.IsNullOrEmpty(snapshot.Text))

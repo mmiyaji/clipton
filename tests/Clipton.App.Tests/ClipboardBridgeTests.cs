@@ -219,6 +219,25 @@ public sealed class ClipboardBridgeTests
     }
 
     [Fact]
+    public void CaptureFrom_ReadsImageAndTextTogether()
+    {
+        byte[] pixels = [0, 128, 255, 255];
+        var bitmap = BitmapSource.Create(1, 1, 96, 96, PixelFormats.Bgra32, null, pixels, 4);
+        var data = new DataObject();
+        data.SetText("Slide title", TextDataFormat.UnicodeText);
+        data.SetImage(bitmap);
+
+        var snapshot = ClipboardBridge.CaptureFrom(data);
+
+        Assert.NotNull(snapshot);
+        Assert.Contains(ClipboardFormatKind.Text, snapshot.Formats);
+        Assert.Contains(ClipboardFormatKind.Image, snapshot.Formats);
+        Assert.Equal("Slide title", snapshot.Text);
+        Assert.NotNull(snapshot.ImagePng);
+        Assert.NotEmpty(snapshot.ImagePng);
+    }
+
+    [Fact]
     public void CaptureFrom_IgnoresBitmapFormatWhenDataIsNotBitmapSource()
     {
         var data = new DataObject();
@@ -256,6 +275,27 @@ public sealed class ClipboardBridgeTests
         var data = ClipboardBridge.CreateDataObject(snapshot, asPlainText: false);
 
         Assert.NotNull(data.GetImage());
+    }
+
+    [Fact]
+    public void CreateDataObject_WritesImageAndTextFormatsTogether()
+    {
+        var snapshot = new ClipboardSnapshot(
+            "mixed-image-text",
+            DateTimeOffset.UtcNow,
+            [ClipboardFormatKind.Text, ClipboardFormatKind.RichText, ClipboardFormatKind.Html, ClipboardFormatKind.Image],
+            text: "Slide title",
+            rtf: @"{\rtf1\ansi Slide title}",
+            html: "Version:1.0\r\nStartHTML:00000097\r\nEndHTML:00000160\r\nStartFragment:00000129\r\nEndFragment:00000129\r\n<html><body><!--StartFragment--><b>Slide title</b><!--EndFragment--></body></html>",
+            imagePng: CreatePngBytes());
+
+        var data = ClipboardBridge.CreateDataObject(snapshot, asPlainText: false);
+
+        Assert.NotNull(data.GetImage());
+        Assert.True(data.ContainsText(TextDataFormat.UnicodeText));
+        Assert.True(data.ContainsText(TextDataFormat.Rtf));
+        Assert.True(data.ContainsText(TextDataFormat.Html));
+        Assert.Equal("Slide title", data.GetText(TextDataFormat.UnicodeText));
     }
 
     [Fact]

@@ -2235,8 +2235,8 @@ public sealed class CliptonRuntime : IDisposable
     private QuickMenuItem CreateHistoryMenuItem(ClipboardSnapshot item, bool includeImageThumbnail)
     {
         var display = CreateHistoryItemViewModel(item, includeThumbnail: includeImageThumbnail);
-        var header = item.Formats.Contains(ClipboardFormatKind.Image) ? Translate("Image") : display.Preview;
-        var revealedHeader = IsMaskedHistoryItem(item) && !item.Formats.Contains(ClipboardFormatKind.Image)
+        var header = display.Preview;
+        var revealedHeader = IsMaskedHistoryItem(item)
             ? item.Preview
             : null;
         var plainText = ClipboardBridge.GetPlainText(item);
@@ -2881,15 +2881,22 @@ public sealed class CliptonRuntime : IDisposable
             return [];
         }
 
-        return
-        [
-            new QuickMenuPasteOption(Translate("PasteImageOriginal"), "\uEB9F", () => PasteImage(item.Id, ImagePasteMode.Original, sendPaste: true)),
+        var plainText = ClipboardBridge.GetPlainText(item);
+        var originalLabel = string.IsNullOrEmpty(plainText)
+            ? Translate("PasteImageOriginal")
+            : Translate("PasteOriginal");
+        var options = new List<QuickMenuPasteOption>
+        {
+            new QuickMenuPasteOption(originalLabel, "\uEB9F", () => PasteImage(item.Id, ImagePasteMode.Original, sendPaste: true)),
             new QuickMenuPasteOption(Translate("PasteImagePng"), "PNG", () => PasteImage(item.Id, ImagePasteMode.Png, sendPaste: true), "Segoe UI"),
             new QuickMenuPasteOption(Translate("PasteImageJpeg"), "JPG", () => PasteImage(item.Id, ImagePasteMode.Jpeg, sendPaste: true), "Segoe UI"),
             new QuickMenuPasteOption(Translate("PasteImageFile"), "\uE8A5", () => PasteImage(item.Id, ImagePasteMode.File, sendPaste: true)),
-            new QuickMenuPasteOption(Translate("CopyImageOnly"), "\uE8C8", () => PasteImage(item.Id, ImagePasteMode.Png, sendPaste: false)),
-            CreatePinPasteOption(item.Id)
-        ];
+            new QuickMenuPasteOption(Translate("CopyImageOnly"), "\uE8C8", () => PasteImage(item.Id, ImagePasteMode.Png, sendPaste: false))
+        };
+
+        options.AddRange(CreateTextPasteOptions(plainText));
+        options.Add(CreatePinPasteOption(item.Id));
+        return options;
     }
 
     private string CreateTempImageFile(ClipboardSnapshot item)

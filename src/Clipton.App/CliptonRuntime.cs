@@ -485,15 +485,15 @@ public sealed class CliptonRuntime : IDisposable
     private QuickMenuItem CreateHistoryMenuItem(ClipboardSnapshot item)
     {
         var display = CreateHistoryItemViewModel(item);
-        var header = item.Formats.Contains(ClipboardFormatKind.Image) ? Translate("Image") : display.Preview;
+        var plainText = ClipboardBridge.GetPlainText(item);
         return new QuickMenuItem(
-            header,
+            display.Preview,
             display.FormatSummary,
             GetKindLabel(item),
-            !string.IsNullOrEmpty(item.Text) ? "Enter / T" : "Enter",
+            !string.IsNullOrEmpty(plainText) ? "Enter / T" : "Enter",
             Brushes.SteelBlue,
             () => PasteHistoryItem(item.Id, asPlainText: false),
-            !string.IsNullOrEmpty(item.Text) ? () => PasteHistoryItem(item.Id, asPlainText: true) : null,
+            !string.IsNullOrEmpty(plainText) ? () => PasteHistoryItem(item.Id, asPlainText: true) : null,
             PreviewImage: CreatePreviewImage(item));
     }
 
