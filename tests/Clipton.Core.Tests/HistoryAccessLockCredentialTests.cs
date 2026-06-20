@@ -32,6 +32,16 @@ public sealed class HistoryAccessLockCredentialTests
     }
 
     [Fact]
+    public void Create_UsesDifferentSaltAndHashForSamePin()
+    {
+        var first = HistoryAccessLockCredential.Create("2468");
+        var second = HistoryAccessLockCredential.Create("2468");
+
+        Assert.NotEqual(first.Salt, second.Salt);
+        Assert.NotEqual(first.Hash, second.Hash);
+    }
+
+    [Fact]
     public void Verify_ReturnsFalseForMalformedCredential()
     {
         Assert.False(HistoryAccessLockCredential.Verify("1234", "bad", "bad"));
