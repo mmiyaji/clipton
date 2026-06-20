@@ -49,6 +49,17 @@ public sealed class LocalizationCatalogTests
     }
 
     [Fact]
+    public void Translate_ExportConfirmationWarnsAboutUnencryptedFiles()
+    {
+        var catalog = new LocalizationCatalog();
+
+        Assert.Contains("does not encrypt", catalog.Translate("en", "ConfirmExportHistoryMessage"));
+        Assert.Contains("clipboard text", catalog.Translate("en", "ConfirmExportHistoryMessage"));
+        Assert.Contains("does not encrypt", catalog.Translate("en", "ConfirmExportSnippetsMessage"));
+        Assert.Contains("registered snippet", catalog.Translate("en", "ConfirmExportSnippetsMessage"));
+    }
+
+    [Fact]
     public void Translate_ProvidesQuickEditLabels()
     {
         var catalog = new LocalizationCatalog();

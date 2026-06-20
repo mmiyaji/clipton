@@ -2799,6 +2799,11 @@ public sealed class MainWindow : Window
             return;
         }
 
+        if (!await ConfirmProtectedDataExportAsync("ConfirmExportHistoryMessage"))
+        {
+            return;
+        }
+
         await RunImportExportActionAsync(
             "ExportHistory",
             () => string.Format(_runtime.Translate("ExportComplete"), _runtime.ExportHistory(path)));
@@ -2859,9 +2864,93 @@ public sealed class MainWindow : Window
             return;
         }
 
+        if (!await ConfirmProtectedDataExportAsync("ConfirmExportSnippetsMessage"))
+        {
+            return;
+        }
+
         await RunImportExportActionAsync(
             "ExportSnippets",
             () => string.Format(_runtime.Translate("ExportComplete"), _runtime.ExportSnippets(path)));
+    }
+
+    private async Task<bool> ConfirmProtectedDataExportAsync(string messageKey)
+    {
+        if (_root.XamlRoot is null)
+        {
+            return false;
+        }
+
+        var title = _runtime.Translate("ConfirmExportProtectedDataTitle");
+        var message = _runtime.Translate(messageKey);
+        if (!_runtime.IsHistoryAccessLockEnabled)
+        {
+            return await ConfirmDialogAsync(
+                title,
+                message,
+                _runtime.Translate("Export"),
+                _runtime.Translate("Cancel"));
+        }
+
+        var pinBox = new PasswordBox
+        {
+            MaxLength = HistoryAccessLockCredential.MaxPinLength,
+            PlaceholderText = _runtime.Translate("HistoryAccessPinPlaceholder")
+        };
+        var errorText = Description();
+        errorText.Foreground = new SolidColorBrush(Colors.IndianRed);
+        errorText.TextWrapping = TextWrapping.Wrap;
+        var content = new StackPanel
+        {
+            Spacing = 10,
+            MaxWidth = 420,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = message,
+                    TextWrapping = TextWrapping.Wrap
+                },
+                new TextBlock
+                {
+                    Text = _runtime.Translate("ConfirmExportProtectedDataPinDescription"),
+                    TextWrapping = TextWrapping.Wrap,
+                    Foreground = DescriptionBrush()
+                },
+                pinBox,
+                errorText
+            }
+        };
+
+        var confirmed = false;
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = content,
+            PrimaryButtonText = _runtime.Translate("Export"),
+            CloseButtonText = _runtime.Translate("Cancel"),
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = _root.XamlRoot,
+            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+        };
+        dialog.PrimaryButtonClick += (_, args) =>
+        {
+            if (!_runtime.UnlockHistoryAccess(pinBox.Password.Trim()))
+            {
+                errorText.Text = _runtime.Translate("HistoryAccessPinInvalid");
+                pinBox.Password = string.Empty;
+                pinBox.Focus(FocusState.Programmatic);
+                args.Cancel = true;
+                return;
+            }
+
+            confirmed = true;
+        };
+
+        pinBox.Loaded += (_, _) => pinBox.Focus(FocusState.Programmatic);
+        await ShowContentDialogAsync(dialog);
+        UpdateHistoryAccessLockUi();
+        return confirmed;
     }
 
     private async Task ImportSnippetsAsync()
