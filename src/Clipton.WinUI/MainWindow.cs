@@ -48,6 +48,7 @@ public sealed class MainWindow : Window
     private readonly StackPanel _generalPage = SettingsPage();
     private readonly StackPanel _historyPage = SettingsPage();
     private readonly StackPanel _historySettingsPage = SettingsPage();
+    private readonly StackPanel _advancedPage = SettingsPage();
     private readonly StackPanel _snippetPage = SettingsPage();
     private readonly StackPanel _donationPage = SettingsPage();
     private readonly StackPanel _aboutPage = SettingsPage();
@@ -74,6 +75,8 @@ public sealed class MainWindow : Window
     private readonly TextBlock _historyDescriptionText = Description();
     private readonly TextBlock _historySettingsHeaderText = Header();
     private readonly TextBlock _historySettingsDescriptionText = Description();
+    private readonly TextBlock _advancedHeaderText = Header();
+    private readonly TextBlock _advancedDescriptionText = Description();
     private readonly TextBlock _snippetHeaderText = Header();
     private readonly TextBlock _snippetDescriptionText = Description();
     private readonly TextBlock _snippetFormTitle = Header(18);
@@ -199,6 +202,7 @@ public sealed class MainWindow : Window
             _generalDescriptionText,
             _historyDescriptionText,
             _historySettingsDescriptionText,
+            _advancedDescriptionText,
             _snippetDescriptionText,
             _donationDescriptionText,
             _aboutDescriptionText,
@@ -402,6 +406,8 @@ public sealed class MainWindow : Window
         _historyDescriptionText.Text = t("HistoryDescription");
         _historySettingsHeaderText.Text = t("HistorySettings");
         _historySettingsDescriptionText.Text = t("HistorySettingsDescription");
+        _advancedHeaderText.Text = t("Advanced");
+        _advancedDescriptionText.Text = t("AdvancedDescription");
         _snippetHeaderText.Text = t("Snippets");
         _snippetDescriptionText.Text = t("SnippetDescription");
         _snippetFormTitle.Text = t("SnippetEditor");
@@ -544,7 +550,7 @@ public sealed class MainWindow : Window
         _hotkeyText.Margin = new Thickness(8, 0, 8, 4);
         _navigationPaneFooter.Children.Add(_brandHeader);
         _navigationView.PaneFooter = _navigationPaneFooter;
-        foreach (var index in Enumerable.Range(0, 6))
+        foreach (var index in Enumerable.Range(0, 7))
         {
             var item = CreateNavItem(index);
             _navItems.Add(item);
@@ -564,6 +570,7 @@ public sealed class MainWindow : Window
         contentHost.Children.Add(_generalPage);
         contentHost.Children.Add(_historyPage);
         contentHost.Children.Add(_historySettingsPage);
+        contentHost.Children.Add(_advancedPage);
         contentHost.Children.Add(_snippetPage);
         contentHost.Children.Add(_donationPage);
         contentHost.Children.Add(_aboutPage);
@@ -573,6 +580,7 @@ public sealed class MainWindow : Window
         BuildGeneralPage();
         BuildHistoryPage();
         BuildHistorySettingsPage();
+        BuildAdvancedPage();
         BuildSnippetPage();
         BuildDonationPage();
         BuildAboutPage();
@@ -677,11 +685,15 @@ public sealed class MainWindow : Window
         _quickMenuShowShortcutHintsToggle.Toggled += (_, _) => SaveQuickMenuDisplayOptions();
         _generalPage.Children.Add(SettingCard("\uE765", "QuickMenuShowShortcutHints", "QuickMenuShowShortcutHintsDescription", _quickMenuShowShortcutHintsToggle));
 
-        _generalPage.Children.Add(SectionHeader("QuickMenuPasteOptionsSection"));
-        _generalPage.Children.Add(BuildQuickMenuPasteOptionsPanel());
-
         _generalPage.Children.Add(SectionHeader("QuickMenuShortcutsSection"));
         _generalPage.Children.Add(BuildQuickMenuShortcutsPanel());
+    }
+
+    private void BuildAdvancedPage()
+    {
+        _advancedPage.Children.Add(PageHeader(_advancedHeaderText, _advancedDescriptionText));
+        _advancedPage.Children.Add(SectionHeader("QuickMenuPasteOptionsSection"));
+        _advancedPage.Children.Add(BuildQuickMenuPasteOptionsPanel());
     }
 
     private UIElement BuildQuickMenuPasteOptionsPanel()
@@ -2540,7 +2552,7 @@ public sealed class MainWindow : Window
         if (_selectedHistoryId is null) return;
         var item = _runtime.History.Find(_selectedHistoryId);
         if (string.IsNullOrWhiteSpace(item?.Text)) return;
-        SelectPage(3);
+        SelectPage(4);
         _ = OpenSnippetEditorAsync(null, "History", CreateSnippetName(item.Text), item.Text);
     }
 
@@ -3445,9 +3457,10 @@ public sealed class MainWindow : Window
         _generalPage.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
         _historyPage.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
         _historySettingsPage.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
-        _snippetPage.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed;
-        _donationPage.Visibility = index == 4 ? Visibility.Visible : Visibility.Collapsed;
-        _aboutPage.Visibility = index == 5 ? Visibility.Visible : Visibility.Collapsed;
+        _advancedPage.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed;
+        _snippetPage.Visibility = index == 4 ? Visibility.Visible : Visibility.Collapsed;
+        _donationPage.Visibility = index == 5 ? Visibility.Visible : Visibility.Collapsed;
+        _aboutPage.Visibility = index == 6 ? Visibility.Visible : Visibility.Collapsed;
 
         if (index >= 0 && index < _navItems.Count && !ReferenceEquals(_navigationView.SelectedItem, _navItems[index]))
         {
@@ -3488,9 +3501,10 @@ public sealed class MainWindow : Window
         SetNavItemContent(0, "\uE80F", "General");
         SetNavItemContent(1, "\uE81C", "History");
         SetNavItemContent(2, "\uE713", "HistorySettings");
-        SetNavItemContent(3, "\uE8C8", "Snippets");
-        SetNavItemContent(4, "\uE8D7", "Donation");
-        SetNavItemContent(5, "\uE946", "About");
+        SetNavItemContent(3, "\uE9D9", "Advanced");
+        SetNavItemContent(4, "\uE8C8", "Snippets");
+        SetNavItemContent(5, "\uE8D7", "Donation");
+        SetNavItemContent(6, "\uE946", "About");
     }
 
     private NavigationViewItem CreateNavItem(int index)
@@ -3639,7 +3653,7 @@ public sealed class MainWindow : Window
     private void UpdateSettingsPageWidth(double availableWidth)
     {
         var width = Math.Min(SettingsPageMaxWidth, availableWidth);
-        foreach (var page in new[] { _generalPage, _historyPage, _historySettingsPage, _snippetPage, _donationPage, _aboutPage })
+        foreach (var page in new[] { _generalPage, _historyPage, _historySettingsPage, _advancedPage, _snippetPage, _donationPage, _aboutPage })
         {
             page.Width = width;
         }
