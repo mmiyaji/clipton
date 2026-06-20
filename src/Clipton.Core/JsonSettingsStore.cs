@@ -69,6 +69,7 @@ public sealed class JsonSettingsStore
         settings.QuickMenuDisplayMode = NormalizeQuickMenuDisplayMode(settings.QuickMenuDisplayMode);
         settings.QuickMenuImagePreviewSize = NormalizeQuickMenuImagePreviewSize(settings.QuickMenuImagePreviewSize);
         settings.QuickMenuTopLevelHistoryItems = QuickMenuHistoryBuckets.NormalizeTopLevelHistoryItems(settings.QuickMenuTopLevelHistoryItems);
+        NormalizeHistoryAccessLock(settings);
         NormalizeMaskRuleSettings(settings, maskRuleDefinitionsConfigured);
         NormalizeQuickMenuShortcuts(settings);
         NormalizeQuickMenuPasteOptions(settings);
@@ -81,6 +82,7 @@ public sealed class JsonSettingsStore
     public void Save(CliptonSettings settings)
     {
         settings.QuickMenuDisplayMode = NormalizeQuickMenuDisplayMode(settings.QuickMenuDisplayMode);
+        NormalizeHistoryAccessLock(settings);
         NormalizeMaskRuleSettings(settings, preferConfiguredDefinitions: true);
         NormalizeQuickMenuPasteOptions(settings);
         var directory = Path.GetDirectoryName(_path);
@@ -157,6 +159,17 @@ public sealed class JsonSettingsStore
         return value is 0 or 50 or 100 or 150 or 250 or 500 or 1000
             ? value
             : 150;
+    }
+
+    private static void NormalizeHistoryAccessLock(CliptonSettings settings)
+    {
+        settings.HistoryAccessLockPinSalt = settings.HistoryAccessLockPinSalt?.Trim() ?? string.Empty;
+        settings.HistoryAccessLockPinHash = settings.HistoryAccessLockPinHash?.Trim() ?? string.Empty;
+        settings.HistoryAccessLockTimeoutMinutes = HistoryAccessLockCredential.NormalizeTimeoutMinutes(settings.HistoryAccessLockTimeoutMinutes);
+        if (!HistoryAccessLockCredential.HasCredential(settings.HistoryAccessLockPinSalt, settings.HistoryAccessLockPinHash))
+        {
+            settings.HistoryAccessLockEnabled = false;
+        }
     }
 
     private static void NormalizeQuickMenuShortcuts(CliptonSettings settings)

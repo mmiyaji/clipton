@@ -28,6 +28,14 @@ public sealed class CliptonSettings
 
     public bool HistoryPersistenceConfigured { get; set; }
 
+    public bool HistoryAccessLockEnabled { get; set; }
+
+    public string HistoryAccessLockPinSalt { get; set; } = string.Empty;
+
+    public string HistoryAccessLockPinHash { get; set; } = string.Empty;
+
+    public int HistoryAccessLockTimeoutMinutes { get; set; } = 5;
+
     public int ClipboardCaptureDelayMilliseconds { get; set; } = 150;
 
     public bool FolderMode { get; set; } = true;

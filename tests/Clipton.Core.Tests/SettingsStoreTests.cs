@@ -13,6 +13,10 @@ public sealed class SettingsStoreTests
         var loaded = store.Load();
 
         Assert.True(loaded.PersistEncryptedHistory);
+        Assert.False(loaded.HistoryAccessLockEnabled);
+        Assert.Equal(5, loaded.HistoryAccessLockTimeoutMinutes);
+        Assert.Equal(string.Empty, loaded.HistoryAccessLockPinSalt);
+        Assert.Equal(string.Empty, loaded.HistoryAccessLockPinHash);
         Assert.Equal("Shift+Alt+V", loaded.Hotkey);
         Assert.Equal(200, loaded.MaxHistoryItems);
         Assert.Equal("default", loaded.QuickMenuDisplayMode);
@@ -106,10 +110,25 @@ public sealed class SettingsStoreTests
     }
 
     [Fact]
+    public void Load_DisablesHistoryAccessLockWhenCredentialIsMissing()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"HistoryAccessLockEnabled":true,"HistoryAccessLockTimeoutMinutes":999}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.False(loaded.HistoryAccessLockEnabled);
+        Assert.Equal(5, loaded.HistoryAccessLockTimeoutMinutes);
+    }
+
+    [Fact]
     public void SaveAndLoad_RoundTripsSettings()
     {
         var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
         var store = new JsonSettingsStore(path);
+        var credential = HistoryAccessLockCredential.Create("1234");
 
         store.Save(new CliptonSettings
         {
@@ -118,6 +137,10 @@ public sealed class SettingsStoreTests
             DiagnosticLoggingEnabled = true,
             FolderMode = true,
             HistoryPersistenceConfigured = true,
+            HistoryAccessLockEnabled = true,
+            HistoryAccessLockPinSalt = credential.Salt,
+            HistoryAccessLockPinHash = credential.Hash,
+            HistoryAccessLockTimeoutMinutes = 15,
             HideSettingsWindowOnStartup = false,
             InitialLaunchCompleted = true,
             Locale = "ja",
@@ -163,6 +186,10 @@ public sealed class SettingsStoreTests
         Assert.Equal("ja", loaded.Locale);
         Assert.Equal("dark", loaded.Theme);
         Assert.True(loaded.HistoryPersistenceConfigured);
+        Assert.True(loaded.HistoryAccessLockEnabled);
+        Assert.Equal(credential.Salt, loaded.HistoryAccessLockPinSalt);
+        Assert.Equal(credential.Hash, loaded.HistoryAccessLockPinHash);
+        Assert.Equal(15, loaded.HistoryAccessLockTimeoutMinutes);
         Assert.False(loaded.HideSettingsWindowOnStartup);
         Assert.True(loaded.InitialLaunchCompleted);
         Assert.Equal(42, loaded.MaxHistoryItems);

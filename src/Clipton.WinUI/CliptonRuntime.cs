@@ -74,6 +74,7 @@ public sealed class CliptonRuntime : IDisposable
     private bool _clipboardServicesStarted;
     private uint _lastCapturedClipboardSequence;
     private CancellationTokenSource? _clipboardCaptureDelay;
+    private DateTimeOffset? _historyAccessUnlockedUntilUtc;
 
     /// <summary>
     /// Creates the runtime and loads settings, snippets and the initial resident history.
@@ -161,6 +162,13 @@ public sealed class CliptonRuntime : IDisposable
     /// <summary>True once shutdown has started.</summary>
     public bool IsExiting { get; private set; }
 
+    public bool IsHistoryAccessLockConfigured =>
+        HistoryAccessLockCredential.HasCredential(Settings.HistoryAccessLockPinSalt, Settings.HistoryAccessLockPinHash);
+
+    public bool IsHistoryAccessLockEnabled => Settings.HistoryAccessLockEnabled && IsHistoryAccessLockConfigured;
+
+    public bool RequiresHistoryAccessUnlock => IsHistoryAccessLockEnabled && !IsHistoryAccessUnlocked();
+
     /// <summary>
     /// Starts tray, lifetime window and clipboard services when onboarding is complete.
     /// </summary>
@@ -212,18 +220,29 @@ public sealed class CliptonRuntime : IDisposable
 
     public void ShowMainWindow()
     {
+        var mainWindow = EnsureMainWindow();
+        mainWindow.RefreshTexts();
+        AppProfiler.Mark("Main window text refreshed.");
+        mainWindow.RefreshItems();
+        AppProfiler.Mark("Main window items refreshed.");
+        if (RequiresHistoryAccessUnlock)
+        {
+            mainWindow.HideHistoryPageForLock();
+        }
+
+        mainWindow.ShowSettingsWindow();
+        AppProfiler.Mark("Settings window shown.");
+    }
+
+    private MainWindow EnsureMainWindow()
+    {
         if (_mainWindow is null)
         {
             _mainWindow = new MainWindow(this);
             AppProfiler.Mark("Main window constructed.");
         }
 
-        _mainWindow.RefreshTexts();
-        AppProfiler.Mark("Main window text refreshed.");
-        _mainWindow.RefreshItems();
-        AppProfiler.Mark("Main window items refreshed.");
-        _mainWindow.ShowSettingsWindow();
-        AppProfiler.Mark("Settings window shown.");
+        return _mainWindow;
     }
 
     public void CompleteOnboarding()
@@ -401,6 +420,85 @@ public sealed class CliptonRuntime : IDisposable
     {
         Settings.HideSettingsWindowOnStartup = enabled;
         SaveSettings();
+    }
+
+    public void ConfigureHistoryAccessLock(string pin, int timeoutMinutes)
+    {
+        var credential = HistoryAccessLockCredential.Create(pin);
+        Settings.HistoryAccessLockPinSalt = credential.Salt;
+        Settings.HistoryAccessLockPinHash = credential.Hash;
+        Settings.HistoryAccessLockTimeoutMinutes = HistoryAccessLockCredential.NormalizeTimeoutMinutes(timeoutMinutes);
+        Settings.HistoryAccessLockEnabled = true;
+        SaveSettings();
+        MarkHistoryAccessUnlocked();
+    }
+
+    public void SetHistoryAccessLockEnabled(bool enabled)
+    {
+        Settings.HistoryAccessLockEnabled = enabled && IsHistoryAccessLockConfigured;
+        SaveSettings();
+        if (Settings.HistoryAccessLockEnabled)
+        {
+            LockHistoryAccess();
+        }
+        else
+        {
+            _historyAccessUnlockedUntilUtc = null;
+        }
+    }
+
+    public void SetHistoryAccessLockTimeoutMinutes(int minutes)
+    {
+        Settings.HistoryAccessLockTimeoutMinutes = HistoryAccessLockCredential.NormalizeTimeoutMinutes(minutes);
+        SaveSettings();
+        if (IsHistoryAccessUnlocked())
+        {
+            MarkHistoryAccessUnlocked();
+        }
+    }
+
+    public bool UnlockHistoryAccess(string pin)
+    {
+        if (!HistoryAccessLockCredential.Verify(pin, Settings.HistoryAccessLockPinSalt, Settings.HistoryAccessLockPinHash))
+        {
+            return false;
+        }
+
+        MarkHistoryAccessUnlocked();
+        return true;
+    }
+
+    public void LockHistoryAccess()
+    {
+        _historyAccessUnlockedUntilUtc = null;
+        if (_mainWindow is { } window)
+        {
+            window.HideHistoryPageForLock();
+        }
+
+        _defaultQuickMenu?.Dismiss();
+        _richQuickMenu?.Dismiss();
+    }
+
+    public void RefreshHistoryAccessUnlockWindow()
+    {
+        if (IsHistoryAccessUnlocked())
+        {
+            MarkHistoryAccessUnlocked();
+        }
+    }
+
+    private bool IsHistoryAccessUnlocked()
+    {
+        return _historyAccessUnlockedUntilUtc is { } until && until > DateTimeOffset.UtcNow;
+    }
+
+    private void MarkHistoryAccessUnlocked()
+    {
+        var timeoutMinutes = HistoryAccessLockCredential.NormalizeTimeoutMinutes(Settings.HistoryAccessLockTimeoutMinutes);
+        _historyAccessUnlockedUntilUtc = timeoutMinutes <= 0
+            ? DateTimeOffset.UtcNow.AddSeconds(10)
+            : DateTimeOffset.UtcNow.AddMinutes(timeoutMinutes);
     }
 
     public void SetPauseCapture(bool paused)
@@ -881,10 +979,45 @@ public sealed class CliptonRuntime : IDisposable
         AppDiagnostics.Info("Runtime", "Clipboard services started.");
     }
 
-    public void ShowHistoryWindow()
+    public async void ShowHistoryWindow()
     {
+        if (!await EnsureHistoryAccessUnlockedAsync(keepUnlockWindowVisible: true))
+        {
+            return;
+        }
+
         ShowMainWindow();
-        _mainWindow?.ShowHistoryPage();
+        if (_mainWindow is not null)
+        {
+            await _mainWindow.ShowHistoryPageAsync();
+        }
+    }
+
+    private async Task<bool> EnsureHistoryAccessUnlockedAsync(bool keepUnlockWindowVisible)
+    {
+        if (!IsHistoryAccessLockEnabled)
+        {
+            return true;
+        }
+
+        if (!RequiresHistoryAccessUnlock)
+        {
+            RefreshHistoryAccessUnlockWindow();
+            return true;
+        }
+
+        var shouldHideAfterUnlock = !keepUnlockWindowVisible
+            && (_mainWindow is null || _mainWindow.IsHiddenToTray);
+        var mainWindow = EnsureMainWindow();
+        mainWindow.RefreshTexts();
+        mainWindow.RefreshItems();
+        var unlocked = await mainWindow.RequestHistoryAccessUnlockAsync(showWindow: true);
+        if (unlocked && shouldHideAfterUnlock)
+        {
+            mainWindow.HideSettingsWindowToTray();
+        }
+
+        return unlocked;
     }
 
     private void CaptureClipboardOnUiThread(IntPtr sourceWindow)
@@ -926,12 +1059,15 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         _pasteTargetWindow = pasteTargetWindow;
-        if (!_dispatcherQueue.TryEnqueue(() =>
+        if (!_dispatcherQueue.TryEnqueue(async () =>
         {
             try
             {
                 Volatile.Write(ref _lastQuickMenuRequestTick, Environment.TickCount64);
-                ShowQuickMenu();
+                if (await EnsureHistoryAccessUnlockedAsync(keepUnlockWindowVisible: false))
+                {
+                    ShowQuickMenu();
+                }
             }
             finally
             {
@@ -1171,7 +1307,13 @@ public sealed class CliptonRuntime : IDisposable
             Translate("History"),
             Translate("Settings"),
             Translate("Exit"),
-            () => _dispatcherQueue.TryEnqueue(ShowQuickMenu),
+            () => _dispatcherQueue.TryEnqueue(async () =>
+            {
+                if (await EnsureHistoryAccessUnlockedAsync(keepUnlockWindowVisible: false))
+                {
+                    ShowQuickMenu();
+                }
+            }),
             () => _dispatcherQueue.TryEnqueue(ShowMainWindow),
             () => _dispatcherQueue.TryEnqueue(ExitApplication));
         RefreshTrayText();

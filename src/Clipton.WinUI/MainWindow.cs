@@ -104,6 +104,11 @@ public sealed class MainWindow : Window
     private readonly ToggleSwitch _pauseCaptureToggle = CompactToggle();
     private readonly ToggleSwitch _diagnosticLoggingToggle = CompactToggle();
     private readonly ToggleSwitch _persistHistoryToggle = CompactToggle();
+    private readonly ToggleSwitch _historyAccessLockToggle = CompactToggle();
+    private readonly ComboBox _historyAccessLockTimeoutBox = new();
+    private readonly Button _historyAccessLockPinButton = new();
+    private readonly Button _historyAccessLockNowButton = new();
+    private readonly TextBlock _historyAccessLockStatusText = Description();
     private readonly ToggleSwitch _maskSensitiveContentToggle = CompactToggle();
     private readonly Button _maskDefinitionsButton = new();
     private readonly StackPanel _maskDefinitionsPanel = new() { Spacing = 12 };
@@ -210,6 +215,7 @@ public sealed class MainWindow : Window
             _historyEmptyText,
             _selectedSnippetText,
             _dataDirectoryText,
+            _historyAccessLockStatusText,
             _maskDefinitionsErrorText,
             _maskTestResultText);
         Title = "Clipton";
@@ -232,10 +238,62 @@ public sealed class MainWindow : Window
         Activate();
     }
 
-    public void ShowHistoryPage()
+    public bool IsHiddenToTray => _hiddenToTray;
+
+    public void HideSettingsWindowToTray()
     {
+        _appWindow?.Hide();
+        _hiddenToTray = true;
+    }
+
+    public async Task ShowHistoryPageAsync()
+    {
+        if (!await EnsureHistoryAccessUnlockedAsync(showWindow: true))
+        {
+            return;
+        }
+
         SelectPage(1);
         ShowSettingsWindow();
+    }
+
+    public async Task<bool> RequestHistoryAccessUnlockAsync(bool showWindow)
+    {
+        return await EnsureHistoryAccessUnlockedAsync(showWindow);
+    }
+
+    public void HideHistoryPageForLock()
+    {
+        if (_selectedPageIndex == 1)
+        {
+            SelectPage(0);
+        }
+    }
+
+    private async Task<bool> EnsureHistoryAccessUnlockedAsync(bool showWindow)
+    {
+        if (!_runtime.IsHistoryAccessLockEnabled)
+        {
+            return true;
+        }
+
+        if (!_runtime.RequiresHistoryAccessUnlock)
+        {
+            _runtime.RefreshHistoryAccessUnlockWindow();
+            return true;
+        }
+
+        if (_selectedPageIndex == 1)
+        {
+            SelectPage(0);
+        }
+
+        if (showWindow)
+        {
+            ShowSettingsWindow();
+        }
+
+        return await PromptForHistoryAccessUnlockAsync();
     }
 
     public void ShowOnboardingIfNeeded()
@@ -481,17 +539,27 @@ public sealed class MainWindow : Window
         SetComboBoxText(_clipboardCaptureDelayBox, "250", string.Format(t("Milliseconds"), 250));
         SetComboBoxText(_clipboardCaptureDelayBox, "500", string.Format(t("Milliseconds"), 500));
         SetComboBoxText(_clipboardCaptureDelayBox, "1000", string.Format(t("Milliseconds"), 1000));
+        SetComboBoxText(_historyAccessLockTimeoutBox, "0", t("HistoryAccessLockTimeoutEveryTime"));
+        SetComboBoxText(_historyAccessLockTimeoutBox, "1", string.Format(t("Minutes"), 1));
+        SetComboBoxText(_historyAccessLockTimeoutBox, "5", string.Format(t("Minutes"), 5));
+        SetComboBoxText(_historyAccessLockTimeoutBox, "15", string.Format(t("Minutes"), 15));
+        SetComboBoxText(_historyAccessLockTimeoutBox, "30", string.Format(t("Minutes"), 30));
+        SetComboBoxText(_historyAccessLockTimeoutBox, "60", string.Format(t("Minutes"), 60));
+        SetCommandButton(_historyAccessLockPinButton, "\uE72E", _runtime.IsHistoryAccessLockConfigured ? t("ChangePin") : t("SetPin"));
+        SetCommandButton(_historyAccessLockNowButton, "\uE785", t("LockNow"));
         _startupToggle.IsOn = _runtime.Settings.StartWithWindows;
         _hideSettingsWindowOnStartupToggle.IsOn = _runtime.Settings.HideSettingsWindowOnStartup;
         _pauseCaptureToggle.IsOn = _runtime.Settings.PauseCapture;
         _diagnosticLoggingToggle.IsOn = _runtime.Settings.DiagnosticLoggingEnabled;
         _persistHistoryToggle.IsOn = _runtime.Settings.PersistEncryptedHistory;
+        _historyAccessLockToggle.IsOn = _runtime.Settings.HistoryAccessLockEnabled && _runtime.IsHistoryAccessLockConfigured;
         _maskSensitiveContentToggle.IsOn = _runtime.Settings.MaskSensitiveContent;
         ApplyMaskRuleDefinitionsToUi();
         _maskCustomPatternToggle.IsOn = _runtime.Settings.MaskRules.CustomPattern;
         EnsureHistoryLimitComboItem(_runtime.Settings.MaxHistoryItems);
         SetComboSelection(_maxHistoryItemsBox, _runtime.Settings.MaxHistoryItems.ToString(), refreshSelectionBox: true);
         SetComboSelection(_clipboardCaptureDelayBox, _runtime.Settings.ClipboardCaptureDelayMilliseconds.ToString(), refreshSelectionBox: true);
+        SetComboSelection(_historyAccessLockTimeoutBox, _runtime.Settings.HistoryAccessLockTimeoutMinutes.ToString(), refreshSelectionBox: true);
         SetComboSelection(_quickMenuTopLevelHistoryItemsBox, _runtime.Settings.QuickMenuTopLevelHistoryItems.ToString(), refreshSelectionBox: true);
         _quickMenuShowCapturedAtToggle.IsOn = _runtime.Settings.QuickMenuShowCapturedAt;
         _quickMenuShowShortcutHintsToggle.IsOn = _runtime.Settings.QuickMenuShowShortcutHints;
@@ -509,6 +577,7 @@ public sealed class MainWindow : Window
         SetComboSelection(_quickMenuMaskShortcutBox, _runtime.Settings.QuickMenuShortcuts.ToggleMaskReveal, refreshSelectionBox: true);
         SetComboSelection(_quickMenuCapturedAtShortcutBox, _runtime.Settings.QuickMenuShortcuts.ToggleCapturedAt, refreshSelectionBox: true);
         RefreshQuickMenuPasteOptionChecks();
+        UpdateHistoryAccessLockUi();
         UpdateSelectedSnippetText();
         UpdateHistorySearchStatus();
         UpdateMaskTestPreview();
@@ -527,14 +596,14 @@ public sealed class MainWindow : Window
         _navigationView.CompactPaneLength = SidebarCollapsedWidth;
         _navigationView.IsPaneOpen = true;
         _navigationView.PaneTitle = string.Empty;
-        _navigationView.SelectionChanged += (_, args) =>
+        _navigationView.SelectionChanged += async (_, args) =>
         {
             if (_updatingNavSelection || args.SelectedItem is not NavigationViewItem item || item.Tag is not int index)
             {
                 return;
             }
 
-            SelectPage(index);
+            await SelectPageAsync(index);
         };
         _navigationView.PaneOpened += (_, _) =>
         {
@@ -962,6 +1031,7 @@ public sealed class MainWindow : Window
         diagnosticControls.Children.Add(ToggleActionHost(_diagnosticLoggingToggle));
         _historySettingsPage.Children.Add(SettingCard("\uE946", "DiagnosticLogging", "DiagnosticLoggingDescription", diagnosticControls));
         _historySettingsPage.Children.Add(SettingCard("\uE72E", "PersistHistory", "PersistHistoryDescription", _persistHistoryToggle));
+        _historySettingsPage.Children.Add(BuildHistoryAccessLockCard());
         _maxHistoryItemsBox.Width = 180;
         foreach (var count in new[] { 50, 100, 200, 500, 1000 })
         {
@@ -984,6 +1054,42 @@ public sealed class MainWindow : Window
         _maskDefinitionsButton.Click += (_, _) => ToggleMaskDefinitionsPanel();
         _historySettingsPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", maskControls));
         _historySettingsPage.Children.Add(BuildMaskDefinitionsPanel());
+    }
+
+    private UIElement BuildHistoryAccessLockCard()
+    {
+        _historyAccessLockTimeoutBox.Width = 180;
+        foreach (var minutes in HistoryAccessLockCredential.AllowedTimeoutMinutes)
+        {
+            _historyAccessLockTimeoutBox.Items.Add(new ComboBoxItem { Tag = minutes.ToString() });
+        }
+
+        _historyAccessLockToggle.Toggled += async (_, _) => await ChangeHistoryAccessLockEnabledAsync();
+        _historyAccessLockTimeoutBox.SelectionChanged += (_, _) => ChangeHistoryAccessLockTimeout();
+        _historyAccessLockPinButton.Click += async (_, _) => await ChangeHistoryAccessPinAsync();
+        _historyAccessLockNowButton.Click += (_, _) =>
+        {
+            _runtime.LockHistoryAccess();
+            UpdateHistoryAccessLockUi();
+        };
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
+        buttons.Children.Add(_historyAccessLockPinButton);
+        buttons.Children.Add(_historyAccessLockNowButton);
+        buttons.Children.Add(ToggleActionHost(_historyAccessLockToggle));
+
+        var controls = new StackPanel
+        {
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+        _historyAccessLockStatusText.TextAlignment = TextAlignment.Right;
+        _historyAccessLockStatusText.TextWrapping = TextWrapping.Wrap;
+        _historyAccessLockStatusText.MaxWidth = 420;
+        controls.Children.Add(_historyAccessLockStatusText);
+        controls.Children.Add(_historyAccessLockTimeoutBox);
+        controls.Children.Add(buttons);
+        return SettingCard("\uE72E", "HistoryAccessLock", "HistoryAccessLockDescription", controls);
     }
 
     private UIElement BuildDataDirectoryCard()
@@ -2258,6 +2364,113 @@ public sealed class MainWindow : Window
         }
     }
 
+    private async Task ChangeHistoryAccessLockEnabledAsync()
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        var requested = _historyAccessLockToggle.IsOn;
+        if (requested)
+        {
+            if (!_runtime.IsHistoryAccessLockConfigured)
+            {
+                var pin = await PromptForNewHistoryAccessPinAsync();
+                if (pin is null)
+                {
+                    ResetHistoryAccessLockControls();
+                    return;
+                }
+
+                _runtime.ConfigureHistoryAccessLock(pin, GetSelectedHistoryAccessLockTimeout());
+            }
+            else
+            {
+                _runtime.SetHistoryAccessLockEnabled(true);
+            }
+        }
+        else
+        {
+            if (_runtime.IsHistoryAccessLockEnabled && !await PromptForHistoryAccessPinAsync(_runtime.Translate("DisableHistoryAccessLock")))
+            {
+                ResetHistoryAccessLockControls();
+                return;
+            }
+
+            _runtime.SetHistoryAccessLockEnabled(false);
+        }
+
+        UpdateHistoryAccessLockUi();
+    }
+
+    private async Task ChangeHistoryAccessPinAsync()
+    {
+        if (_runtime.IsHistoryAccessLockConfigured
+            && !await PromptForHistoryAccessPinAsync(_runtime.Translate("ChangePin")))
+        {
+            return;
+        }
+
+        var pin = await PromptForNewHistoryAccessPinAsync();
+        if (pin is null)
+        {
+            return;
+        }
+
+        _runtime.ConfigureHistoryAccessLock(pin, GetSelectedHistoryAccessLockTimeout());
+        ResetHistoryAccessLockControls();
+    }
+
+    private void ChangeHistoryAccessLockTimeout()
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        _runtime.SetHistoryAccessLockTimeoutMinutes(GetSelectedHistoryAccessLockTimeout());
+        UpdateHistoryAccessLockUi();
+    }
+
+    private int GetSelectedHistoryAccessLockTimeout()
+    {
+        return _historyAccessLockTimeoutBox.SelectedItem is ComboBoxItem { Tag: string tag } && int.TryParse(tag, out var parsed)
+            ? HistoryAccessLockCredential.NormalizeTimeoutMinutes(parsed)
+            : _runtime.Settings.HistoryAccessLockTimeoutMinutes;
+    }
+
+    private void ResetHistoryAccessLockControls()
+    {
+        _loading = true;
+        try
+        {
+            _historyAccessLockToggle.IsOn = _runtime.Settings.HistoryAccessLockEnabled && _runtime.IsHistoryAccessLockConfigured;
+            SetComboSelection(_historyAccessLockTimeoutBox, _runtime.Settings.HistoryAccessLockTimeoutMinutes.ToString(), refreshSelectionBox: true);
+        }
+        finally
+        {
+            _loading = false;
+        }
+
+        UpdateHistoryAccessLockUi();
+    }
+
+    private void UpdateHistoryAccessLockUi()
+    {
+        var configured = _runtime.IsHistoryAccessLockConfigured;
+        var enabled = _runtime.IsHistoryAccessLockEnabled;
+        SetCommandButton(_historyAccessLockPinButton, "\uE72E", configured ? _runtime.Translate("ChangePin") : _runtime.Translate("SetPin"));
+        SetCommandButton(_historyAccessLockNowButton, "\uE785", _runtime.Translate("LockNow"));
+        _historyAccessLockTimeoutBox.IsEnabled = configured;
+        _historyAccessLockNowButton.IsEnabled = enabled;
+        _historyAccessLockStatusText.Text = !configured
+            ? _runtime.Translate("HistoryAccessLockStatusNotConfigured")
+            : enabled
+                ? _runtime.Translate("HistoryAccessLockStatusEnabled")
+                : _runtime.Translate("HistoryAccessLockStatusDisabled");
+    }
+
     private void ChangeQuickMenuTopLevelHistoryItems()
     {
         if (_loading || _quickMenuTopLevelHistoryItemsBox.SelectedItem is not ComboBoxItem selected || selected.Tag is not string tag)
@@ -2766,6 +2979,152 @@ public sealed class MainWindow : Window
             RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
         };
         await ShowContentDialogAsync(dialog);
+    }
+
+    private async Task<bool> PromptForHistoryAccessUnlockAsync()
+    {
+        return await PromptForHistoryAccessPinAsync(_runtime.Translate("UnlockHistoryAccess"));
+    }
+
+    private async Task<bool> PromptForHistoryAccessPinAsync(string title)
+    {
+        if (_root.XamlRoot is null)
+        {
+            return false;
+        }
+
+        var pinBox = new PasswordBox
+        {
+            MaxLength = HistoryAccessLockCredential.MaxPinLength,
+            PlaceholderText = _runtime.Translate("HistoryAccessPinPlaceholder")
+        };
+        var errorText = Description();
+        errorText.Foreground = new SolidColorBrush(Colors.IndianRed);
+        errorText.TextWrapping = TextWrapping.Wrap;
+        var content = new StackPanel
+        {
+            Spacing = 10,
+            MaxWidth = 360,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = _runtime.Translate("HistoryAccessUnlockDescription"),
+                    TextWrapping = TextWrapping.Wrap
+                },
+                pinBox,
+                errorText
+            }
+        };
+
+        var unlocked = false;
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = content,
+            PrimaryButtonText = _runtime.Translate("Unlock"),
+            CloseButtonText = _runtime.Translate("Cancel"),
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = _root.XamlRoot,
+            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+        };
+        dialog.PrimaryButtonClick += (_, args) =>
+        {
+            if (!_runtime.UnlockHistoryAccess(pinBox.Password.Trim()))
+            {
+                errorText.Text = _runtime.Translate("HistoryAccessPinInvalid");
+                pinBox.Password = string.Empty;
+                pinBox.Focus(FocusState.Programmatic);
+                args.Cancel = true;
+                return;
+            }
+
+            unlocked = true;
+        };
+
+        pinBox.Loaded += (_, _) => pinBox.Focus(FocusState.Programmatic);
+        await ShowContentDialogAsync(dialog);
+        UpdateHistoryAccessLockUi();
+        return unlocked;
+    }
+
+    private async Task<string?> PromptForNewHistoryAccessPinAsync()
+    {
+        if (_root.XamlRoot is null)
+        {
+            return null;
+        }
+
+        var pinBox = new PasswordBox
+        {
+            MaxLength = HistoryAccessLockCredential.MaxPinLength,
+            PlaceholderText = _runtime.Translate("HistoryAccessPinPlaceholder")
+        };
+        var confirmBox = new PasswordBox
+        {
+            MaxLength = HistoryAccessLockCredential.MaxPinLength,
+            PlaceholderText = _runtime.Translate("HistoryAccessPinConfirmPlaceholder")
+        };
+        var errorText = Description();
+        errorText.Foreground = new SolidColorBrush(Colors.IndianRed);
+        errorText.TextWrapping = TextWrapping.Wrap;
+        var content = new StackPanel
+        {
+            Spacing = 10,
+            MaxWidth = 380,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = _runtime.Translate("SetHistoryAccessPinDescription"),
+                    TextWrapping = TextWrapping.Wrap
+                },
+                pinBox,
+                confirmBox,
+                errorText
+            }
+        };
+
+        string? captured = null;
+        var dialog = new ContentDialog
+        {
+            Title = _runtime.Translate("SetPin"),
+            Content = content,
+            PrimaryButtonText = _runtime.Translate("Save"),
+            CloseButtonText = _runtime.Translate("Cancel"),
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = _root.XamlRoot,
+            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+        };
+        dialog.PrimaryButtonClick += (_, args) =>
+        {
+            var pin = pinBox.Password.Trim();
+            var confirm = confirmBox.Password.Trim();
+            if (!HistoryAccessLockCredential.IsValidPin(pin))
+            {
+                errorText.Text = _runtime.Translate("HistoryAccessPinFormatInvalid");
+                pinBox.Password = string.Empty;
+                confirmBox.Password = string.Empty;
+                pinBox.Focus(FocusState.Programmatic);
+                args.Cancel = true;
+                return;
+            }
+
+            if (!string.Equals(pin, confirm, StringComparison.Ordinal))
+            {
+                errorText.Text = _runtime.Translate("HistoryAccessPinMismatch");
+                confirmBox.Password = string.Empty;
+                confirmBox.Focus(FocusState.Programmatic);
+                args.Cancel = true;
+                return;
+            }
+
+            captured = pin;
+        };
+
+        pinBox.Loaded += (_, _) => pinBox.Focus(FocusState.Programmatic);
+        await ShowContentDialogAsync(dialog);
+        return captured;
     }
 
     private async Task ShowOnboardingDialogAsync()
@@ -3451,6 +3810,17 @@ public sealed class MainWindow : Window
         return (InputKeyboardSource.GetKeyStateForCurrentThread(key) & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
     }
 
+    private async Task SelectPageAsync(int index)
+    {
+        if (index == 1 && !await EnsureHistoryAccessUnlockedAsync(showWindow: false))
+        {
+            RestoreNavigationSelection();
+            return;
+        }
+
+        SelectPage(index);
+    }
+
     private void SelectPage(int index)
     {
         _selectedPageIndex = index;
@@ -3466,6 +3836,16 @@ public sealed class MainWindow : Window
         {
             _updatingNavSelection = true;
             _navigationView.SelectedItem = _navItems[index];
+            _updatingNavSelection = false;
+        }
+    }
+
+    private void RestoreNavigationSelection()
+    {
+        if (_selectedPageIndex >= 0 && _selectedPageIndex < _navItems.Count)
+        {
+            _updatingNavSelection = true;
+            _navigationView.SelectedItem = _navItems[_selectedPageIndex];
             _updatingNavSelection = false;
         }
     }
