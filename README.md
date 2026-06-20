@@ -7,7 +7,7 @@ Clipton is a local-first clipboard manager for Windows. It keeps recent clipboar
 ## Features
 
 - WinUI resident app with a system tray icon.
-- Global hotkey menu, default `Ctrl+Alt+V`, with preset fallback shortcuts when the default is unavailable.
+- Global hotkey menu, default `Shift+Alt+V`, with preset fallback shortcuts when the default is unavailable.
 - Clipboard history capture for text, RTF, HTML, images, and file drops.
 - Keyboard-driven quick menu with folder navigation, search, plain-text paste, temporary mask reveal, and timestamp display.
 - Paste history items in their original clipboard format when possible.

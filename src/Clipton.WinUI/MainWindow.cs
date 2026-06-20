@@ -539,12 +539,12 @@ public sealed class MainWindow : Window
         _navigationView.PaneOpened += (_, _) =>
         {
             _sidebarCollapsed = false;
-            _navigationPaneFooter.Visibility = Visibility.Visible;
+            UpdateNavigationPaneFooterVisibility();
         };
         _navigationView.PaneClosed += (_, _) =>
         {
             _sidebarCollapsed = true;
-            _navigationPaneFooter.Visibility = Visibility.Collapsed;
+            UpdateNavigationPaneFooterVisibility();
         };
         _navigationPaneFooter.Children.Add(_hotkeyPill);
         _hotkeyText.Margin = new Thickness(8, 0, 8, 4);
@@ -3477,7 +3477,14 @@ public sealed class MainWindow : Window
             ? NavigationViewPaneDisplayMode.LeftCompact
             : NavigationViewPaneDisplayMode.Left;
         _navigationView.IsPaneOpen = !collapsed;
-        _navigationPaneFooter.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+        UpdateNavigationPaneFooterVisibility();
+    }
+
+    private void UpdateNavigationPaneFooterVisibility()
+    {
+        var hideExpandedFooter = _sidebarCollapsed || !_navigationView.IsPaneOpen;
+        _hotkeyPill.Visibility = hideExpandedFooter ? Visibility.Collapsed : Visibility.Visible;
+        _navigationPaneFooter.Visibility = hideExpandedFooter ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void UpdateSidebarForWindowWidth(double width)

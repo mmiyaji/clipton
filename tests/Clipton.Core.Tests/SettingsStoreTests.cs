@@ -13,7 +13,7 @@ public sealed class SettingsStoreTests
         var loaded = store.Load();
 
         Assert.True(loaded.PersistEncryptedHistory);
-        Assert.Equal("Ctrl+Alt+V", loaded.Hotkey);
+        Assert.Equal("Shift+Alt+V", loaded.Hotkey);
         Assert.Equal(200, loaded.MaxHistoryItems);
         Assert.Equal("default", loaded.QuickMenuDisplayMode);
         Assert.Equal("medium", loaded.QuickMenuImagePreviewSize);

@@ -33,12 +33,13 @@ public enum HotkeyModifiers
 public sealed record HotkeyGesture(HotkeyModifiers Modifiers, string Key)
 {
     /// <summary>Default gesture used on first launch and when parsing fails.</summary>
-    public static HotkeyGesture Default { get; } = new(HotkeyModifiers.Control | HotkeyModifiers.Alt, "V");
+    public static HotkeyGesture Default { get; } = new(HotkeyModifiers.Shift | HotkeyModifiers.Alt, "V");
 
     /// <summary>Fallback registrations attempted when the preferred gesture is unavailable.</summary>
     public static IReadOnlyList<HotkeyGesture> Presets { get; } =
     [
         Default,
+        new(HotkeyModifiers.Control | HotkeyModifiers.Alt, "V"),
         new(HotkeyModifiers.Control | HotkeyModifiers.Alt, "SPACE"),
         new(HotkeyModifiers.Control | HotkeyModifiers.Shift, "V")
     ];

@@ -5,16 +5,16 @@ namespace Clipton.Core.Tests;
 public sealed class HotkeyGestureTests
 {
     [Fact]
-    public void Default_IsCtrlAltV()
+    public void Default_IsShiftAltV()
     {
-        Assert.Equal("Ctrl+Alt+V", HotkeyGesture.Default.ToString());
+        Assert.Equal("Shift+Alt+V", HotkeyGesture.Default.ToString());
     }
 
     [Fact]
     public void Presets_StartWithDefaultAndIncludeFallbacks()
     {
         Assert.Equal(
-            ["Ctrl+Alt+V", "Ctrl+Alt+Space", "Ctrl+Shift+V"],
+            ["Shift+Alt+V", "Ctrl+Alt+V", "Ctrl+Alt+Space", "Ctrl+Shift+V"],
             HotkeyGesture.Presets.Select(preset => preset.ToString()).ToArray());
     }
 
@@ -22,13 +22,14 @@ public sealed class HotkeyGestureTests
     public void GetRegistrationCandidates_PutsPreferredFirstThenPresetFallbacks()
     {
         Assert.Equal(
-            ["Ctrl+Shift+V", "Ctrl+Alt+V", "Ctrl+Alt+Space"],
+            ["Ctrl+Shift+V", "Shift+Alt+V", "Ctrl+Alt+V", "Ctrl+Alt+Space"],
             HotkeyGesture.GetRegistrationCandidates(new HotkeyGesture(HotkeyModifiers.Control | HotkeyModifiers.Shift, "V"))
                 .Select(candidate => candidate.ToString())
                 .ToArray());
     }
 
     [Theory]
+    [InlineData("Shift+Alt+V", HotkeyModifiers.Shift | HotkeyModifiers.Alt, "V")]
     [InlineData("Ctrl+Shift+V", HotkeyModifiers.Control | HotkeyModifiers.Shift, "V")]
     [InlineData("Control + Alt + Space", HotkeyModifiers.Control | HotkeyModifiers.Alt, "SPACE")]
     [InlineData("Win+V", HotkeyModifiers.Windows, "V")]

@@ -5,7 +5,7 @@
 param(
     [string]$ExePath = (Join-Path $PSScriptRoot "..\..\src\Clipton.WinUI\bin\Debug\net8.0-windows10.0.19041.0\Clipton.WinUI.exe"),
     [string]$DataDir = (Join-Path $env:TEMP ("clipton-e2e-data-" + [Guid]::NewGuid().ToString("N"))),
-    [string]$Hotkey = "Ctrl+Alt+V",
+    [string]$Hotkey = "Shift+Alt+V",
     [int]$StartupTimeoutSeconds = 12,
     [int]$ScenarioTimeoutSeconds = 90,
     [switch]$KillExisting
