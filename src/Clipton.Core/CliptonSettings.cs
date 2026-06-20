@@ -46,6 +46,8 @@ public sealed class CliptonSettings
 
     public QuickMenuShortcutSettings QuickMenuShortcuts { get; set; } = new();
 
+    public QuickMenuPasteOptionSettings QuickMenuPasteOptions { get; set; } = new();
+
     public bool MaskSensitiveContent { get; set; } = true;
 
     public int MaskVisiblePrefixLength { get; set; } = 3;
@@ -244,4 +246,78 @@ public sealed class QuickMenuShortcutSettings
     public string ToggleMaskReveal { get; set; } = DefaultToggleMaskReveal;
 
     public string ToggleCapturedAt { get; set; } = DefaultToggleCapturedAt;
+}
+
+/// <summary>
+/// Stable identifiers for quick menu detail paste actions.
+/// </summary>
+public static class QuickMenuPasteOptionIds
+{
+    public const string PasteOriginal = "paste-original";
+    public const string PastePlain = "paste-plain";
+    public const string EditAndPaste = "edit-and-paste";
+    public const string PasteNoLineBreaks = "paste-no-line-breaks";
+    public const string PasteUppercase = "paste-uppercase";
+    public const string PasteLowercase = "paste-lowercase";
+    public const string PasteTrimmed = "paste-trimmed";
+    public const string PasteJsonString = "paste-json-string";
+    public const string PasteExtractUrls = "paste-extract-urls";
+    public const string PasteFormattedJson = "paste-formatted-json";
+    public const string PasteFilePaths = "paste-file-paths";
+    public const string PasteFileNames = "paste-file-names";
+    public const string PasteFileNamesWithoutExtension = "paste-file-names-without-extension";
+    public const string PasteFileDirectories = "paste-file-directories";
+    public const string PasteImageOriginal = "paste-image-original";
+    public const string PasteImagePng = "paste-image-png";
+    public const string PasteImageJpeg = "paste-image-jpeg";
+    public const string PasteImageFile = "paste-image-file";
+    public const string CopyImageOnly = "copy-image-only";
+    public const string TogglePin = "toggle-pin";
+
+    public static readonly string[] All =
+    [
+        PasteOriginal,
+        PastePlain,
+        EditAndPaste,
+        PasteNoLineBreaks,
+        PasteUppercase,
+        PasteLowercase,
+        PasteTrimmed,
+        PasteJsonString,
+        PasteExtractUrls,
+        PasteFormattedJson,
+        PasteFilePaths,
+        PasteFileNames,
+        PasteFileNamesWithoutExtension,
+        PasteFileDirectories,
+        PasteImageOriginal,
+        PasteImagePng,
+        PasteImageJpeg,
+        PasteImageFile,
+        CopyImageOnly,
+        TogglePin
+    ];
+}
+
+/// <summary>
+/// Visibility settings for the quick menu detail paste actions.
+/// </summary>
+public sealed class QuickMenuPasteOptionSettings
+{
+    public string[] DisabledOptionIds { get; set; } = [];
+
+    public bool IsEnabled(string optionId)
+    {
+        return DisabledOptionIds is null || !DisabledOptionIds.Contains(optionId, StringComparer.Ordinal);
+    }
+
+    public static string[] NormalizeDisabledOptionIds(IEnumerable<string>? optionIds)
+    {
+        return (optionIds ?? [])
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id.Trim())
+            .Where(id => QuickMenuPasteOptionIds.All.Contains(id, StringComparer.Ordinal))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
 }

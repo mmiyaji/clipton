@@ -137,6 +137,14 @@ public sealed class SettingsStoreTests
                 ToggleMaskReveal = "Ctrl+M",
                 ToggleCapturedAt = "D"
             },
+            QuickMenuPasteOptions = new QuickMenuPasteOptionSettings
+            {
+                DisabledOptionIds =
+                [
+                    QuickMenuPasteOptionIds.PasteLowercase,
+                    QuickMenuPasteOptionIds.TogglePin
+                ]
+            },
             StartWithWindows = true,
             MaskRules = new MaskRuleSettings
             {
@@ -170,6 +178,9 @@ public sealed class SettingsStoreTests
         Assert.Equal("Ctrl+P", loaded.QuickMenuShortcuts.PastePlainText);
         Assert.Equal("Ctrl+M", loaded.QuickMenuShortcuts.ToggleMaskReveal);
         Assert.Equal("D", loaded.QuickMenuShortcuts.ToggleCapturedAt);
+        Assert.Equal(
+            [QuickMenuPasteOptionIds.PasteLowercase, QuickMenuPasteOptionIds.TogglePin],
+            loaded.QuickMenuPasteOptions.DisabledOptionIds);
         Assert.True(loaded.StartWithWindows);
         Assert.False(loaded.MaskRules.Email);
         Assert.False(loaded.MaskRules.ShortAlphanumericCode);
@@ -507,6 +518,32 @@ public sealed class SettingsStoreTests
 
         Assert.Equal("Ctrl+F", loaded.QuickMenuShortcuts.Search);
         Assert.Equal("T", loaded.QuickMenuShortcuts.PastePlainText);
+    }
+
+    [Fact]
+    public void Load_NormalizesQuickMenuPasteOptionSettings()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"QuickMenuPasteOptions":{"DisabledOptionIds":["paste-lowercase","unknown","paste-lowercase"," "]}}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Equal([QuickMenuPasteOptionIds.PasteLowercase], loaded.QuickMenuPasteOptions.DisabledOptionIds);
+    }
+
+    [Fact]
+    public void Load_BackfillsNullQuickMenuPasteOptions()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"QuickMenuPasteOptions":null}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Empty(loaded.QuickMenuPasteOptions.DisabledOptionIds);
     }
 
     [Fact]

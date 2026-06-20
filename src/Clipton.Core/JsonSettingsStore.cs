@@ -71,6 +71,7 @@ public sealed class JsonSettingsStore
         settings.QuickMenuTopLevelHistoryItems = QuickMenuHistoryBuckets.NormalizeTopLevelHistoryItems(settings.QuickMenuTopLevelHistoryItems);
         NormalizeMaskRuleSettings(settings, maskRuleDefinitionsConfigured);
         NormalizeQuickMenuShortcuts(settings);
+        NormalizeQuickMenuPasteOptions(settings);
         return settings;
     }
 
@@ -81,6 +82,7 @@ public sealed class JsonSettingsStore
     {
         settings.QuickMenuDisplayMode = NormalizeQuickMenuDisplayMode(settings.QuickMenuDisplayMode);
         NormalizeMaskRuleSettings(settings, preferConfiguredDefinitions: true);
+        NormalizeQuickMenuPasteOptions(settings);
         var directory = Path.GetDirectoryName(_path);
         if (!string.IsNullOrWhiteSpace(directory))
         {
@@ -184,6 +186,13 @@ public sealed class JsonSettingsStore
         shortcuts.PastePlainText = UniqueShortcut(shortcuts.PastePlainText, QuickMenuShortcutSettings.DefaultPastePlainText, used);
         shortcuts.ToggleMaskReveal = UniqueShortcut(shortcuts.ToggleMaskReveal, QuickMenuShortcutSettings.DefaultToggleMaskReveal, used);
         shortcuts.ToggleCapturedAt = UniqueShortcut(shortcuts.ToggleCapturedAt, QuickMenuShortcutSettings.DefaultToggleCapturedAt, used);
+    }
+
+    private static void NormalizeQuickMenuPasteOptions(CliptonSettings settings)
+    {
+        settings.QuickMenuPasteOptions ??= new QuickMenuPasteOptionSettings();
+        settings.QuickMenuPasteOptions.DisabledOptionIds =
+            QuickMenuPasteOptionSettings.NormalizeDisabledOptionIds(settings.QuickMenuPasteOptions.DisabledOptionIds);
     }
 
     private static string NormalizeShortcut(string? value, string fallback, IReadOnlyCollection<string> allowed)

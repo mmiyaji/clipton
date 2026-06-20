@@ -2386,7 +2386,8 @@ public sealed record QuickMenuPasteOption(
     string Text,
     string IconGlyph,
     Action Invoke,
-    string? IconFontFamily = null);
+    string? IconFontFamily = null,
+    string? Id = null);
 
 internal sealed record QuickMenuImagePreviewCommand(QuickMenuItem Item);
 

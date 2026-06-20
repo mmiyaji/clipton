@@ -93,6 +93,7 @@ public sealed class MainWindow : Window
     private readonly ComboBox _quickMenuPlainTextShortcutBox = new();
     private readonly ComboBox _quickMenuMaskShortcutBox = new();
     private readonly ComboBox _quickMenuCapturedAtShortcutBox = new();
+    private readonly Dictionary<string, (CheckBox CheckBox, string LabelKey)> _quickMenuPasteOptionChecks = [];
     private readonly ToggleSwitch _quickMenuShowCapturedAtToggle = CompactToggle();
     private readonly ToggleSwitch _quickMenuShowShortcutHintsToggle = CompactToggle();
     private readonly ToggleSwitch _startupToggle = CompactToggle();
@@ -501,6 +502,7 @@ public sealed class MainWindow : Window
         SetComboSelection(_quickMenuPlainTextShortcutBox, _runtime.Settings.QuickMenuShortcuts.PastePlainText, refreshSelectionBox: true);
         SetComboSelection(_quickMenuMaskShortcutBox, _runtime.Settings.QuickMenuShortcuts.ToggleMaskReveal, refreshSelectionBox: true);
         SetComboSelection(_quickMenuCapturedAtShortcutBox, _runtime.Settings.QuickMenuShortcuts.ToggleCapturedAt, refreshSelectionBox: true);
+        RefreshQuickMenuPasteOptionChecks();
         UpdateSelectedSnippetText();
         UpdateHistorySearchStatus();
         UpdateMaskTestPreview();
@@ -675,8 +677,103 @@ public sealed class MainWindow : Window
         _quickMenuShowShortcutHintsToggle.Toggled += (_, _) => SaveQuickMenuDisplayOptions();
         _generalPage.Children.Add(SettingCard("\uE765", "QuickMenuShowShortcutHints", "QuickMenuShowShortcutHintsDescription", _quickMenuShowShortcutHintsToggle));
 
+        _generalPage.Children.Add(SectionHeader("QuickMenuPasteOptionsSection"));
+        _generalPage.Children.Add(BuildQuickMenuPasteOptionsPanel());
+
         _generalPage.Children.Add(SectionHeader("QuickMenuShortcutsSection"));
         _generalPage.Children.Add(BuildQuickMenuShortcutsPanel());
+    }
+
+    private UIElement BuildQuickMenuPasteOptionsPanel()
+    {
+        var panel = new StackPanel { Spacing = 14 };
+        panel.Children.Add(DescriptionText("QuickMenuPasteOptionsDescription", fontSize: 12, wrapping: TextWrapping.Wrap));
+        panel.Children.Add(BuildQuickMenuPasteOptionGroup(
+            "QuickMenuPasteOptionsCommonGroup",
+            [
+                (QuickMenuPasteOptionIds.PasteOriginal, "PasteOriginal"),
+                (QuickMenuPasteOptionIds.TogglePin, "QuickMenuPasteOptionTogglePin")
+            ]));
+        panel.Children.Add(BuildQuickMenuPasteOptionGroup(
+            "QuickMenuPasteOptionsTextGroup",
+            [
+                (QuickMenuPasteOptionIds.PastePlain, "PastePlain"),
+                (QuickMenuPasteOptionIds.EditAndPaste, "EditAndPaste"),
+                (QuickMenuPasteOptionIds.PasteNoLineBreaks, "PasteNoLineBreaks"),
+                (QuickMenuPasteOptionIds.PasteUppercase, "PasteUppercase"),
+                (QuickMenuPasteOptionIds.PasteLowercase, "PasteLowercase"),
+                (QuickMenuPasteOptionIds.PasteTrimmed, "PasteTrimmed"),
+                (QuickMenuPasteOptionIds.PasteJsonString, "PasteJsonString"),
+                (QuickMenuPasteOptionIds.PasteExtractUrls, "PasteExtractUrls"),
+                (QuickMenuPasteOptionIds.PasteFormattedJson, "PasteFormattedJson")
+            ]));
+        panel.Children.Add(BuildQuickMenuPasteOptionGroup(
+            "QuickMenuPasteOptionsImageGroup",
+            [
+                (QuickMenuPasteOptionIds.PasteImageOriginal, "PasteImageOriginal"),
+                (QuickMenuPasteOptionIds.PasteImagePng, "PasteImagePng"),
+                (QuickMenuPasteOptionIds.PasteImageJpeg, "PasteImageJpeg"),
+                (QuickMenuPasteOptionIds.PasteImageFile, "PasteImageFile"),
+                (QuickMenuPasteOptionIds.CopyImageOnly, "CopyImageOnly")
+            ]));
+        panel.Children.Add(BuildQuickMenuPasteOptionGroup(
+            "QuickMenuPasteOptionsFileGroup",
+            [
+                (QuickMenuPasteOptionIds.PasteFilePaths, "PasteFilePaths"),
+                (QuickMenuPasteOptionIds.PasteFileNames, "PasteFileNames"),
+                (QuickMenuPasteOptionIds.PasteFileNamesWithoutExtension, "PasteFileNamesWithoutExtension"),
+                (QuickMenuPasteOptionIds.PasteFileDirectories, "PasteFileDirectories")
+            ]));
+        return Card(panel);
+    }
+
+    private UIElement BuildQuickMenuPasteOptionGroup(string titleKey, IReadOnlyList<(string Id, string LabelKey)> options)
+    {
+        var group = new StackPanel { Spacing = 0 };
+        var header = DescriptionText(
+            titleKey,
+            fontSize: 13,
+            fontWeight: Microsoft.UI.Text.FontWeights.SemiBold,
+            wrapping: TextWrapping.NoWrap);
+        header.Margin = new Thickness(0, 0, 0, 4);
+        group.Children.Add(header);
+
+        for (var i = 0; i < options.Count; i++)
+        {
+            group.Children.Add(QuickMenuPasteOptionRow(options[i].Id, options[i].LabelKey));
+            if (i < options.Count - 1)
+            {
+                group.Children.Add(RowSeparator());
+            }
+        }
+
+        return group;
+    }
+
+    private UIElement QuickMenuPasteOptionRow(string optionId, string labelKey)
+    {
+        var row = new Grid
+        {
+            Padding = new Thickness(0, 7, 0, 7),
+            ColumnSpacing = 12,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        row.ColumnDefinitions.Add(new ColumnDefinition());
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.Children.Add(LocalizedText(labelKey, wrapping: TextWrapping.Wrap));
+
+        var checkBox = new CheckBox
+        {
+            MinWidth = 0,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        checkBox.Checked += (_, _) => SaveQuickMenuPasteOption(checkBox, optionId);
+        checkBox.Unchecked += (_, _) => SaveQuickMenuPasteOption(checkBox, optionId);
+        _quickMenuPasteOptionChecks[optionId] = (checkBox, labelKey);
+        Grid.SetColumn(checkBox, 1);
+        row.Children.Add(checkBox);
+        return row;
     }
 
     private UIElement BuildQuickMenuShortcutsPanel()
@@ -2404,6 +2501,28 @@ public sealed class MainWindow : Window
         if (_loading) return;
         _runtime.SetQuickMenuShowCapturedAt(_quickMenuShowCapturedAtToggle.IsOn);
         _runtime.SetQuickMenuShowShortcutHints(_quickMenuShowShortcutHintsToggle.IsOn);
+    }
+
+    private void RefreshQuickMenuPasteOptionChecks()
+    {
+        foreach (var (optionId, entry) in _quickMenuPasteOptionChecks)
+        {
+            var label = _runtime.Translate(entry.LabelKey);
+            entry.CheckBox.IsChecked = _runtime.IsQuickMenuPasteOptionEnabled(optionId);
+            AutomationProperties.SetName(entry.CheckBox, label);
+            ToolTipService.SetToolTip(entry.CheckBox, label);
+        }
+    }
+
+    private void SaveQuickMenuPasteOption(CheckBox checkBox, string optionId)
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        _runtime.SetQuickMenuPasteOptionEnabled(optionId, checkBox.IsChecked == true);
+        RefreshItems();
     }
 
     private void ChangeQuickMenuShortcut(string action, ComboBox comboBox)

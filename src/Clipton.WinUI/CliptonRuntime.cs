@@ -366,11 +366,11 @@ public sealed class CliptonRuntime : IDisposable
         var plainText = ClipboardBridge.GetPlainText(item);
         var options = new List<QuickMenuPasteOption>
         {
-            new(Translate("PasteOriginal"), "\uE77F", () => PasteHistoryItem(item.Id, asPlainText: false))
+            new(Translate("PasteOriginal"), "\uE77F", () => PasteHistoryItem(item.Id, asPlainText: false), Id: QuickMenuPasteOptionIds.PasteOriginal)
         };
 
         options.AddRange(CreateTextPasteOptions(plainText, item.Id));
-        return options;
+        return EnabledPasteOptions(options);
     }
 
     public async Task SetStartWithWindowsAsync(bool enabled)
@@ -538,6 +538,32 @@ public sealed class CliptonRuntime : IDisposable
     public void SetQuickMenuShowShortcutHints(bool enabled)
     {
         Settings.QuickMenuShowShortcutHints = enabled;
+        SaveSettings();
+    }
+
+    public bool IsQuickMenuPasteOptionEnabled(string optionId)
+    {
+        Settings.QuickMenuPasteOptions ??= new QuickMenuPasteOptionSettings();
+        return Settings.QuickMenuPasteOptions.IsEnabled(optionId);
+    }
+
+    public void SetQuickMenuPasteOptionEnabled(string optionId, bool enabled)
+    {
+        if (!QuickMenuPasteOptionIds.All.Contains(optionId, StringComparer.Ordinal))
+        {
+            return;
+        }
+
+        Settings.QuickMenuPasteOptions ??= new QuickMenuPasteOptionSettings();
+        var disabledIds = (Settings.QuickMenuPasteOptions.DisabledOptionIds ?? [])
+            .Where(id => !string.Equals(id, optionId, StringComparison.Ordinal))
+            .ToList();
+        if (!enabled)
+        {
+            disabledIds.Add(optionId);
+        }
+
+        Settings.QuickMenuPasteOptions.DisabledOptionIds = QuickMenuPasteOptionSettings.NormalizeDisabledOptionIds(disabledIds);
         SaveSettings();
     }
 
@@ -2785,29 +2811,29 @@ public sealed class CliptonRuntime : IDisposable
         {
             return historyId is null
                 ? []
-                : [CreatePinPasteOption(historyId)];
+                : EnabledPasteOptions([CreatePinPasteOption(historyId)]);
         }
 
         var options = new List<QuickMenuPasteOption>
         {
-            new QuickMenuPasteOption(Translate("PastePlain"), "\uE8D2", () => PasteText(textFactory() ?? string.Empty)),
-            new QuickMenuPasteOption(Translate("EditAndPaste"), "\uE70F", () => QuickEditAndPasteText(textFactory() ?? string.Empty, Translate("QuickEdit"))),
-            new QuickMenuPasteOption(Translate("PasteNoLineBreaks"), "\uE8EE", () => PasteText(RemoveLineBreaks(textFactory() ?? string.Empty))),
-            new QuickMenuPasteOption(Translate("PasteUppercase"), "AA", () => PasteText((textFactory() ?? string.Empty).ToUpperInvariant()), "Segoe UI"),
-            new QuickMenuPasteOption(Translate("PasteLowercase"), "aa", () => PasteText((textFactory() ?? string.Empty).ToLowerInvariant()), "Segoe UI"),
-            new QuickMenuPasteOption(Translate("PasteTrimmed"), "\uE8C6", () => PasteText((textFactory() ?? string.Empty).Trim())),
-            new QuickMenuPasteOption(Translate("PasteJsonString"), "{ }", () => PasteText(InferredJsonFormatter.Format(textFactory() ?? string.Empty)), "Segoe UI")
+            new QuickMenuPasteOption(Translate("PastePlain"), "\uE8D2", () => PasteText(textFactory() ?? string.Empty), Id: QuickMenuPasteOptionIds.PastePlain),
+            new QuickMenuPasteOption(Translate("EditAndPaste"), "\uE70F", () => QuickEditAndPasteText(textFactory() ?? string.Empty, Translate("QuickEdit")), Id: QuickMenuPasteOptionIds.EditAndPaste),
+            new QuickMenuPasteOption(Translate("PasteNoLineBreaks"), "\uE8EE", () => PasteText(RemoveLineBreaks(textFactory() ?? string.Empty)), Id: QuickMenuPasteOptionIds.PasteNoLineBreaks),
+            new QuickMenuPasteOption(Translate("PasteUppercase"), "AA", () => PasteText((textFactory() ?? string.Empty).ToUpperInvariant()), "Segoe UI", QuickMenuPasteOptionIds.PasteUppercase),
+            new QuickMenuPasteOption(Translate("PasteLowercase"), "aa", () => PasteText((textFactory() ?? string.Empty).ToLowerInvariant()), "Segoe UI", QuickMenuPasteOptionIds.PasteLowercase),
+            new QuickMenuPasteOption(Translate("PasteTrimmed"), "\uE8C6", () => PasteText((textFactory() ?? string.Empty).Trim()), Id: QuickMenuPasteOptionIds.PasteTrimmed),
+            new QuickMenuPasteOption(Translate("PasteJsonString"), "{ }", () => PasteText(InferredJsonFormatter.Format(textFactory() ?? string.Empty)), "Segoe UI", QuickMenuPasteOptionIds.PasteJsonString)
         };
 
         var urls = ExtractUrls(text);
         if (urls.Length > 0)
         {
-            options.Add(new QuickMenuPasteOption(Translate("PasteExtractUrls"), "\uE71B", () => PasteText(string.Join(Environment.NewLine, urls))));
+            options.Add(new QuickMenuPasteOption(Translate("PasteExtractUrls"), "\uE71B", () => PasteText(string.Join(Environment.NewLine, urls)), Id: QuickMenuPasteOptionIds.PasteExtractUrls));
         }
 
         if (TryFormatJson(text) is { } formattedJson)
         {
-            options.Add(new QuickMenuPasteOption(Translate("PasteFormattedJson"), "{ }", () => PasteText(formattedJson), "Segoe UI"));
+            options.Add(new QuickMenuPasteOption(Translate("PasteFormattedJson"), "{ }", () => PasteText(formattedJson), "Segoe UI", QuickMenuPasteOptionIds.PasteFormattedJson));
         }
 
         if (historyId is not null)
@@ -2815,14 +2841,21 @@ public sealed class CliptonRuntime : IDisposable
             options.Add(CreatePinPasteOption(historyId));
         }
 
-        return options;
+        return EnabledPasteOptions(options);
     }
 
     private QuickMenuPasteOption CreatePinPasteOption(string historyId)
     {
         return IsHistoryPinned(historyId)
-            ? new QuickMenuPasteOption(Translate("UnpinHistory"), "\uE77A", () => TogglePinnedHistoryItem(historyId))
-            : new QuickMenuPasteOption(Translate("PinHistory"), "\uE718", () => TogglePinnedHistoryItem(historyId));
+            ? new QuickMenuPasteOption(Translate("UnpinHistory"), "\uE77A", () => TogglePinnedHistoryItem(historyId), Id: QuickMenuPasteOptionIds.TogglePin)
+            : new QuickMenuPasteOption(Translate("PinHistory"), "\uE718", () => TogglePinnedHistoryItem(historyId), Id: QuickMenuPasteOptionIds.TogglePin);
+    }
+
+    private IReadOnlyList<QuickMenuPasteOption> EnabledPasteOptions(IEnumerable<QuickMenuPasteOption> options)
+    {
+        return options
+            .Where(option => string.IsNullOrWhiteSpace(option.Id) || IsQuickMenuPasteOptionEnabled(option.Id))
+            .ToArray();
     }
 
     public static string[] ExtractUrls(string text)
@@ -2851,15 +2884,15 @@ public sealed class CliptonRuntime : IDisposable
     {
         var options = new List<QuickMenuPasteOption>
         {
-            new(Translate("PasteOriginal"), "\uE8A5", () => PasteHistoryItem(item.Id, asPlainText: false)),
-            new(Translate("PasteFilePaths"), "\uE8C8", () => PasteText(JoinFileValues(item.FilePaths, path => path))),
-            new(Translate("PasteFileNames"), "\uE8A7", () => PasteText(JoinFileValues(item.FilePaths, Path.GetFileName))),
-            new(Translate("PasteFileNamesWithoutExtension"), "\uE8A7", () => PasteText(JoinFileValues(item.FilePaths, Path.GetFileNameWithoutExtension))),
-            new(Translate("PasteFileDirectories"), "\uED43", () => PasteText(JoinFileValues(item.FilePaths, path => Path.GetDirectoryName(path) ?? string.Empty)))
+            new(Translate("PasteOriginal"), "\uE8A5", () => PasteHistoryItem(item.Id, asPlainText: false), Id: QuickMenuPasteOptionIds.PasteOriginal),
+            new(Translate("PasteFilePaths"), "\uE8C8", () => PasteText(JoinFileValues(item.FilePaths, path => path)), Id: QuickMenuPasteOptionIds.PasteFilePaths),
+            new(Translate("PasteFileNames"), "\uE8A7", () => PasteText(JoinFileValues(item.FilePaths, Path.GetFileName)), Id: QuickMenuPasteOptionIds.PasteFileNames),
+            new(Translate("PasteFileNamesWithoutExtension"), "\uE8A7", () => PasteText(JoinFileValues(item.FilePaths, Path.GetFileNameWithoutExtension)), Id: QuickMenuPasteOptionIds.PasteFileNamesWithoutExtension),
+            new(Translate("PasteFileDirectories"), "\uED43", () => PasteText(JoinFileValues(item.FilePaths, path => Path.GetDirectoryName(path) ?? string.Empty)), Id: QuickMenuPasteOptionIds.PasteFileDirectories)
         };
 
         options.Add(CreatePinPasteOption(item.Id));
-        return options;
+        return EnabledPasteOptions(options);
     }
 
     private static string JoinFileValues(IEnumerable<string> filePaths, Func<string, string?> selector)
@@ -2887,16 +2920,16 @@ public sealed class CliptonRuntime : IDisposable
             : Translate("PasteOriginal");
         var options = new List<QuickMenuPasteOption>
         {
-            new QuickMenuPasteOption(originalLabel, "\uEB9F", () => PasteImage(item.Id, ImagePasteMode.Original, sendPaste: true)),
-            new QuickMenuPasteOption(Translate("PasteImagePng"), "PNG", () => PasteImage(item.Id, ImagePasteMode.Png, sendPaste: true), "Segoe UI"),
-            new QuickMenuPasteOption(Translate("PasteImageJpeg"), "JPG", () => PasteImage(item.Id, ImagePasteMode.Jpeg, sendPaste: true), "Segoe UI"),
-            new QuickMenuPasteOption(Translate("PasteImageFile"), "\uE8A5", () => PasteImage(item.Id, ImagePasteMode.File, sendPaste: true)),
-            new QuickMenuPasteOption(Translate("CopyImageOnly"), "\uE8C8", () => PasteImage(item.Id, ImagePasteMode.Png, sendPaste: false))
+            new QuickMenuPasteOption(originalLabel, "\uEB9F", () => PasteImage(item.Id, ImagePasteMode.Original, sendPaste: true), Id: QuickMenuPasteOptionIds.PasteImageOriginal),
+            new QuickMenuPasteOption(Translate("PasteImagePng"), "PNG", () => PasteImage(item.Id, ImagePasteMode.Png, sendPaste: true), "Segoe UI", QuickMenuPasteOptionIds.PasteImagePng),
+            new QuickMenuPasteOption(Translate("PasteImageJpeg"), "JPG", () => PasteImage(item.Id, ImagePasteMode.Jpeg, sendPaste: true), "Segoe UI", QuickMenuPasteOptionIds.PasteImageJpeg),
+            new QuickMenuPasteOption(Translate("PasteImageFile"), "\uE8A5", () => PasteImage(item.Id, ImagePasteMode.File, sendPaste: true), Id: QuickMenuPasteOptionIds.PasteImageFile),
+            new QuickMenuPasteOption(Translate("CopyImageOnly"), "\uE8C8", () => PasteImage(item.Id, ImagePasteMode.Png, sendPaste: false), Id: QuickMenuPasteOptionIds.CopyImageOnly)
         };
 
         options.AddRange(CreateTextPasteOptions(plainText));
         options.Add(CreatePinPasteOption(item.Id));
-        return options;
+        return EnabledPasteOptions(options);
     }
 
     private string CreateTempImageFile(ClipboardSnapshot item)
