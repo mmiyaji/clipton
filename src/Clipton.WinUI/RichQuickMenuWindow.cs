@@ -104,6 +104,8 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private bool _searchBoxFocused;
     private bool _startInSearchMode;
     private QuickMenuPasteOption? _focusedPasteOption;
+    private MenuFlyout? _pasteOptionsFlyout;
+    private FrameworkElement? _pasteOptionsAnchor;
     private IReadOnlyList<QuickMenuItem> _rootItemsForSearch = [];
     private QuickMenuItem[]? _searchResults;
     private Task<QuickMenuItem[]>? _searchSourceTask;
@@ -908,16 +910,27 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             return;
         }
 
+        _pasteOptionsFlyout?.Hide();
         var flyout = new MenuFlyout
         {
             Placement = FlyoutPlacementMode.RightEdgeAlignedTop
         };
+        _pasteOptionsFlyout = flyout;
+        _pasteOptionsAnchor = anchor;
         foreach (var option in item.PasteOptions)
         {
             flyout.Items.Add(CreatePasteOptionMenuItem(option));
         }
 
-        flyout.Closed += (_, _) => _focusedPasteOption = null;
+        flyout.Closed += (_, _) =>
+        {
+            _focusedPasteOption = null;
+            if (ReferenceEquals(_pasteOptionsFlyout, flyout))
+            {
+                _pasteOptionsFlyout = null;
+                _pasteOptionsAnchor = null;
+            }
+        };
         flyout.ShowAt(anchor);
         if (focusOptions)
         {
@@ -1102,6 +1115,11 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             {
                 args.Handled = true;
                 InvokePasteOption(focusedPasteOption);
+            }
+            else if (key is VirtualKey.Left or VirtualKey.Back)
+            {
+                args.Handled = true;
+                ClosePasteOptionsAndReturnFocus();
             }
 
             return;
@@ -1288,6 +1306,12 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             if (key == NativeMethods.VkReturn)
             {
                 DispatcherQueue.TryEnqueue(() => InvokePasteOption(focusedPasteOption));
+                return 1;
+            }
+
+            if (key is NativeMethods.VkLeft or NativeMethods.VkBack)
+            {
+                DispatcherQueue.TryEnqueue(ClosePasteOptionsAndReturnFocus);
                 return 1;
             }
 
@@ -1623,6 +1647,28 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private void InvokePasteOption(QuickMenuPasteOption option)
     {
         BeginInvokeAndDismiss(option.Invoke);
+    }
+
+    private void ClosePasteOptionsAndReturnFocus()
+    {
+        var anchor = _pasteOptionsAnchor;
+        _focusedPasteOption = null;
+        _pasteOptionsFlyout?.Hide();
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_dismissed)
+            {
+                return;
+            }
+
+            if (anchor is not null)
+            {
+                anchor.Focus(FocusState.Programmatic);
+            }
+
+            FocusMenuNow();
+            QueueFocusRetry();
+        });
     }
 
     private void CopySelectedImage()
