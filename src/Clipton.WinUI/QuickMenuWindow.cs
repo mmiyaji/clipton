@@ -67,7 +67,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private readonly string _imagePreviewSize;
     private readonly Action _openSearch;
     private readonly QuickMenuShortcutSettings _shortcuts;
-    private readonly bool _showShortcutHints;
+    private bool _showShortcutHints;
     private readonly List<MenuFlyoutItemBase> _rootFocusableItems = [];
     private readonly Dictionary<MenuFlyoutItemBase, MenuFlyout> _pasteOptionsFlyouts = [];
     private readonly HashSet<MenuFlyoutSubItem> _materializedFolderItems = [];
@@ -182,6 +182,21 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         PositionNearCursor();
         FocusMenu();
         EnqueueAfterDelay(400, () => _reopening = false);
+    }
+
+    public void UpdateDisplayOptions(bool showCapturedAt, bool showShortcutHints)
+    {
+        if (_showCapturedAt == showCapturedAt && _showShortcutHints == showShortcutHints)
+        {
+            return;
+        }
+
+        _showCapturedAt = showCapturedAt;
+        _showShortcutHints = showShortcutHints;
+        if (!_dismissed)
+        {
+            RefreshVisibleItems(_flyout.Items);
+        }
     }
 
     public void Dismiss()
@@ -732,7 +747,9 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                     if (flyoutItem.Tag is QuickMenuItem item)
                     {
                         flyoutItem.Text = BuildDisplayText(item);
-                        flyoutItem.KeyboardAcceleratorTextOverride = BuildCommandHint(item);
+                        flyoutItem.KeyboardAcceleratorTextOverride = item.PasteOptions is { Count: > 0 }
+                            ? BuildPasteOptionsHint(item)
+                            : BuildCommandHint(item);
                     }
 
                     break;

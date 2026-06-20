@@ -103,6 +103,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private bool _folderLoading;
     private bool _searchBoxFocused;
     private bool _startInSearchMode;
+    private bool _showCapturedAt;
     private QuickMenuPasteOption? _focusedPasteOption;
     private MenuFlyout? _pasteOptionsFlyout;
     private FrameworkElement? _pasteOptionsAnchor;
@@ -125,6 +126,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         string copyFeedbackText,
         string cutFeedbackText,
         string searchPlaceholder,
+        bool showCapturedAt,
         bool startInSearchMode = false)
     {
         _title = title;
@@ -139,6 +141,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _previewImageText = previewImageText;
         _copyFeedbackText = copyFeedbackText;
         _cutFeedbackText = cutFeedbackText;
+        _showCapturedAt = showCapturedAt;
 
         InitializeWindow();
         BuildContent();
@@ -218,6 +221,22 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _selectedIndex = Math.Min(_selectedIndex, Math.Max(0, items.Count - 1));
         RebuildItems();
         QueueFocusRetry();
+    }
+
+    public void UpdateDisplayOptions(bool showCapturedAt, bool showShortcutHints)
+    {
+        _ = showShortcutHints;
+        if (_showCapturedAt == showCapturedAt)
+        {
+            return;
+        }
+
+        _showCapturedAt = showCapturedAt;
+        if (!_dismissed)
+        {
+            RebuildItems();
+            QueueFocusRetry();
+        }
     }
 
     public void Dismiss()
@@ -2058,9 +2077,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         return $"{text[..Math.Max(0, max - 1)]}...";
     }
 
-    private static string CreateItemSubtitle(QuickMenuItem item)
+    private string CreateItemSubtitle(QuickMenuItem item)
     {
-        if (item.CapturedAt is { } capturedAt)
+        if (_showCapturedAt && item.CapturedAt is { } capturedAt)
         {
             var relativeTime = CreateRelativeTime(capturedAt);
             return string.IsNullOrWhiteSpace(item.Subtitle)

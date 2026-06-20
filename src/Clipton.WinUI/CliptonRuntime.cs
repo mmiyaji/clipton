@@ -533,12 +533,14 @@ public sealed class CliptonRuntime : IDisposable
     {
         Settings.QuickMenuShowCapturedAt = enabled;
         SaveSettings();
+        ApplyQuickMenuDisplayOptions();
     }
 
     public void SetQuickMenuShowShortcutHints(bool enabled)
     {
         Settings.QuickMenuShowShortcutHints = enabled;
         SaveSettings();
+        ApplyQuickMenuDisplayOptions();
     }
 
     public bool IsQuickMenuPasteOptionEnabled(string optionId)
@@ -1276,6 +1278,7 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
+        _defaultQuickMenu.UpdateDisplayOptions(Settings.QuickMenuShowCapturedAt, Settings.QuickMenuShowShortcutHints);
         _defaultQuickMenu.Reopen(menuItems);
     }
 
@@ -1291,10 +1294,12 @@ public sealed class CliptonRuntime : IDisposable
 
         if (startInSearchMode)
         {
+            _richQuickMenu.UpdateDisplayOptions(Settings.QuickMenuShowCapturedAt, Settings.QuickMenuShowShortcutHints);
             _richQuickMenu.ReopenWithSearch(menuItems);
         }
         else
         {
+            _richQuickMenu.UpdateDisplayOptions(Settings.QuickMenuShowCapturedAt, Settings.QuickMenuShowShortcutHints);
             _richQuickMenu.Reopen(menuItems);
         }
     }
@@ -1308,6 +1313,7 @@ public sealed class CliptonRuntime : IDisposable
 
     private void RefreshOpenQuickMenuItems()
     {
+        ApplyQuickMenuDisplayOptions();
         if (_defaultQuickMenu is { IsDismissed: false })
         {
             _defaultQuickMenu.Reopen(BuildQuickMenuItems());
@@ -1333,7 +1339,14 @@ public sealed class CliptonRuntime : IDisposable
             Translate("ImagePreviewFeedbackCopy"),
             Translate("ImagePreviewFeedbackCut"),
             Translate("SearchPlaceholder"),
+            Settings.QuickMenuShowCapturedAt,
             startInSearchMode);
+    }
+
+    private void ApplyQuickMenuDisplayOptions()
+    {
+        _defaultQuickMenu?.UpdateDisplayOptions(Settings.QuickMenuShowCapturedAt, Settings.QuickMenuShowShortcutHints);
+        _richQuickMenu?.UpdateDisplayOptions(Settings.QuickMenuShowCapturedAt, Settings.QuickMenuShowShortcutHints);
     }
 
     private List<QuickMenuItem> BuildQuickMenuItems()
