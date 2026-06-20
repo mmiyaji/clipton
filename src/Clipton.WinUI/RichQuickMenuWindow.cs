@@ -1029,10 +1029,10 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         _lastHoverCursorPosition = cursor;
-        Select(index);
+        Select(index, bringIntoView: false);
     }
 
-    private void Select(int index)
+    private void Select(int index, bool bringIntoView = true)
     {
         if (index < 0 || index >= _visibleItems.Count || index == _selectedIndex)
         {
@@ -1040,10 +1040,10 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         _selectedIndex = index;
-        UpdateSelection();
+        UpdateSelection(bringIntoView);
     }
 
-    private void UpdateSelection()
+    private void UpdateSelection(bool bringIntoView = true)
     {
         for (var i = 0; i < _itemCards.Count; i++)
         {
@@ -1053,11 +1053,15 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             _itemCards[i].Background = selected ? Brush(48, 48, 48) : Brush(40, 40, 40);
         }
 
-        _itemCards.ElementAtOrDefault(_selectedIndex)?.StartBringIntoView(new BringIntoViewOptions
+        if (bringIntoView)
         {
-            AnimationDesired = false,
-            VerticalAlignmentRatio = 0.5
-        });
+            _itemCards.ElementAtOrDefault(_selectedIndex)?.StartBringIntoView(new BringIntoViewOptions
+            {
+                AnimationDesired = false,
+                VerticalAlignmentRatio = 0.5
+            });
+        }
+
         _ = UpdatePreviewAsync(GetSelectedItem());
     }
 
