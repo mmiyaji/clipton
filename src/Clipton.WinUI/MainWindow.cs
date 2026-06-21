@@ -215,7 +215,7 @@ public sealed class MainWindow : Window
     private bool _storeUpdateCheckStarted;
     private bool _storeUpdateChecking;
     private bool _storeUpdateInstalling;
-    private bool _storeUpdateAvailable;
+    private bool _storeUpdateAvailable = IsDebugStoreUpdateAvailableForced();
 
     public MainWindow(CliptonRuntime runtime)
     {
@@ -2249,6 +2249,15 @@ public sealed class MainWindow : Window
         SetStoreUpdateStatus("StoreUpdateStatusChecking", isBusy: true, canCheck: false, canInstall: false);
         try
         {
+            if (IsDebugStoreUpdateAvailableForced())
+            {
+                _storePackageUpdates = [];
+                _storeUpdateAvailable = true;
+                SetStoreUpdateStatus("StoreUpdateStatusAvailable", isBusy: false, canCheck: true, canInstall: false);
+                UpdateNavButtonContents();
+                return;
+            }
+
             if (string.Equals(_runtime.PackageStatus, "Unpackaged", StringComparison.Ordinal))
             {
                 _storePackageUpdates = [];
@@ -2336,6 +2345,17 @@ public sealed class MainWindow : Window
         {
             InitializeWithWindow.Initialize(context, _hwnd);
         }
+    }
+
+    private static bool IsDebugStoreUpdateAvailableForced()
+    {
+#if DEBUG
+        var value = Environment.GetEnvironmentVariable("CLIPTON_DEBUG_STORE_UPDATE_AVAILABLE");
+        return string.Equals(value, "1", StringComparison.Ordinal)
+            || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+#else
+        return false;
+#endif
     }
 
     private void SetStoreUpdateStatus(string key, bool isBusy, bool canCheck, bool canInstall, string? detail = null)
