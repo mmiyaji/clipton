@@ -99,4 +99,14 @@ public sealed class LocalizationCatalogTests
         Assert.Contains("hidden", catalog.Translate("en", "AdvancedSearchCollapsed"));
         Assert.Contains("shown", catalog.Translate("en", "AdvancedSearchExpanded"));
     }
+
+    [Fact]
+    public void Translate_ProvidesQuickMenuPasteOptionAccessibilityLabels()
+    {
+        var catalog = new LocalizationCatalog();
+
+        Assert.Contains("Right", catalog.Translate("en", "QuickMenuPasteOptionsHelp"));
+        Assert.Contains("{0}", catalog.Translate("en", "QuickMenuPasteOptionsButtonName"));
+        Assert.Contains("{0}", catalog.Translate("ja", "QuickMenuPasteOptionsButtonName"));
+    }
 }

@@ -1738,6 +1738,7 @@ public sealed class CliptonRuntime : IDisposable
                 Settings.QuickMenuShortcuts,
                 OpenQuickMenuSearch,
                 Translate("PreviewImage"),
+                Translate("QuickMenuPasteOptionsHelp"),
                 new Dictionary<string, string>
                 {
                     ["ImagePreviewFeedbackCopy"] = Translate("ImagePreviewFeedbackCopy"),
@@ -1808,6 +1809,9 @@ public sealed class CliptonRuntime : IDisposable
             ShowHistoryWindow,
             Translate("ShowAllHistory"),
             Translate("PreviewImage"),
+            Translate("PasteOptions"),
+            Translate("QuickMenuPasteOptionsButtonName"),
+            Translate("QuickMenuPasteOptionsHelp"),
             Translate("ImagePreviewFeedbackCopy"),
             Translate("ImagePreviewFeedbackCut"),
             Translate("SearchPlaceholder"),

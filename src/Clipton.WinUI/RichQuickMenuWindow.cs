@@ -62,6 +62,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private readonly Action _openHistory;
     private readonly string _showAllHistoryText;
     private readonly string _previewImageText;
+    private readonly string _pasteOptionsText;
+    private readonly string _pasteOptionsButtonNameFormat;
+    private readonly string _pasteOptionsHelpText;
     private readonly string _copyFeedbackText;
     private readonly string _cutFeedbackText;
     private readonly Grid _root = new();
@@ -124,6 +127,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         Action openHistory,
         string showAllHistoryText,
         string previewImageText,
+        string pasteOptionsText,
+        string pasteOptionsButtonNameFormat,
+        string pasteOptionsHelpText,
         string copyFeedbackText,
         string cutFeedbackText,
         string searchPlaceholder,
@@ -140,6 +146,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _openHistory = openHistory;
         _showAllHistoryText = showAllHistoryText;
         _previewImageText = previewImageText;
+        _pasteOptionsText = pasteOptionsText;
+        _pasteOptionsButtonNameFormat = pasteOptionsButtonNameFormat;
+        _pasteOptionsHelpText = pasteOptionsHelpText;
         _copyFeedbackText = copyFeedbackText;
         _cutFeedbackText = cutFeedbackText;
         _showCapturedAt = showCapturedAt;
@@ -813,6 +822,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             Child = BuildItemContent(item)
         };
         card.PointerMoved += (_, _) => OnCardPointerHover(index);
+        ApplyItemCardAutomation(card, item);
         card.Tapped += (_, args) =>
         {
             if (IsFromPasteOptionsButton(args.OriginalSource))
@@ -864,13 +874,14 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
     private FrameworkElement CreatePasteOptionsButton(QuickMenuItem item)
     {
-        var button = IconButton("\uE712", "More options");
+        var button = IconButton("\uE712", BuildPasteOptionsButtonName(item));
         button.Width = 34;
         button.Height = 34;
         button.Margin = new Thickness(0);
         button.Background = Brush(40, 40, 40);
         button.BorderBrush = Brush(40, 40, 40);
         button.Tag = PasteOptionsButtonTag;
+        AutomationProperties.SetHelpText(button, _pasteOptionsHelpText);
         button.Tapped += (_, args) => args.Handled = true;
         button.Click += (_, _) => ShowPasteOptions(item, button);
         return button;
@@ -967,9 +978,48 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             Icon = CreateOptionIcon(option),
             Tag = option
         };
+        AutomationProperties.SetName(optionItem, option.Text);
         TrackPasteOptionFocus(optionItem, option);
         optionItem.Click += (_, _) => InvokePasteOption(option);
         return optionItem;
+    }
+
+    private void ApplyItemCardAutomation(Border card, QuickMenuItem item)
+    {
+        AutomationProperties.SetName(card, item.Title);
+        var helpText = BuildItemHelpText(item, item.HasPasteOptions);
+        if (!string.IsNullOrWhiteSpace(helpText))
+        {
+            AutomationProperties.SetHelpText(card, helpText);
+        }
+    }
+
+    private string BuildPasteOptionsButtonName(QuickMenuItem item)
+    {
+        var target = string.IsNullOrWhiteSpace(item.Title) ? _pasteOptionsText : item.Title;
+        if (string.IsNullOrWhiteSpace(_pasteOptionsButtonNameFormat))
+        {
+            return $"{_pasteOptionsText}: {target}";
+        }
+
+        return string.Format(_pasteOptionsButtonNameFormat, target);
+    }
+
+    private string BuildItemHelpText(QuickMenuItem item, bool opensPasteOptions)
+    {
+        var parts = new List<string>();
+        var subtitle = CreateItemSubtitle(item);
+        if (!string.IsNullOrWhiteSpace(subtitle))
+        {
+            parts.Add(subtitle);
+        }
+
+        if (opensPasteOptions && !string.IsNullOrWhiteSpace(_pasteOptionsHelpText))
+        {
+            parts.Add(_pasteOptionsHelpText);
+        }
+
+        return string.Join(" ", parts.Distinct(StringComparer.Ordinal));
     }
 
     private void TrackPasteOptionFocus(MenuFlyoutItem item, QuickMenuPasteOption option)

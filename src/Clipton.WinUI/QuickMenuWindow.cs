@@ -68,6 +68,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private readonly string _imagePreviewSize;
     private readonly Action _openSearch;
     private readonly QuickMenuShortcutSettings _shortcuts;
+    private readonly string _pasteOptionsHelpText;
     private bool _showShortcutHints;
     private readonly List<MenuFlyoutItemBase> _rootFocusableItems = [];
     private readonly Dictionary<MenuFlyoutItemBase, MenuFlyout> _pasteOptionsFlyouts = [];
@@ -115,6 +116,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         QuickMenuShortcutSettings shortcuts,
         Action openSearch,
         string previewImageText,
+        string pasteOptionsHelpText,
         IReadOnlyDictionary<string, string> previewStrings)
     {
         _title = title;
@@ -127,6 +129,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         _shortcuts = shortcuts;
         _openSearch = openSearch;
         _previewImageText = previewImageText;
+        _pasteOptionsHelpText = pasteOptionsHelpText;
         _previewStrings = previewStrings;
         Title = "Clipton";
         BuildHost();
@@ -1496,6 +1499,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                     }
                 };
                 subItem.Tag = item;
+                ApplyMenuItemAutomation(subItem, item, opensPasteOptions: false);
                 if (parent is null)
                 {
                     _rootFocusableItems.Add(subItem);
@@ -1523,6 +1527,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                     Icon = CreateIcon(item),
                     Tag = item
                 };
+                ApplyMenuItemAutomation(optionSubItem, item, opensPasteOptions: true);
                 if (HasImagePreview(item))
                 {
                     optionSubItem.Items.Add(CreateImagePreviewMenuItem(item));
@@ -1560,6 +1565,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                     : BuildCommandHint(item),
                 Icon = CreateIcon(item)
             };
+            ApplyMenuItemAutomation(flyoutItem, item, item.HasPasteOptions);
             if (item.HasPasteOptions)
             {
                 flyoutItem.KeyDown += (_, args) =>
@@ -1809,8 +1815,35 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             Tag = option
         };
         optionItem.Click += (_, _) => InvokePasteOption(option);
+        AutomationProperties.SetName(optionItem, option.Text);
         TrackFocus(optionItem, option);
         return optionItem;
+    }
+
+    private void ApplyMenuItemAutomation(MenuFlyoutItemBase flyoutItem, QuickMenuItem item, bool opensPasteOptions)
+    {
+        AutomationProperties.SetName(flyoutItem, BuildDisplayText(item));
+        var helpText = BuildMenuItemHelpText(item, opensPasteOptions);
+        if (!string.IsNullOrWhiteSpace(helpText))
+        {
+            AutomationProperties.SetHelpText(flyoutItem, helpText);
+        }
+    }
+
+    private string BuildMenuItemHelpText(QuickMenuItem item, bool opensPasteOptions)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(item.Subtitle))
+        {
+            parts.Add(item.Subtitle);
+        }
+
+        if (opensPasteOptions && !string.IsNullOrWhiteSpace(_pasteOptionsHelpText))
+        {
+            parts.Add(_pasteOptionsHelpText);
+        }
+
+        return string.Join(" ", parts.Distinct(StringComparer.Ordinal));
     }
 
     private void ShowPasteOptionsForItem(MenuFlyoutItemBase flyoutItem, MenuFlyout pasteOptionsFlyout, bool focusOptions)
