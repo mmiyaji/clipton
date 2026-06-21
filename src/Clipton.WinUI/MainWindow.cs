@@ -38,6 +38,7 @@ public sealed class MainWindow : Window
     private const string TermsUrl = "https://mmiyaji.github.io/clipton/terms/";
     private const string PrivacyUrl = "https://mmiyaji.github.io/clipton/privacy/";
     private const string AuthorUrl = "https://ruhenheim.org";
+    private const string ChangelogUrl = "https://github.com/mmiyaji/clipton/blob/main/CHANGELOG.md";
     private const string DonationUrl = "https://www.buymeacoffee.com/erumdoor";
     private const string DonationBannerUrl = "https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png";
     private const string SnippetVariablesUrl = "https://mmiyaji.github.io/clipton/snippet-variables/";
@@ -168,6 +169,7 @@ public sealed class MainWindow : Window
     private readonly TextBlock _storeUpdateStatusText = Description();
     private readonly Button _checkStoreUpdateButton = new();
     private readonly Button _installStoreUpdateButton = new();
+    private readonly HyperlinkButton _changelogLinkButton = new();
     private readonly ProgressRing _storeUpdateProgressRing = new()
     {
         Width = 20,
@@ -2133,8 +2135,13 @@ public sealed class MainWindow : Window
         _checkStoreUpdateButton.Click += async (_, _) => await CheckStoreUpdatesAsync(userInitiated: true);
         _installStoreUpdateButton.Click += async (_, _) => await InstallStoreUpdatesAsync();
         _installStoreUpdateButton.Visibility = Visibility.Collapsed;
+        _changelogLinkButton.Padding = new Thickness(0);
+        _changelogLinkButton.VerticalAlignment = VerticalAlignment.Center;
+        _changelogLinkButton.Click += (_, _) => OpenExternalUrl(ChangelogUrl);
+        ToolTipService.SetToolTip(_changelogLinkButton, ChangelogUrl);
         actions.Children.Add(_checkStoreUpdateButton);
         actions.Children.Add(_installStoreUpdateButton);
+        actions.Children.Add(_changelogLinkButton);
         body.Children.Add(actions);
 
         Grid.SetColumn(body, 1);
@@ -2374,6 +2381,8 @@ public sealed class MainWindow : Window
     {
         SetCommandButton(_checkStoreUpdateButton, "\uE72C", _runtime.Translate("CheckForUpdates"));
         SetCommandButton(_installStoreUpdateButton, "\uE895", _runtime.Translate("InstallUpdate"));
+        _changelogLinkButton.Content = _runtime.Translate("OpenChangelog");
+        AutomationProperties.SetName(_changelogLinkButton, _runtime.Translate("OpenChangelog"));
         var text = _runtime.Translate(_storeUpdateStatusKey);
         _storeUpdateStatusText.Text = _storeUpdateStatusDetail is null
             ? text
