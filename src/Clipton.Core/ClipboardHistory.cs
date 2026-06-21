@@ -68,10 +68,7 @@ public sealed class ClipboardHistory
 
         if (_items.Count > Capacity)
         {
-            foreach (var item in _items.Skip(Capacity).ToArray())
-            {
-                RemoveTracked(item);
-            }
+            RemoveOlderBeyond(Capacity);
         }
 
         return true;
@@ -98,10 +95,7 @@ public sealed class ClipboardHistory
 
         if (_items.Count > Capacity)
         {
-            foreach (var item in _items.Skip(Capacity).ToArray())
-            {
-                RemoveTracked(item);
-            }
+            RemoveOlderBeyond(Capacity);
         }
 
         return true;
@@ -152,11 +146,7 @@ public sealed class ClipboardHistory
             return [];
         }
 
-        var removed = _items.Skip(count).ToArray();
-        foreach (var item in removed)
-        {
-            RemoveTracked(item);
-        }
+        var removed = RemoveOlderBeyond(count);
 
         if (_items.Count == 0)
         {
@@ -186,10 +176,7 @@ public sealed class ClipboardHistory
             return;
         }
 
-        foreach (var item in _items.Skip(Capacity).ToArray())
-        {
-            RemoveTracked(item);
-        }
+        RemoveOlderBeyond(Capacity);
     }
 
     private void Track(ClipboardSnapshot snapshot, string fingerprint)
@@ -202,14 +189,37 @@ public sealed class ClipboardHistory
     private bool RemoveTracked(ClipboardSnapshot snapshot)
     {
         var removed = _items.Remove(snapshot);
+        Untrack(snapshot);
+
+        return removed;
+    }
+
+    private IReadOnlyList<ClipboardSnapshot> RemoveOlderBeyond(int count)
+    {
+        if (_items.Count <= count)
+        {
+            return [];
+        }
+
+        var removeCount = _items.Count - count;
+        var removed = _items.GetRange(count, removeCount);
+        _items.RemoveRange(count, removeCount);
+        foreach (var item in removed)
+        {
+            Untrack(item);
+        }
+
+        return removed;
+    }
+
+    private void Untrack(ClipboardSnapshot snapshot)
+    {
         _itemsById.Remove(snapshot.Id);
 
         if (_fingerprintsById.Remove(snapshot.Id, out var fingerprint))
         {
             _itemsByFingerprint.Remove(fingerprint);
         }
-
-        return removed;
     }
 
     /// <summary>
