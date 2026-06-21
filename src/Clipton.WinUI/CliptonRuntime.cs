@@ -3287,7 +3287,7 @@ public sealed class CliptonRuntime : IDisposable
                 ">",
                 "Enter",
                 () => { },
-                Children: CreateSnippetMenuItems(child)));
+                LazyChildren: () => CreateSnippetMenuItems(child)));
         }
 
         return items;
