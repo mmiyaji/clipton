@@ -37,6 +37,8 @@ public sealed class CliptonRuntime : IDisposable
     private const int ResidentHistoryGcMinIntervalMilliseconds = 5000;
     private const int QuickMenuHotkeyDebounceMilliseconds = 160;
     private const int TempPasteMaxFiles = 25;
+    private const string HistoryExportKind = "history";
+    private const string SnippetExportKind = "snippets";
     private const int QuickMenuClipboardCaptureTimeoutMilliseconds = 500;
     private static readonly TimeSpan DispatcherMarshalTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan TempPasteMaxAge = TimeSpan.FromHours(1);
@@ -47,6 +49,7 @@ public sealed class CliptonRuntime : IDisposable
     private readonly JsonSettingsStore _settingsStore;
     private readonly EncryptedHistoryStore _historyStore;
     private readonly string _snippetPath;
+    private readonly string _legacySnippetPath;
     private readonly string _thumbnailPath;
     private readonly string _tempPastePath;
     private readonly object _historySaveGate = new();
@@ -90,7 +93,8 @@ public sealed class CliptonRuntime : IDisposable
             : dataDirectory;
         _settingsStore = new JsonSettingsStore(Path.Combine(appData, "settings.json"));
         _historyStore = new EncryptedHistoryStore(Path.Combine(appData, "history.dat"));
-        _snippetPath = Path.Combine(appData, "snippets.json");
+        _snippetPath = Path.Combine(appData, "snippets.dat");
+        _legacySnippetPath = Path.Combine(appData, "snippets.json");
         _thumbnailPath = Path.Combine(appData, "thumbs");
         _tempPastePath = string.IsNullOrWhiteSpace(dataDirectory)
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Clipton", "TempPaste")
@@ -101,17 +105,27 @@ public sealed class CliptonRuntime : IDisposable
         AppDiagnostics.Configure(Settings.DiagnosticLoggingEnabled || AppProfiler.Enabled);
         AppProfiler.Mark("Settings loaded.");
         History = new ClipboardHistory(Settings.MaxHistoryItems);
-        Snippets = LoadSnippets(_snippetPath);
+        Snippets = LoadSnippets(_snippetPath, _legacySnippetPath, out var loadedLegacySnippets);
+        if (loadedLegacySnippets)
+        {
+            SaveSnippets(_snippetPath, Snippets);
+            TryDeleteFile(_legacySnippetPath);
+        }
         AppProfiler.Mark("Runtime stores initialized.");
 
         if (Settings.PersistEncryptedHistory)
         {
+            if (!Settings.SaveHistorySourceMetadata)
+            {
+                _historyStore.ClearSourceMetadata();
+            }
+
             _persistedHistoryCount = _historyStore.Count();
             var snapshots = _historyStore.LoadRecent(Math.Min(Settings.MaxHistoryItems, InitialPersistedHistoryLoadCount));
             _loadedPersistedHistoryCount = snapshots.Count;
             foreach (var snapshot in snapshots.Reverse())
             {
-                History.Add(snapshot);
+                History.Add(ApplySourceMetadataPolicy(snapshot));
             }
         }
 
@@ -665,6 +679,23 @@ public sealed class CliptonRuntime : IDisposable
         SaveSettings();
     }
 
+    public void SetSaveHistorySourceMetadata(bool enabled)
+    {
+        if (Settings.SaveHistorySourceMetadata == enabled)
+        {
+            return;
+        }
+
+        Settings.SaveHistorySourceMetadata = enabled;
+        SaveSettings();
+        if (!enabled)
+        {
+            StripResidentHistorySourceMetadata();
+            _historyStore.ClearSourceMetadata();
+            _mainWindow?.RefreshItems();
+        }
+    }
+
     public void SetMaskDefinitionOptions(
         int visiblePrefixLength,
         string[] customPatterns,
@@ -927,9 +958,28 @@ public sealed class CliptonRuntime : IDisposable
     {
         ThrowIfHistoryAccessLocked();
 
-        var items = History.Items.Select(HistoryExportItemDto.FromSnapshot).ToArray();
-        WriteExportFile(path, new HistoryExportDto(1, DateTimeOffset.UtcNow, items));
-        return items.Length;
+        var dto = CreateHistoryExportDto(out var count);
+        WriteExportFile(path, dto);
+        return count;
+    }
+
+    public int ExportHistoryEncrypted(string path, string passphrase)
+    {
+        ThrowIfHistoryAccessLocked();
+
+        var dto = CreateHistoryExportDto(out var count);
+        WriteEncryptedExportFile(path, HistoryExportKind, dto, passphrase);
+        return count;
+    }
+
+    private HistoryExportDto CreateHistoryExportDto(out int count)
+    {
+        var items = History.Items
+            .Select(ApplySourceMetadataPolicy)
+            .Select(HistoryExportItemDto.FromSnapshot)
+            .ToArray();
+        count = items.Length;
+        return new HistoryExportDto(1, DateTimeOffset.UtcNow, items);
     }
 
     /// <summary>
@@ -939,12 +989,23 @@ public sealed class CliptonRuntime : IDisposable
     {
         ThrowIfHistoryAccessLocked();
 
-        var dto = ReadExportFile<HistoryExportDto>(path);
+        return ImportHistory(ReadExportFile<HistoryExportDto>(path));
+    }
+
+    public int ImportHistoryEncrypted(string path, string passphrase)
+    {
+        ThrowIfHistoryAccessLocked();
+
+        return ImportHistory(ReadEncryptedExportFile<HistoryExportDto>(path, HistoryExportKind, passphrase));
+    }
+
+    private int ImportHistory(HistoryExportDto dto)
+    {
         var items = dto.Items ?? throw new InvalidOperationException("The selected file does not contain history items.");
         var before = History.Items.Count;
         foreach (var item in items.Reverse())
         {
-            History.Add(item.ToSnapshot());
+            History.Add(ApplySourceMetadataPolicy(item.ToSnapshot()));
         }
 
         SaveHistory();
@@ -961,7 +1022,18 @@ public sealed class CliptonRuntime : IDisposable
     {
         ThrowIfHistoryAccessLocked();
 
-        var dto = ReadExportFile<HistoryExportDto>(path);
+        return PreviewImportHistory(ReadExportFile<HistoryExportDto>(path));
+    }
+
+    public HistoryImportPreview PreviewImportHistoryEncrypted(string path, string passphrase)
+    {
+        ThrowIfHistoryAccessLocked();
+
+        return PreviewImportHistory(ReadEncryptedExportFile<HistoryExportDto>(path, HistoryExportKind, passphrase));
+    }
+
+    private HistoryImportPreview PreviewImportHistory(HistoryExportDto dto)
+    {
         var items = dto.Items ?? throw new InvalidOperationException("The selected file does not contain history items.");
         var importedFingerprints = new HashSet<string>(StringComparer.Ordinal);
         foreach (var item in items)
@@ -987,16 +1059,43 @@ public sealed class CliptonRuntime : IDisposable
     {
         ThrowIfHistoryAccessLocked();
 
+        var dto = CreateSnippetExportDto(out var count);
+        WriteExportFile(path, dto);
+        return count;
+    }
+
+    public int ExportSnippetsEncrypted(string path, string passphrase)
+    {
+        ThrowIfHistoryAccessLocked();
+
+        var dto = CreateSnippetExportDto(out var count);
+        WriteEncryptedExportFile(path, SnippetExportKind, dto, passphrase);
+        return count;
+    }
+
+    private SnippetExportDto CreateSnippetExportDto(out int count)
+    {
         var items = Snippets.Snippets.ToArray();
-        WriteExportFile(path, new SnippetExportDto(1, DateTimeOffset.UtcNow, items));
-        return items.Length;
+        count = items.Length;
+        return new SnippetExportDto(1, DateTimeOffset.UtcNow, items);
     }
 
     public int ImportSnippets(string path)
     {
         ThrowIfHistoryAccessLocked();
 
-        var dto = ReadExportFile<SnippetExportDto>(path);
+        return ImportSnippets(ReadExportFile<SnippetExportDto>(path));
+    }
+
+    public int ImportSnippetsEncrypted(string path, string passphrase)
+    {
+        ThrowIfHistoryAccessLocked();
+
+        return ImportSnippets(ReadEncryptedExportFile<SnippetExportDto>(path, SnippetExportKind, passphrase));
+    }
+
+    private int ImportSnippets(SnippetExportDto dto)
+    {
         var items = dto.Items ?? throw new InvalidOperationException("The selected file does not contain snippet items.");
         var imported = 0;
         foreach (var snippet in items)
@@ -1019,7 +1118,18 @@ public sealed class CliptonRuntime : IDisposable
     {
         ThrowIfHistoryAccessLocked();
 
-        var dto = ReadExportFile<SnippetExportDto>(path);
+        return PreviewImportSnippets(ReadExportFile<SnippetExportDto>(path));
+    }
+
+    public SnippetImportPreview PreviewImportSnippetsEncrypted(string path, string passphrase)
+    {
+        ThrowIfHistoryAccessLocked();
+
+        return PreviewImportSnippets(ReadEncryptedExportFile<SnippetExportDto>(path, SnippetExportKind, passphrase));
+    }
+
+    private SnippetImportPreview PreviewImportSnippets(SnippetExportDto dto)
+    {
         var items = dto.Items ?? throw new InvalidOperationException("The selected file does not contain snippet items.");
         var validItems = items
             .Where(snippet => !string.IsNullOrWhiteSpace(snippet.Name))
@@ -1274,8 +1384,12 @@ public sealed class CliptonRuntime : IDisposable
             return null;
         }
 
-        snapshot = AttachOrigin(snapshot, CaptureOriginMetadata(sourceWindow));
-        return new ClipboardCaptureResult(snapshot, sequence);
+        if (Settings.SaveHistorySourceMetadata)
+        {
+            snapshot = AttachOrigin(snapshot, CaptureOriginMetadata(sourceWindow));
+        }
+
+        return new ClipboardCaptureResult(ApplySourceMetadataPolicy(snapshot), sequence);
     }
 
     private ClipboardSnapshot AttachOrigin(ClipboardSnapshot snapshot, ClipboardOriginMetadata? origin)
@@ -1296,6 +1410,44 @@ public sealed class CliptonRuntime : IDisposable
             snapshot.FilePaths,
             origin.ApplicationName,
             origin.WindowTitle);
+    }
+
+    private ClipboardSnapshot ApplySourceMetadataPolicy(ClipboardSnapshot snapshot)
+    {
+        if (Settings.SaveHistorySourceMetadata
+            || (string.IsNullOrWhiteSpace(snapshot.SourceApplicationName)
+                && string.IsNullOrWhiteSpace(snapshot.SourceWindowTitle)))
+        {
+            return snapshot;
+        }
+
+        return new ClipboardSnapshot(
+            snapshot.Id,
+            snapshot.CapturedAt,
+            snapshot.Formats,
+            snapshot.Text,
+            snapshot.Rtf,
+            snapshot.Html,
+            snapshot.ImagePng,
+            snapshot.FilePaths);
+    }
+
+    private void StripResidentHistorySourceMetadata()
+    {
+        if (History.Items.All(item => string.IsNullOrWhiteSpace(item.SourceApplicationName)
+            && string.IsNullOrWhiteSpace(item.SourceWindowTitle)))
+        {
+            return;
+        }
+
+        var sanitized = History.Items.Select(ApplySourceMetadataPolicy).Reverse().ToArray();
+        History.Clear();
+        foreach (var item in sanitized)
+        {
+            History.Add(item);
+        }
+
+        SaveHistory();
     }
 
     private static ClipboardOriginMetadata? CaptureOriginMetadata(IntPtr sourceWindow)
@@ -1828,7 +1980,7 @@ public sealed class CliptonRuntime : IDisposable
 
                 foreach (var snapshot in snapshots)
                 {
-                    History.AppendOlder(snapshot);
+                    History.AppendOlder(ApplySourceMetadataPolicy(snapshot));
                 }
 
                 _loadedPersistedHistoryCount += snapshots.Count;
@@ -2328,19 +2480,49 @@ public sealed class CliptonRuntime : IDisposable
         return true;
     }
 
-    private static SnippetCatalog LoadSnippets(string path)
+    private static SnippetCatalog LoadSnippets(string protectedPath, string legacyPath, out bool loadedLegacy)
     {
+        loadedLegacy = false;
         var catalog = new SnippetCatalog();
-        if (!File.Exists(path))
+        if (File.Exists(protectedPath))
+        {
+            try
+            {
+                var encrypted = File.ReadAllBytes(protectedPath);
+                var json = ProtectedData.Unprotect(encrypted, optionalEntropy: null, DataProtectionScope.CurrentUser);
+                var snippets = JsonSerializer.Deserialize<Snippet[]>(json) ?? [];
+                foreach (var snippet in snippets)
+                {
+                    catalog.Upsert(snippet);
+                }
+            }
+            catch (Exception exception) when (exception is CryptographicException or JsonException or IOException or UnauthorizedAccessException)
+            {
+                AppDiagnostics.Log(exception, "Load protected snippets");
+            }
+
+            return catalog;
+        }
+
+        if (!File.Exists(legacyPath))
         {
             return catalog;
         }
 
-        using var stream = File.OpenRead(path);
-        var snippets = JsonSerializer.Deserialize<Snippet[]>(stream) ?? [];
-        foreach (var snippet in snippets)
+        try
         {
-            catalog.Upsert(snippet);
+            using var stream = File.OpenRead(legacyPath);
+            var legacySnippets = JsonSerializer.Deserialize<Snippet[]>(stream) ?? [];
+            foreach (var snippet in legacySnippets)
+            {
+                catalog.Upsert(snippet);
+            }
+
+            loadedLegacy = true;
+        }
+        catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
+        {
+            AppDiagnostics.Log(exception, "Load legacy snippets");
         }
 
         return catalog;
@@ -2349,7 +2531,11 @@ public sealed class CliptonRuntime : IDisposable
     private static void SaveSnippets(string path, SnippetCatalog catalog)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        WriteJsonFile(path, catalog.Snippets, new JsonSerializerOptions { WriteIndented = true });
+        var json = JsonSerializer.SerializeToUtf8Bytes(catalog.Snippets, new JsonSerializerOptions { WriteIndented = true });
+        var encrypted = ProtectedData.Protect(json, optionalEntropy: null, DataProtectionScope.CurrentUser);
+        var tempPath = Path.Combine(Path.GetDirectoryName(path)!, $"{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+        File.WriteAllBytes(tempPath, encrypted);
+        File.Move(tempPath, path, overwrite: true);
     }
 
     private static T ReadExportFile<T>(string path)
@@ -2368,6 +2554,16 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         WriteJsonFile(path, value, ExportJsonOptions);
+    }
+
+    private static T ReadEncryptedExportFile<T>(string path, string kind, string passphrase)
+    {
+        return EncryptedExportFile.Read<T>(path, kind, passphrase, ExportJsonOptions);
+    }
+
+    private static void WriteEncryptedExportFile<T>(string path, string kind, T value, string passphrase)
+    {
+        EncryptedExportFile.Write(path, kind, value, passphrase, ExportJsonOptions);
     }
 
     private static void WriteJsonFile<T>(string path, T value, JsonSerializerOptions options)
@@ -3061,44 +3257,48 @@ public sealed class CliptonRuntime : IDisposable
 
     private IReadOnlyList<QuickMenuItem> CreateSnippetMenuItems(IEnumerable<Snippet> snippets)
     {
-        return CreateSnippetMenuItems(snippets, string.Empty);
+        var root = new SnippetMenuFolderNode(string.Empty);
+        foreach (var snippet in snippets)
+        {
+            var node = root;
+            foreach (var segment in NormalizeFolder(snippet.Folder).Split('/', StringSplitOptions.RemoveEmptyEntries))
+            {
+                node = node.GetOrAddChild(segment);
+            }
+
+            node.Snippets.Add(snippet);
+        }
+
+        return CreateSnippetMenuItems(root);
     }
 
-    private IReadOnlyList<QuickMenuItem> CreateSnippetMenuItems(IEnumerable<Snippet> snippets, string parentFolder)
+    private IReadOnlyList<QuickMenuItem> CreateSnippetMenuItems(SnippetMenuFolderNode folder)
     {
-        var normalizedParent = NormalizeFolder(parentFolder);
-        var directSnippets = snippets
-            .Where(snippet => NormalizeFolder(snippet.Folder) == normalizedParent)
+        var items = folder.Snippets
             .OrderBy(snippet => snippet.Name, StringComparer.OrdinalIgnoreCase)
             .Select(CreateSnippetMenuItem)
             .ToList();
 
-        var childFolders = snippets
-            .Select(snippet => snippet.Folder)
-            .Select(folder => GetImmediateChildFolder(folder, normalizedParent))
-            .Where(folder => !string.IsNullOrEmpty(folder))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(folder => folder, StringComparer.OrdinalIgnoreCase);
-
-        foreach (var childFolder in childFolders)
+        foreach (var child in folder.Children.Values.OrderBy(child => child.Name, StringComparer.OrdinalIgnoreCase))
         {
-            var fullFolder = string.IsNullOrEmpty(normalizedParent) ? childFolder : $"{normalizedParent}/{childFolder}";
-            var children = CreateSnippetMenuItems(snippets, fullFolder);
-            directSnippets.Add(new QuickMenuItem(
-                childFolder,
+            items.Add(new QuickMenuItem(
+                child.Name,
                 Translate("Snippets"),
                 ">",
                 "Enter",
                 () => { },
-                Children: children));
+                Children: CreateSnippetMenuItems(child)));
         }
 
-        return directSnippets;
+        return items;
     }
 
     private QuickMenuItem CreateSnippetMenuItem(Snippet snippet)
     {
-        string RenderSnippetText() => SnippetTemplateRenderer.Render(snippet.Text, filePaths: GetCurrentClipboardFilePaths());
+        var requiresFilePaths = SnippetTemplateRenderer.RequiresFilePaths(snippet.Text);
+        string RenderSnippetText() => SnippetTemplateRenderer.Render(
+            snippet.Text,
+            filePaths: requiresFilePaths ? GetCurrentClipboardFilePaths() : null);
 
         return new QuickMenuItem(
             snippet.Name,
@@ -3366,6 +3566,26 @@ public sealed class CliptonRuntime : IDisposable
 
         var separator = normalized.IndexOf('/');
         return separator < 0 ? normalized : normalized[..separator];
+    }
+
+    private sealed class SnippetMenuFolderNode(string name)
+    {
+        public string Name { get; } = name;
+
+        public List<Snippet> Snippets { get; } = [];
+
+        public Dictionary<string, SnippetMenuFolderNode> Children { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public SnippetMenuFolderNode GetOrAddChild(string childName)
+        {
+            if (!Children.TryGetValue(childName, out var child))
+            {
+                child = new SnippetMenuFolderNode(childName);
+                Children[childName] = child;
+            }
+
+            return child;
+        }
     }
 }
 

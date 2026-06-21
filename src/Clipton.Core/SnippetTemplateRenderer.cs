@@ -81,6 +81,28 @@ public static class SnippetTemplateRenderer
         });
     }
 
+    /// <summary>
+    /// Returns whether rendering may need current clipboard file paths.
+    /// </summary>
+    public static bool RequiresFilePaths(string? template)
+    {
+        if (string.IsNullOrEmpty(template))
+        {
+            return false;
+        }
+
+        foreach (Match match in TokenPattern.Matches(template))
+        {
+            var name = match.Groups["name"].Value.ToLowerInvariant();
+            if (IsFileVariable(name) || name == "filecount")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static string Format(DateTimeOffset timestamp, string format, string fallback)
     {
         return timestamp.ToString(string.IsNullOrWhiteSpace(format) ? fallback : format, CultureInfo.CurrentCulture);

@@ -28,6 +28,8 @@ public sealed class CliptonSettings
 
     public bool HistoryPersistenceConfigured { get; set; }
 
+    public bool SaveHistorySourceMetadata { get; set; }
+
     public bool HistoryAccessLockEnabled { get; set; }
 
     public string HistoryAccessLockPinSalt { get; set; } = string.Empty;

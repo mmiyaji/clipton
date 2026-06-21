@@ -31,6 +31,65 @@ public sealed class EncryptedHistoryStorePrivacyTests
         }
     }
 
+    [Fact]
+    public void Save_DoesNotRewriteUnchangedItemPayloadFiles()
+    {
+        var root = CreateTestRoot();
+        var path = Path.Combine(root, "history.dat");
+        var store = new EncryptedHistoryStore(path);
+        var snapshots = Enumerable.Range(0, 20)
+            .Select(index => new ClipboardSnapshot(
+                $"history-{index:0000}",
+                DateTimeOffset.UtcNow.AddSeconds(-index),
+                [ClipboardFormatKind.Text],
+                text: $"unchanged clipboard text {index}"))
+            .ToArray();
+        store.Save(snapshots);
+        var itemFiles = Directory.EnumerateFiles(Path.Combine(root, "history", "items"), "*.dat").ToArray();
+        Assert.Equal(snapshots.Length, itemFiles.Length);
+        var marker = DateTime.UtcNow.AddDays(-2);
+        foreach (var file in itemFiles)
+        {
+            File.SetLastWriteTimeUtc(file, marker);
+        }
+
+        var writeTimes = itemFiles.ToDictionary(file => file, File.GetLastWriteTimeUtc, StringComparer.Ordinal);
+
+        store.Save(snapshots);
+
+        foreach (var (file, writeTime) in writeTimes)
+        {
+            Assert.Equal(writeTime, File.GetLastWriteTimeUtc(file));
+        }
+    }
+
+    [Fact]
+    public void ClearSourceMetadata_RewritesExistingItemPayloadFiles()
+    {
+        var root = CreateTestRoot();
+        var path = Path.Combine(root, "history.dat");
+        var store = new EncryptedHistoryStore(path);
+        store.Save([new ClipboardSnapshot(
+            "history-with-source",
+            DateTimeOffset.UtcNow,
+            [ClipboardFormatKind.Text],
+            text: "private clipboard text",
+            sourceApplicationName: "PrivateApp",
+            sourceWindowTitle: "Private Window")]);
+        var itemPath = Path.Combine(root, "history", "items", "history-with-source.dat");
+        Assert.True(File.Exists(itemPath));
+        var marker = DateTime.UtcNow.AddDays(-2);
+        File.SetLastWriteTimeUtc(itemPath, marker);
+        var writeTime = File.GetLastWriteTimeUtc(itemPath);
+
+        store.ClearSourceMetadata();
+
+        Assert.True(File.GetLastWriteTimeUtc(itemPath) > writeTime);
+        var item = Assert.Single(store.Load());
+        Assert.Null(item.SourceApplicationName);
+        Assert.Null(item.SourceWindowTitle);
+    }
+
     private static bool ContainsBytes(byte[] haystack, byte[] needle)
     {
         if (needle.Length == 0 || haystack.Length < needle.Length)

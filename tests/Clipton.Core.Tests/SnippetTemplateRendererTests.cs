@@ -187,4 +187,15 @@ public sealed class SnippetTemplateRendererTests
     {
         Assert.Equal("Hello {{name}}", SnippetTemplateRenderer.Render("Hello {{name}}"));
     }
+
+    [Theory]
+    [InlineData("plain text", false)]
+    [InlineData("{{date}} {{randomhex:8}}", false)]
+    [InlineData("{{filename}}", true)]
+    [InlineData("{{filepaths:\", \"}}", true)]
+    [InlineData("Copied {{filecount}} file(s)", true)]
+    public void RequiresFilePaths_DetectsOnlyFileVariables(string template, bool expected)
+    {
+        Assert.Equal(expected, SnippetTemplateRenderer.RequiresFilePaths(template));
+    }
 }

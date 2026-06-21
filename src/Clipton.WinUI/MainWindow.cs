@@ -105,6 +105,7 @@ public sealed class MainWindow : Window
     private readonly ToggleSwitch _pauseCaptureToggle = CompactToggle();
     private readonly ToggleSwitch _diagnosticLoggingToggle = CompactToggle();
     private readonly ToggleSwitch _persistHistoryToggle = CompactToggle();
+    private readonly ToggleSwitch _saveSourceMetadataToggle = CompactToggle();
     private readonly ToggleSwitch _historyAccessLockToggle = CompactToggle();
     private readonly ComboBox _historyAccessLockTimeoutBox = new();
     private readonly Button _historyAccessLockPinButton = new();
@@ -566,6 +567,7 @@ public sealed class MainWindow : Window
         _pauseCaptureToggle.IsOn = _runtime.Settings.PauseCapture;
         _diagnosticLoggingToggle.IsOn = _runtime.Settings.DiagnosticLoggingEnabled;
         _persistHistoryToggle.IsOn = _runtime.Settings.PersistEncryptedHistory;
+        _saveSourceMetadataToggle.IsOn = _runtime.Settings.SaveHistorySourceMetadata;
         _historyAccessLockToggle.IsOn = _runtime.Settings.HistoryAccessLockEnabled && _runtime.IsHistoryAccessLockConfigured;
         _maskSensitiveContentToggle.IsOn = _runtime.Settings.MaskSensitiveContent;
         ApplyMaskRuleDefinitionsToUi();
@@ -1045,7 +1047,7 @@ public sealed class MainWindow : Window
     {
         _historySettingsPage.Children.Add(PageHeader(_historySettingsHeaderText, _historySettingsDescriptionText));
         _historySettingsPage.Children.Add(SectionHeader("CapturePrivacySection"));
-        foreach (var toggle in new[] { _pauseCaptureToggle, _persistHistoryToggle, _maskSensitiveContentToggle })
+        foreach (var toggle in new[] { _pauseCaptureToggle, _persistHistoryToggle, _saveSourceMetadataToggle, _maskSensitiveContentToggle })
         {
             toggle.Toggled += async (_, _) => await SaveHistoryOptionsAsync();
         }
@@ -1060,6 +1062,7 @@ public sealed class MainWindow : Window
         diagnosticControls.Children.Add(ToggleActionHost(_diagnosticLoggingToggle));
         _historySettingsPage.Children.Add(SettingCard("\uE946", "DiagnosticLogging", "DiagnosticLoggingDescription", diagnosticControls));
         _historySettingsPage.Children.Add(SettingCard("\uE72E", "PersistHistory", "PersistHistoryDescription", _persistHistoryToggle));
+        _historySettingsPage.Children.Add(SettingCard("\uE8FD", "SaveHistorySourceMetadata", "SaveHistorySourceMetadataDescription", _saveSourceMetadataToggle));
         _historySettingsPage.Children.Add(BuildHistoryAccessLockCard());
         _maxHistoryItemsBox.Width = 180;
         foreach (var count in new[] { 50, 100, 200, 500, 1000 })
@@ -2382,6 +2385,11 @@ public sealed class MainWindow : Window
                 _runtime.SetPersistEncryptedHistory(_persistHistoryToggle.IsOn);
             }
 
+            if (_runtime.Settings.SaveHistorySourceMetadata != _saveSourceMetadataToggle.IsOn)
+            {
+                _runtime.SetSaveHistorySourceMetadata(_saveSourceMetadataToggle.IsOn);
+            }
+
             if (_runtime.Settings.MaskSensitiveContent != _maskSensitiveContentToggle.IsOn)
             {
                 _runtime.SetMaskSensitiveContent(_maskSensitiveContentToggle.IsOn);
@@ -2820,20 +2828,29 @@ public sealed class MainWindow : Window
 
     private async Task ExportHistoryAsync()
     {
-        var path = await SelectExportPathAsync($"clipton-history-{DateTime.Now:yyyyMMdd-HHmmss}.json");
+        var path = await SelectExportPathAsync($"clipton-history-{DateTime.Now:yyyyMMdd-HHmmss}{EncryptedExportFile.Extension}");
         if (path is null)
         {
             return;
         }
 
-        if (!await ConfirmProtectedDataExportAsync("ConfirmExportHistoryMessage"))
+        var encrypted = EncryptedExportFile.HasEncryptedExtension(path);
+        if (!await ConfirmProtectedDataExportAsync(encrypted ? "ConfirmExportHistoryEncryptedMessage" : "ConfirmExportHistoryMessage"))
+        {
+            return;
+        }
+
+        var password = encrypted ? await PromptForExportPasswordAsync() : null;
+        if (encrypted && password is null)
         {
             return;
         }
 
         await RunImportExportActionAsync(
             "ExportHistory",
-            () => string.Format(_runtime.Translate("ExportComplete"), _runtime.ExportHistory(path)));
+            () => string.Format(
+                _runtime.Translate("ExportComplete"),
+                encrypted ? _runtime.ExportHistoryEncrypted(path, password!) : _runtime.ExportHistory(path)));
     }
 
     private async Task ImportHistoryAsync()
@@ -2844,12 +2861,21 @@ public sealed class MainWindow : Window
             return;
         }
 
+        var encrypted = EncryptedExportFile.HasEncryptedExtension(path);
+        var password = encrypted ? await PromptForImportPasswordAsync() : null;
+        if (encrypted && password is null)
+        {
+            return;
+        }
+
         HistoryImportPreview preview;
         try
         {
-            preview = _runtime.PreviewImportHistory(path);
+            preview = encrypted
+                ? _runtime.PreviewImportHistoryEncrypted(path, password!)
+                : _runtime.PreviewImportHistory(path);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException or ArgumentException or FormatException)
         {
             await ShowMessageDialogAsync(
                 _runtime.Translate("ImportHistory"),
@@ -2877,7 +2903,9 @@ public sealed class MainWindow : Window
             "ImportHistory",
             () =>
             {
-                var count = _runtime.ImportHistory(path);
+                var count = encrypted
+                    ? _runtime.ImportHistoryEncrypted(path, password!)
+                    : _runtime.ImportHistory(path);
                 RefreshItems();
                 return string.Format(_runtime.Translate("ImportComplete"), count);
             });
@@ -2885,20 +2913,29 @@ public sealed class MainWindow : Window
 
     private async Task ExportSnippetsAsync()
     {
-        var path = await SelectExportPathAsync($"clipton-snippets-{DateTime.Now:yyyyMMdd-HHmmss}.json");
+        var path = await SelectExportPathAsync($"clipton-snippets-{DateTime.Now:yyyyMMdd-HHmmss}{EncryptedExportFile.Extension}");
         if (path is null)
         {
             return;
         }
 
-        if (!await ConfirmProtectedDataExportAsync("ConfirmExportSnippetsMessage"))
+        var encrypted = EncryptedExportFile.HasEncryptedExtension(path);
+        if (!await ConfirmProtectedDataExportAsync(encrypted ? "ConfirmExportSnippetsEncryptedMessage" : "ConfirmExportSnippetsMessage"))
+        {
+            return;
+        }
+
+        var password = encrypted ? await PromptForExportPasswordAsync() : null;
+        if (encrypted && password is null)
         {
             return;
         }
 
         await RunImportExportActionAsync(
             "ExportSnippets",
-            () => string.Format(_runtime.Translate("ExportComplete"), _runtime.ExportSnippets(path)));
+            () => string.Format(
+                _runtime.Translate("ExportComplete"),
+                encrypted ? _runtime.ExportSnippetsEncrypted(path, password!) : _runtime.ExportSnippets(path)));
     }
 
     private async Task<bool> ConfirmProtectedDataExportAsync(string messageKey)
@@ -2985,6 +3022,145 @@ public sealed class MainWindow : Window
         return confirmed;
     }
 
+    private async Task<string?> PromptForExportPasswordAsync()
+    {
+        if (_root.XamlRoot is null)
+        {
+            return null;
+        }
+
+        var passwordBox = new PasswordBox
+        {
+            MaxLength = 128,
+            PlaceholderText = _runtime.Translate("ExportPasswordPlaceholder")
+        };
+        var confirmBox = new PasswordBox
+        {
+            MaxLength = 128,
+            PlaceholderText = _runtime.Translate("ExportPasswordConfirmPlaceholder")
+        };
+        var errorText = Description();
+        errorText.Foreground = new SolidColorBrush(Colors.IndianRed);
+        errorText.TextWrapping = TextWrapping.Wrap;
+        var content = new StackPanel
+        {
+            Spacing = 10,
+            MaxWidth = 420,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = string.Format(_runtime.Translate("SetExportPasswordDescription"), EncryptedExportFile.MinPassphraseLength),
+                    TextWrapping = TextWrapping.Wrap
+                },
+                passwordBox,
+                confirmBox,
+                errorText
+            }
+        };
+
+        string? password = null;
+        var dialog = new ContentDialog
+        {
+            Title = _runtime.Translate("SetExportPassword"),
+            Content = content,
+            PrimaryButtonText = _runtime.Translate("Export"),
+            CloseButtonText = _runtime.Translate("Cancel"),
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = _root.XamlRoot,
+            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+        };
+        dialog.PrimaryButtonClick += (_, args) =>
+        {
+            var entered = passwordBox.Password;
+            if (!EncryptedExportFile.IsValidPassphrase(entered))
+            {
+                errorText.Text = string.Format(_runtime.Translate("ExportPasswordTooShort"), EncryptedExportFile.MinPassphraseLength);
+                passwordBox.Password = string.Empty;
+                confirmBox.Password = string.Empty;
+                passwordBox.Focus(FocusState.Programmatic);
+                args.Cancel = true;
+                return;
+            }
+
+            if (!string.Equals(entered, confirmBox.Password, StringComparison.Ordinal))
+            {
+                errorText.Text = _runtime.Translate("ExportPasswordMismatch");
+                confirmBox.Password = string.Empty;
+                confirmBox.Focus(FocusState.Programmatic);
+                args.Cancel = true;
+                return;
+            }
+
+            password = entered;
+        };
+
+        passwordBox.Loaded += (_, _) => passwordBox.Focus(FocusState.Programmatic);
+        await ShowContentDialogAsync(dialog);
+        return password;
+    }
+
+    private async Task<string?> PromptForImportPasswordAsync()
+    {
+        if (_root.XamlRoot is null)
+        {
+            return null;
+        }
+
+        var passwordBox = new PasswordBox
+        {
+            MaxLength = 128,
+            PlaceholderText = _runtime.Translate("ExportPasswordPlaceholder")
+        };
+        var errorText = Description();
+        errorText.Foreground = new SolidColorBrush(Colors.IndianRed);
+        errorText.TextWrapping = TextWrapping.Wrap;
+        var content = new StackPanel
+        {
+            Spacing = 10,
+            MaxWidth = 420,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = _runtime.Translate("EnterExportPasswordDescription"),
+                    TextWrapping = TextWrapping.Wrap
+                },
+                passwordBox,
+                errorText
+            }
+        };
+
+        string? password = null;
+        var dialog = new ContentDialog
+        {
+            Title = _runtime.Translate("EnterExportPassword"),
+            Content = content,
+            PrimaryButtonText = _runtime.Translate("Import"),
+            CloseButtonText = _runtime.Translate("Cancel"),
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = _root.XamlRoot,
+            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+        };
+        dialog.PrimaryButtonClick += (_, args) =>
+        {
+            if (!EncryptedExportFile.IsValidPassphrase(passwordBox.Password))
+            {
+                errorText.Text = string.Format(_runtime.Translate("ExportPasswordTooShort"), EncryptedExportFile.MinPassphraseLength);
+                passwordBox.Password = string.Empty;
+                passwordBox.Focus(FocusState.Programmatic);
+                args.Cancel = true;
+                return;
+            }
+
+            password = passwordBox.Password;
+        };
+
+        passwordBox.Loaded += (_, _) => passwordBox.Focus(FocusState.Programmatic);
+        await ShowContentDialogAsync(dialog);
+        return password;
+    }
+
     private async Task ImportSnippetsAsync()
     {
         var path = await SelectImportPathAsync();
@@ -2993,12 +3169,21 @@ public sealed class MainWindow : Window
             return;
         }
 
+        var encrypted = EncryptedExportFile.HasEncryptedExtension(path);
+        var password = encrypted ? await PromptForImportPasswordAsync() : null;
+        if (encrypted && password is null)
+        {
+            return;
+        }
+
         SnippetImportPreview preview;
         try
         {
-            preview = _runtime.PreviewImportSnippets(path);
+            preview = encrypted
+                ? _runtime.PreviewImportSnippetsEncrypted(path, password!)
+                : _runtime.PreviewImportSnippets(path);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException or ArgumentException or FormatException)
         {
             await ShowMessageDialogAsync(
                 _runtime.Translate("ImportSnippets"),
@@ -3024,7 +3209,9 @@ public sealed class MainWindow : Window
             "ImportSnippets",
             () =>
             {
-                var count = _runtime.ImportSnippets(path);
+                var count = encrypted
+                    ? _runtime.ImportSnippetsEncrypted(path, password!)
+                    : _runtime.ImportSnippets(path);
                 _selectedSnippet = null;
                 UpdateSelectedSnippetText();
                 RefreshItems();
@@ -3037,9 +3224,10 @@ public sealed class MainWindow : Window
         var picker = new FileSavePicker
         {
             SuggestedFileName = fileName,
-            DefaultFileExtension = ".json",
+            DefaultFileExtension = EncryptedExportFile.Extension,
             SuggestedStartLocation = PickerLocationId.DocumentsLibrary
         };
+        picker.FileTypeChoices.Add(_runtime.Translate("EncryptedExportFiles"), [EncryptedExportFile.Extension]);
         picker.FileTypeChoices.Add(_runtime.Translate("JsonFiles"), [".json"]);
         InitializeWithWindow.Initialize(picker, _hwnd);
         var file = await picker.PickSaveFileAsync();
@@ -3052,6 +3240,7 @@ public sealed class MainWindow : Window
         {
             SuggestedStartLocation = PickerLocationId.DocumentsLibrary
         };
+        picker.FileTypeFilter.Add(EncryptedExportFile.Extension);
         picker.FileTypeFilter.Add(".json");
         InitializeWithWindow.Initialize(picker, _hwnd);
         var file = await picker.PickSingleFileAsync();
@@ -3079,7 +3268,7 @@ public sealed class MainWindow : Window
                 action(),
                 _runtime.Translate("Close"));
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException or ArgumentException or FormatException)
         {
             await ShowMessageDialogAsync(
                 _runtime.Translate(titleKey),

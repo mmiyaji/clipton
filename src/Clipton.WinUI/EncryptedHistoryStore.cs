@@ -220,6 +220,31 @@ public sealed class EncryptedHistoryStore
         }
     }
 
+    /// <summary>
+    /// Removes source application and window-title metadata from every persisted item.
+    /// </summary>
+    public void ClearSourceMetadata()
+    {
+        lock (_syncRoot)
+        {
+            var items = LoadOrderedDtos().ToArray();
+            if (items.Length == 0
+                || items.All(item => string.IsNullOrWhiteSpace(item.SourceApplicationName)
+                    && string.IsNullOrWhiteSpace(item.SourceWindowTitle)))
+            {
+                return;
+            }
+
+            foreach (var item in items)
+            {
+                item.SourceApplicationName = null;
+                item.SourceWindowTitle = null;
+            }
+
+            SaveItemized(items, items.Select(item => item.Id).ToArray(), overwriteExistingItems: true);
+        }
+    }
+
     private IReadOnlyList<ClipboardSnapshot> LoadSegmented()
     {
         try
@@ -340,7 +365,7 @@ public sealed class EncryptedHistoryStore
         WriteManifest(new HistoryManifestDto(ChunkedFormatVersion, ids, ids, [], chunkIds));
     }
 
-    private void SaveItemized(IReadOnlyList<ClipboardSnapshotDto> items, string[] ids)
+    private void SaveItemized(IReadOnlyList<ClipboardSnapshotDto> items, string[] ids, bool overwriteExistingItems = false)
     {
         Directory.CreateDirectory(_itemsDirectory);
         var idsToKeep = ids.ToHashSet(StringComparer.Ordinal);
@@ -352,7 +377,7 @@ public sealed class EncryptedHistoryStore
             }
 
             var path = ItemPath(item.Id);
-            if (!File.Exists(path))
+            if (overwriteExistingItems || !File.Exists(path))
             {
                 WriteProtected(path, item);
             }
