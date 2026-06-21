@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Reflection;
 using System.Runtime;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Clipton.Core;
@@ -44,7 +45,7 @@ public sealed class CliptonRuntime : IDisposable
     private static readonly TimeSpan TempPasteMaxAge = TimeSpan.FromHours(1);
     private static readonly TimeSpan TempPasteDeleteDelay = TimeSpan.FromMinutes(30);
     private static readonly Regex UrlRegex = new(@"\b(?:https?|ftp)://[^\s<>()""']+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private readonly DispatcherQueue _dispatcherQueue;
+    private readonly DispatcherQueue? _dispatcherQueue;
     private readonly LocalizationCatalog _localization = new();
     private readonly JsonSettingsStore _settingsStore;
     private readonly EncryptedHistoryStore _historyStore;
@@ -87,7 +88,7 @@ public sealed class CliptonRuntime : IDisposable
     /// <param name="isSafeMode">When true, disables startup-registration changes.</param>
     public CliptonRuntime(string? dataDirectory = null, bool isSafeMode = false)
     {
-        _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
+        _dispatcherQueue = ResolveDispatcherQueue(isSafeMode);
         var appData = string.IsNullOrWhiteSpace(dataDirectory)
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Clipton")
             : dataDirectory;
@@ -130,6 +131,18 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         AppProfiler.Mark($"History loaded. count={History.Items.Count}; persisted={_persistedHistoryCount}");
+    }
+
+    private static DispatcherQueue? ResolveDispatcherQueue(bool isSafeMode)
+    {
+        try
+        {
+            return DispatcherQueue.GetForCurrentThread();
+        }
+        catch (COMException) when (isSafeMode)
+        {
+            return null;
+        }
     }
 
     /// <summary>Current normalized settings model.</summary>
@@ -230,7 +243,7 @@ public sealed class CliptonRuntime : IDisposable
     public void ActivateFromSecondInstance()
     {
         AppDiagnostics.Info("Runtime", "Second instance launch detected; activating settings window.");
-        _dispatcherQueue.TryEnqueue(ShowMainWindow);
+        _dispatcherQueue?.TryEnqueue(ShowMainWindow);
     }
 
     public void ShowMainWindow()
@@ -1328,6 +1341,12 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         _pasteTargetWindow = pasteTargetWindow;
+        if (_dispatcherQueue is null)
+        {
+            Volatile.Write(ref _quickMenuRequestPending, 0);
+            return;
+        }
+
         if (!_dispatcherQueue.TryEnqueue(async () =>
         {
             try
@@ -1361,7 +1380,7 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        _dispatcherQueue.TryEnqueue(() => CommitCapturedClipboard(result.Snapshot, result.Sequence));
+        _dispatcherQueue?.TryEnqueue(() => CommitCapturedClipboard(result.Snapshot, result.Sequence));
     }
 
     private ClipboardCaptureResult? CaptureClipboardSnapshotCore(IntPtr sourceWindow = default)
@@ -1542,7 +1561,7 @@ public sealed class CliptonRuntime : IDisposable
                     AppDiagnostics.Info("Clipboard", $"Quick menu clipboard capture completed after {elapsed:F1}ms; refreshing current menu.");
                 }
 
-                _dispatcherQueue.TryEnqueue(() =>
+                _dispatcherQueue?.TryEnqueue(() =>
                 {
                     if (CommitCapturedClipboard(result.Snapshot, result.Sequence))
                     {
@@ -1618,15 +1637,15 @@ public sealed class CliptonRuntime : IDisposable
             Translate("History"),
             Translate("Settings"),
             Translate("Exit"),
-            () => _dispatcherQueue.TryEnqueue(async () =>
+            () => _dispatcherQueue?.TryEnqueue(async () =>
             {
                 if (await EnsureHistoryAccessUnlockedAsync(keepUnlockWindowVisible: false))
                 {
                     ShowQuickMenu();
                 }
             }),
-            () => _dispatcherQueue.TryEnqueue(ShowMainWindow),
-            () => _dispatcherQueue.TryEnqueue(ExitApplication));
+            () => _dispatcherQueue?.TryEnqueue(ShowMainWindow),
+            () => _dispatcherQueue?.TryEnqueue(ExitApplication));
         RefreshTrayText();
     }
 
@@ -2021,6 +2040,12 @@ public sealed class CliptonRuntime : IDisposable
     // UI thread (e.g. a clipboard capture committing at the same time).
     private bool RunOnDispatcher(Action action)
     {
+        if (_dispatcherQueue is null)
+        {
+            action();
+            return true;
+        }
+
         if (_dispatcherQueue.HasThreadAccess)
         {
             action();
@@ -2259,7 +2284,17 @@ public sealed class CliptonRuntime : IDisposable
         CancelPendingHistorySaveDebounce();
         var plan = CreateHistoryPersistPlan();
         _ = EnqueueHistoryPersist(plan).ContinueWith(
-            _ => _dispatcherQueue.TryEnqueue(() => FinishHistoryPersist(plan)),
+            _ =>
+            {
+                if (_dispatcherQueue is { } dispatcherQueue)
+                {
+                    dispatcherQueue.TryEnqueue(() => FinishHistoryPersist(plan));
+                }
+                else
+                {
+                    FinishHistoryPersist(plan);
+                }
+            },
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnRanToCompletion,
             TaskScheduler.Default);
@@ -2376,7 +2411,14 @@ public sealed class CliptonRuntime : IDisposable
                 await Task.Delay(HistorySaveDebounceMilliseconds, cts.Token);
                 if (version == Volatile.Read(ref _historySaveVersion))
                 {
-                    _dispatcherQueue.TryEnqueue(SaveHistoryInBackground);
+                    if (_dispatcherQueue is { } dispatcherQueue)
+                    {
+                        dispatcherQueue.TryEnqueue(SaveHistoryInBackground);
+                    }
+                    else
+                    {
+                        SaveHistoryInBackground();
+                    }
                 }
             }
             catch (OperationCanceledException)

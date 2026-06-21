@@ -60,7 +60,8 @@ jobs:
         run: |
           dotnet test tests\Clipton.WinUI.Tests\Clipton.WinUI.Tests.csproj `
             -c Release `
-            --no-restore `
+            -r win-x64 `
+            -p:WindowsAppSDKSelfContained=true `
             --blame-hang `
             --blame-hang-timeout 2m `
             --logger "trx;LogFileName=validation-winui-tests.trx" `
