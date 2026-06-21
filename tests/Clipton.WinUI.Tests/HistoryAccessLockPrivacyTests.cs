@@ -80,14 +80,54 @@ public sealed class HistoryAccessLockPrivacyTests
         runtime.LockHistoryAccess();
         var historyExportPath = Path.Combine(root, "history-export.json");
         var snippetsExportPath = Path.Combine(root, "snippets-export.json");
+        var historyImportPath = Path.Combine(root, "history-import.json");
+        var snippetsImportPath = Path.Combine(root, "snippets-import.json");
+        File.WriteAllText(historyImportPath, """
+            {
+              "Version": 1,
+              "ExportedAt": "2026-06-21T00:00:00+00:00",
+              "Items": [
+                {
+                  "Id": "imported-history",
+                  "CapturedAt": "2026-06-21T00:00:00+00:00",
+                  "Formats": ["Text"],
+                  "Text": "imported private clipboard text"
+                }
+              ]
+            }
+            """);
+        File.WriteAllText(snippetsImportPath, """
+            {
+              "Version": 1,
+              "ExportedAt": "2026-06-21T00:00:00+00:00",
+              "Items": [
+                {
+                  "Folder": "Secrets",
+                  "Name": "Imported",
+                  "Text": "imported private snippet text"
+                }
+              ]
+            }
+            """);
 
         Assert.True(runtime.RequiresHistoryAccessUnlock);
         Assert.Empty(runtime.CreateHistoryContextOptions("history-1"));
         Assert.Throws<InvalidOperationException>(() => runtime.ExportHistory(historyExportPath));
         Assert.Throws<InvalidOperationException>(() => runtime.ExportSnippets(snippetsExportPath));
+        Assert.Throws<InvalidOperationException>(() => runtime.PreviewImportHistory(historyImportPath));
+        Assert.Throws<InvalidOperationException>(() => runtime.PreviewImportSnippets(snippetsImportPath));
+        Assert.Throws<InvalidOperationException>(() => runtime.ImportHistory(historyImportPath));
+        Assert.Throws<InvalidOperationException>(() => runtime.ImportSnippets(snippetsImportPath));
         Assert.Throws<InvalidOperationException>(() => runtime.UpsertSnippet("Secrets", "Other", "new private snippet"));
+        Assert.Throws<InvalidOperationException>(() => runtime.RemoveSnippet("Secrets", "ApiKey"));
+        runtime.TogglePinnedHistoryItem("history-1");
+        runtime.RemoveHistoryItem("history-1");
+        runtime.LoadMorePersistedHistory();
         Assert.False(File.Exists(historyExportPath));
         Assert.False(File.Exists(snippetsExportPath));
+        Assert.Single(runtime.History.Items);
+        Assert.Single(runtime.Snippets.Snippets);
+        Assert.False(runtime.IsHistoryPinned("history-1"));
 
         Assert.True(runtime.UnlockHistoryAccess("2468"));
 
@@ -96,6 +136,10 @@ public sealed class HistoryAccessLockPrivacyTests
         Assert.Equal(1, runtime.ExportSnippets(snippetsExportPath));
         Assert.Contains("private clipboard text", File.ReadAllText(historyExportPath), StringComparison.Ordinal);
         Assert.Contains("private snippet text", File.ReadAllText(snippetsExportPath), StringComparison.Ordinal);
+        Assert.Equal(1, runtime.ImportHistory(historyImportPath));
+        Assert.Equal(1, runtime.ImportSnippets(snippetsImportPath));
+        Assert.Contains(runtime.History.Items, item => string.Equals(item.Text, "imported private clipboard text", StringComparison.Ordinal));
+        Assert.NotNull(runtime.Snippets.Find("Secrets", "Imported"));
     }
 
     private static string CreateTestRoot()
