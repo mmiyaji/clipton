@@ -28,16 +28,42 @@ jobs:
         timeout-minutes: 4
         run: dotnet restore Clipton.slnx
 
-      - name: Run unit and upgrade tests
+      - name: Run core tests
         timeout-minutes: 8
         shell: pwsh
         run: |
-          dotnet test Clipton.slnx `
+          dotnet test tests\Clipton.Core.Tests\Clipton.Core.Tests.csproj `
             -c Release `
             --no-restore `
             --blame-hang `
             --blame-hang-timeout 2m `
-            --logger "trx;LogFileName=validation-tests.trx" `
+            --logger "trx;LogFileName=validation-core-tests.trx" `
+            -- `
+            RunConfiguration.TestSessionTimeout=480000
+
+      - name: Run app tests
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          dotnet test tests\Clipton.App.Tests\Clipton.App.Tests.csproj `
+            -c Release `
+            --no-restore `
+            --blame-hang `
+            --blame-hang-timeout 2m `
+            --logger "trx;LogFileName=validation-app-tests.trx" `
+            -- `
+            RunConfiguration.TestSessionTimeout=480000
+
+      - name: Run WinUI tests
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          dotnet test tests\Clipton.WinUI.Tests\Clipton.WinUI.Tests.csproj `
+            -c Release `
+            --no-restore `
+            --blame-hang `
+            --blame-hang-timeout 2m `
+            --logger "trx;LogFileName=validation-winui-tests.trx" `
             -- `
             RunConfiguration.TestSessionTimeout=480000
 
@@ -46,7 +72,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: validation-test-results
-          path: "**/TestResults/*.trx"
+          path: "**/TestResults/**"
           if-no-files-found: ignore
           retention-days: 7
 
