@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Clipton.Core;
 using Microsoft.UI;
 using Microsoft.UI.Input;
@@ -66,6 +67,7 @@ public sealed class MainWindow : Window
     private readonly List<NavigationViewItem> _navItems = [];
     private readonly Dictionary<ToggleSwitch, TextBlock> _toggleStateLabels = [];
     private readonly List<(TextBlock TextBlock, string Key)> _localizedTextBlocks = [];
+    private readonly List<(FrameworkElement Element, string TitleKey, string DescriptionKey)> _settingAutomationTargets = [];
     private readonly List<TextBlock> _descriptionTextBlocks = [];
     private readonly TextBlock _titleText = Header(20);
     private readonly TextBlock _hotkeyText = Description();
@@ -539,6 +541,7 @@ public sealed class MainWindow : Window
         AutomationProperties.SetName(_donationButton, t("BuyMeACoffee"));
         AutomationProperties.SetName(_donationLinkButton, t("DonationOpenBuyMeACoffee"));
         RefreshStoreUpdateTexts();
+        RefreshSettingControlAutomation();
         SetCommandButton(_exitApplicationButton, "\uE8BB", t("ExitApplication"));
         SetCommandButton(_openLogsButton, "\uE838", t("OpenLogs"));
         SetCommandButton(_clearLogsButton, "\uE74D", t("ClearLogs"));
@@ -964,6 +967,7 @@ public sealed class MainWindow : Window
 
     private UIElement ShortcutSettingRow(string titleKey, string descriptionKey, FrameworkElement control)
     {
+        ApplySettingControlAutomation(control, titleKey, descriptionKey);
         control.HorizontalAlignment = HorizontalAlignment.Right;
         var row = ShortcutRow(titleKey, descriptionKey);
         Grid.SetColumn(control, 1);
@@ -1083,7 +1087,7 @@ public sealed class MainWindow : Window
         _clearLogsButton.Click += async (_, _) => await ConfirmAndClearLogsAsync();
         diagnosticControls.Children.Add(_openLogsButton);
         diagnosticControls.Children.Add(_clearLogsButton);
-        diagnosticControls.Children.Add(ToggleActionHost(_diagnosticLoggingToggle));
+        diagnosticControls.Children.Add(ToggleActionHost(_diagnosticLoggingToggle, "DiagnosticLogging", "DiagnosticLoggingDescription"));
         _historySettingsPage.Children.Add(SettingCard("\uE946", "DiagnosticLogging", "DiagnosticLoggingDescription", diagnosticControls));
         _historySettingsPage.Children.Add(SettingCard("\uE72E", "PersistHistory", "PersistHistoryDescription", _persistHistoryToggle));
         _historySettingsPage.Children.Add(SettingCard("\uE8FD", "SaveHistorySourceMetadata", "SaveHistorySourceMetadataDescription", _saveSourceMetadataToggle));
@@ -1106,7 +1110,7 @@ public sealed class MainWindow : Window
         _historySettingsPage.Children.Add(SettingCard("\uE916", "ClipboardCaptureDelay", "ClipboardCaptureDelayDescription", _clipboardCaptureDelayBox));
         var maskControls = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         maskControls.Children.Add(_maskDefinitionsButton);
-        maskControls.Children.Add(ToggleActionHost(_maskSensitiveContentToggle));
+        maskControls.Children.Add(ToggleActionHost(_maskSensitiveContentToggle, "MaskSensitiveContent", "MaskSensitiveContentDescription"));
         _maskDefinitionsButton.Click += (_, _) => ToggleMaskDefinitionsPanel();
         _historySettingsPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", maskControls));
         _historySettingsPage.Children.Add(BuildMaskDefinitionsPanel());
@@ -1134,7 +1138,7 @@ public sealed class MainWindow : Window
         buttons.Children.Add(_historyAccessLockPinButton);
         buttons.Children.Add(_historyAccessLockResetButton);
         buttons.Children.Add(_historyAccessLockNowButton);
-        buttons.Children.Add(ToggleActionHost(_historyAccessLockToggle));
+        buttons.Children.Add(ToggleActionHost(_historyAccessLockToggle, "HistoryAccessLock", "HistoryAccessLockDescription"));
 
         var controls = new StackPanel
         {
@@ -4713,8 +4717,9 @@ public sealed class MainWindow : Window
             controlElement.MinWidth = control is ToggleSwitch ? 0 : 220;
         }
 
+        ApplySettingControlAutomation(control, titleKey, descriptionKey);
         control.HorizontalAlignment = HorizontalAlignment.Right;
-        var actionControl = control is ToggleSwitch toggle ? ToggleActionHost(toggle) : control;
+        var actionControl = control is ToggleSwitch toggle ? ToggleActionHost(toggle, titleKey, descriptionKey) : control;
 
         var grid = new Grid { ColumnSpacing = 14, VerticalAlignment = VerticalAlignment.Center };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
@@ -4732,7 +4737,56 @@ public sealed class MainWindow : Window
         return Card(grid);
     }
 
-    private Grid ToggleActionHost(ToggleSwitch toggle)
+    private void ApplySettingControlAutomation(FrameworkElement element, string titleKey, string descriptionKey)
+    {
+        _settingAutomationTargets.Add((element, titleKey, descriptionKey));
+        var name = _runtime.Translate(titleKey);
+        var helpText = _runtime.Translate(descriptionKey);
+        ApplySettingControlAutomationValues(element, name, helpText);
+    }
+
+    private static void ApplySettingControlAutomationValues(FrameworkElement element, string name, string helpText)
+    {
+        if (element is ToggleSwitch toggle)
+        {
+            SetControlAutomation(toggle, name, helpText);
+            return;
+        }
+
+        if (element is ComboBox comboBox)
+        {
+            SetControlAutomation(comboBox, name, helpText);
+            return;
+        }
+
+        if (element is Panel panel)
+        {
+            foreach (var child in panel.Children.OfType<FrameworkElement>())
+            {
+                ApplySettingControlAutomationValues(child, name, helpText);
+            }
+        }
+    }
+
+    private static void SetControlAutomation(Control control, string name, string helpText)
+    {
+        AutomationProperties.SetName(control, name);
+        AutomationProperties.SetHelpText(control, helpText);
+        ToolTipService.SetToolTip(control, name);
+    }
+
+    private void RefreshSettingControlAutomation()
+    {
+        foreach (var (element, titleKey, descriptionKey) in _settingAutomationTargets)
+        {
+            ApplySettingControlAutomationValues(
+                element,
+                _runtime.Translate(titleKey),
+                _runtime.Translate(descriptionKey));
+        }
+    }
+
+    private Grid ToggleActionHost(ToggleSwitch toggle, string? titleKey = null, string? descriptionKey = null)
     {
         var status = new TextBlock
         {
@@ -4741,9 +4795,15 @@ public sealed class MainWindow : Window
             Foreground = DescriptionBrush(),
             VerticalAlignment = VerticalAlignment.Center
         };
+        AutomationProperties.SetAccessibilityView(status, AccessibilityView.Raw);
         _descriptionTextBlocks.Add(status);
         _toggleStateLabels[toggle] = status;
         UpdateToggleStateLabel(toggle);
+
+        if (titleKey is not null && descriptionKey is not null)
+        {
+            SetControlAutomation(toggle, _runtime.Translate(titleKey), _runtime.Translate(descriptionKey));
+        }
 
         toggle.HorizontalAlignment = HorizontalAlignment.Right;
         toggle.VerticalAlignment = VerticalAlignment.Center;
