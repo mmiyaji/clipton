@@ -15,6 +15,7 @@ using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
+using Windows.Services.Store;
 using Windows.Storage.Pickers;
 using Windows.Storage.Streams;
 using Windows.System;
@@ -164,6 +165,16 @@ public sealed class MainWindow : Window
     private readonly Button _donationButton = new();
     private readonly TextBlock _donationFallbackText = new();
     private readonly HyperlinkButton _donationLinkButton = new();
+    private readonly TextBlock _storeUpdateStatusText = Description();
+    private readonly Button _checkStoreUpdateButton = new();
+    private readonly Button _installStoreUpdateButton = new();
+    private readonly ProgressRing _storeUpdateProgressRing = new()
+    {
+        Width = 20,
+        Height = 20,
+        IsActive = false,
+        Visibility = Visibility.Collapsed
+    };
     private readonly Button _exitApplicationButton = new();
     private readonly Button _openLogsButton = new();
     private readonly Button _clearLogsButton = new();
@@ -198,6 +209,13 @@ public sealed class MainWindow : Window
     private bool _onboardingDialogOpen;
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _onboardingTimer;
     private Border? _maskDefinitionsCard;
+    private IReadOnlyList<StorePackageUpdate> _storePackageUpdates = [];
+    private string _storeUpdateStatusKey = "StoreUpdateStatusIdle";
+    private string? _storeUpdateStatusDetail;
+    private bool _storeUpdateCheckStarted;
+    private bool _storeUpdateChecking;
+    private bool _storeUpdateInstalling;
+    private bool _storeUpdateAvailable;
 
     public MainWindow(CliptonRuntime runtime)
     {
@@ -214,6 +232,7 @@ public sealed class MainWindow : Window
             _snippetDescriptionText,
             _donationDescriptionText,
             _aboutDescriptionText,
+            _storeUpdateStatusText,
             _historySearchStatusText,
             _historyEmptyText,
             _selectedSnippetText,
@@ -515,6 +534,7 @@ public sealed class MainWindow : Window
         _donationLinkButton.Content = t("DonationOpenBuyMeACoffee");
         AutomationProperties.SetName(_donationButton, t("BuyMeACoffee"));
         AutomationProperties.SetName(_donationLinkButton, t("DonationOpenBuyMeACoffee"));
+        RefreshStoreUpdateTexts();
         SetCommandButton(_exitApplicationButton, "\uE8BB", t("ExitApplication"));
         SetCommandButton(_openLogsButton, "\uE838", t("OpenLogs"));
         SetCommandButton(_clearLogsButton, "\uE74D", t("ClearLogs"));
@@ -2074,6 +2094,7 @@ public sealed class MainWindow : Window
             : InfoRow("Package", _runtime.PackageStatus));
         info.Children.Add(InfoLinkRow("Author", AuthorUrl, AuthorUrl));
         _aboutPage.Children.Add(Card(info));
+        _aboutPage.Children.Add(BuildStoreUpdateCard());
 
         var documents = new StackPanel { Spacing = 10 };
         documents.Children.Add(DescriptionText("LegalDescription",
@@ -2090,6 +2111,36 @@ public sealed class MainWindow : Window
         _exitApplicationButton.HorizontalAlignment = HorizontalAlignment.Left;
         _exitApplicationButton.Click += (_, _) => _runtime.ExitApplication();
         _aboutPage.Children.Add(SettingCard("\uE8BB", "ExitApplication", "ExitApplicationDescription", _exitApplicationButton));
+    }
+
+    private UIElement BuildStoreUpdateCard()
+    {
+        var content = new Grid { ColumnSpacing = 14, VerticalAlignment = VerticalAlignment.Center };
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
+        content.ColumnDefinitions.Add(new ColumnDefinition());
+        content.Children.Add(IconCircle("\uE895"));
+
+        var body = new StackPanel { Spacing = 9 };
+        body.Children.Add(LocalizedText("StoreUpdate", fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
+        body.Children.Add(DescriptionText("StoreUpdateDescription", fontSize: 12, wrapping: TextWrapping.Wrap));
+
+        var status = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        status.Children.Add(_storeUpdateProgressRing);
+        status.Children.Add(_storeUpdateStatusText);
+        body.Children.Add(status);
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Spacing = 8 };
+        _checkStoreUpdateButton.Click += async (_, _) => await CheckStoreUpdatesAsync(userInitiated: true);
+        _installStoreUpdateButton.Click += async (_, _) => await InstallStoreUpdatesAsync();
+        _installStoreUpdateButton.Visibility = Visibility.Collapsed;
+        actions.Children.Add(_checkStoreUpdateButton);
+        actions.Children.Add(_installStoreUpdateButton);
+        body.Children.Add(actions);
+
+        Grid.SetColumn(body, 1);
+        content.Children.Add(body);
+        SetStoreUpdateStatus("StoreUpdateStatusIdle", isBusy: false, canCheck: true, canInstall: false);
+        return Card(content);
     }
 
     private void BuildDonationPage()
@@ -2161,6 +2212,161 @@ public sealed class MainWindow : Window
         {
             ClipboardBridge.PutText(url);
         }
+    }
+
+    private async Task EnsureStoreUpdateCheckStartedAsync()
+    {
+        if (_storeUpdateCheckStarted)
+        {
+            return;
+        }
+
+        _storeUpdateCheckStarted = true;
+        try
+        {
+            await CheckStoreUpdatesAsync(userInitiated: false);
+        }
+        catch (Exception exception)
+        {
+            AppDiagnostics.Log(exception, "Store update auto-check");
+        }
+    }
+
+    private async Task CheckStoreUpdatesAsync(bool userInitiated)
+    {
+        if (!DispatcherQueue.HasThreadAccess)
+        {
+            await RunOnUiThreadAsync(() => CheckStoreUpdatesAsync(userInitiated));
+            return;
+        }
+
+        if (_storeUpdateChecking || _storeUpdateInstalling)
+        {
+            return;
+        }
+
+        _storeUpdateChecking = true;
+        SetStoreUpdateStatus("StoreUpdateStatusChecking", isBusy: true, canCheck: false, canInstall: false);
+        try
+        {
+            if (string.Equals(_runtime.PackageStatus, "Unpackaged", StringComparison.Ordinal))
+            {
+                _storePackageUpdates = [];
+                _storeUpdateAvailable = false;
+                SetStoreUpdateStatus("StoreUpdateStatusNotSupported", isBusy: false, canCheck: true, canInstall: false);
+                UpdateNavButtonContents();
+                return;
+            }
+
+            var context = StoreContext.GetDefault();
+            InitializeStoreContextWindow(context);
+            _storePackageUpdates = (await context.GetAppAndOptionalStorePackageUpdatesAsync()).ToArray();
+            _storeUpdateAvailable = _storePackageUpdates.Count > 0;
+            SetStoreUpdateStatus(
+                _storeUpdateAvailable ? "StoreUpdateStatusAvailable" : "StoreUpdateStatusNotAvailable",
+                isBusy: false,
+                canCheck: true,
+                canInstall: _storeUpdateAvailable);
+            UpdateNavButtonContents();
+        }
+        catch (Exception exception)
+        {
+            AppDiagnostics.Log(exception, userInitiated ? "Store update manual-check" : "Store update auto-check");
+            _storePackageUpdates = [];
+            _storeUpdateAvailable = false;
+            SetStoreUpdateStatus("StoreUpdateStatusFailed", isBusy: false, canCheck: true, canInstall: false, exception.Message);
+            UpdateNavButtonContents();
+        }
+        finally
+        {
+            _storeUpdateChecking = false;
+            UpdateStoreUpdateButtons();
+        }
+    }
+
+    private async Task InstallStoreUpdatesAsync()
+    {
+        if (!DispatcherQueue.HasThreadAccess)
+        {
+            await RunOnUiThreadAsync(InstallStoreUpdatesAsync);
+            return;
+        }
+
+        if (_storeUpdateInstalling)
+        {
+            return;
+        }
+
+        if (_storePackageUpdates.Count == 0)
+        {
+            await CheckStoreUpdatesAsync(userInitiated: true);
+            if (_storePackageUpdates.Count == 0)
+            {
+                return;
+            }
+        }
+
+        _storeUpdateInstalling = true;
+        SetStoreUpdateStatus("StoreUpdateStatusInstalling", isBusy: true, canCheck: false, canInstall: false);
+        try
+        {
+            var context = StoreContext.GetDefault();
+            InitializeStoreContextWindow(context);
+            var result = await context.RequestDownloadAndInstallStorePackageUpdatesAsync(_storePackageUpdates);
+            _storePackageUpdates = [];
+            _storeUpdateAvailable = false;
+            SetStoreUpdateStatus("StoreUpdateStatusInstallResult", isBusy: false, canCheck: true, canInstall: false, result.OverallState.ToString());
+            UpdateNavButtonContents();
+        }
+        catch (Exception exception)
+        {
+            AppDiagnostics.Log(exception, "Store update install");
+            SetStoreUpdateStatus("StoreUpdateStatusFailed", isBusy: false, canCheck: true, canInstall: _storePackageUpdates.Count > 0, exception.Message);
+        }
+        finally
+        {
+            _storeUpdateInstalling = false;
+            UpdateStoreUpdateButtons();
+        }
+    }
+
+    private void InitializeStoreContextWindow(StoreContext context)
+    {
+        if (_hwnd != IntPtr.Zero)
+        {
+            InitializeWithWindow.Initialize(context, _hwnd);
+        }
+    }
+
+    private void SetStoreUpdateStatus(string key, bool isBusy, bool canCheck, bool canInstall, string? detail = null)
+    {
+        _storeUpdateStatusKey = key;
+        _storeUpdateStatusDetail = detail;
+        _storeUpdateProgressRing.IsActive = isBusy;
+        _storeUpdateProgressRing.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
+        _checkStoreUpdateButton.Tag = canCheck;
+        _installStoreUpdateButton.Tag = canInstall;
+        RefreshStoreUpdateTexts();
+        UpdateStoreUpdateButtons();
+    }
+
+    private void RefreshStoreUpdateTexts()
+    {
+        SetCommandButton(_checkStoreUpdateButton, "\uE72C", _runtime.Translate("CheckForUpdates"));
+        SetCommandButton(_installStoreUpdateButton, "\uE895", _runtime.Translate("InstallUpdate"));
+        var text = _runtime.Translate(_storeUpdateStatusKey);
+        _storeUpdateStatusText.Text = _storeUpdateStatusDetail is null
+            ? text
+            : string.Format(text, _storeUpdateStatusDetail);
+    }
+
+    private void UpdateStoreUpdateButtons()
+    {
+        var canCheck = _checkStoreUpdateButton.Tag is bool check && check;
+        var canInstall = _installStoreUpdateButton.Tag is bool install && install;
+        _checkStoreUpdateButton.IsEnabled = canCheck && !_storeUpdateChecking && !_storeUpdateInstalling;
+        _installStoreUpdateButton.IsEnabled = canInstall && !_storeUpdateChecking && !_storeUpdateInstalling;
+        _installStoreUpdateButton.Visibility = canInstall ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async Task SetStartupAsync()
@@ -4199,6 +4405,10 @@ public sealed class MainWindow : Window
         _snippetPage.Visibility = index == 4 ? Visibility.Visible : Visibility.Collapsed;
         _donationPage.Visibility = index == 5 ? Visibility.Visible : Visibility.Collapsed;
         _aboutPage.Visibility = index == 6 ? Visibility.Visible : Visibility.Collapsed;
+        if (index == 6)
+        {
+            _ = EnsureStoreUpdateCheckStartedAsync();
+        }
 
         if (index >= 0 && index < _navItems.Count && !ReferenceEquals(_navigationView.SelectedItem, _navItems[index]))
         {
@@ -4281,6 +4491,11 @@ public sealed class MainWindow : Window
         }
 
         var label = _runtime.Translate(labelKey);
+        if (_storeUpdateAvailable && string.Equals(labelKey, "About", StringComparison.Ordinal))
+        {
+            label = string.Format(_runtime.Translate("AboutUpdateAvailableTab"), label);
+        }
+
         var item = _navItems[index];
         item.Content = label;
         item.Icon = new FontIcon

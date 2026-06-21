@@ -69,4 +69,17 @@ public sealed class LocalizationCatalogTests
         Assert.Equal("Paste edited", catalog.Translate("en", "PasteEdited"));
         Assert.Equal("編集して貼り付け", catalog.Translate("ja", "EditAndPaste"));
     }
+
+    [Fact]
+    public void Translate_ProvidesStoreUpdateLabels()
+    {
+        var catalog = new LocalizationCatalog();
+
+        Assert.Equal("Store updates", catalog.Translate("en", "StoreUpdate"));
+        Assert.Equal("Store 更新", catalog.Translate("ja", "StoreUpdate"));
+        Assert.Contains("update available", catalog.Translate("en", "AboutUpdateAvailableTab"));
+        Assert.Contains("更新あり", catalog.Translate("ja", "AboutUpdateAvailableTab"));
+        Assert.Contains("Microsoft Store", catalog.Translate("en", "StoreUpdateDescription"));
+        Assert.Contains("Microsoft Store", catalog.Translate("ja", "StoreUpdateDescription"));
+    }
 }
