@@ -12,7 +12,9 @@ public sealed class SnippetCatalog
 {
     private readonly List<Snippet> _snippets = new();
     private readonly Dictionary<string, Snippet> _snippetsByKey = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _snippetIndexesByKey = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Snippet> _snippetsByText = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _snippetTextCounts = new(StringComparer.Ordinal);
 
     /// <summary>Snippets in display order.</summary>
     public IReadOnlyList<Snippet> Snippets => _snippets;
@@ -30,22 +32,35 @@ public sealed class SnippetCatalog
 
         var normalized = Normalize(snippet);
         var key = CreateKey(normalized.Folder, normalized.Name);
-        var index = _snippetsByKey.TryGetValue(key, out var existing)
-            ? _snippets.IndexOf(existing)
-            : -1;
-        if (index >= 0)
+        if (_snippetIndexesByKey.TryGetValue(key, out var index))
         {
+            var existing = _snippets[index];
             _snippets[index] = normalized;
-            RebuildIndexes();
+            _snippetsByKey[key] = normalized;
+            UpdateTextIndexForReplacement(existing, normalized, index);
             return;
         }
 
+        _snippetIndexesByKey[key] = _snippets.Count;
         _snippets.Add(normalized);
         _snippetsByKey[key] = normalized;
-        if (!_snippetsByText.ContainsKey(normalized.Text))
+        AddTextIndex(normalized);
+    }
+
+    private void UpdateTextIndexForReplacement(Snippet existing, Snippet replacement, int replacementIndex)
+    {
+        if (string.Equals(existing.Text, replacement.Text, StringComparison.Ordinal))
         {
-            _snippetsByText[normalized.Text] = normalized;
+            if (_snippetsByText.TryGetValue(existing.Text, out var mapped) && ReferenceEquals(mapped, existing))
+            {
+                _snippetsByText[replacement.Text] = replacement;
+            }
+
+            return;
         }
+
+        RemoveTextIndex(existing.Text, existing, replacementIndex);
+        AddTextIndex(replacement);
     }
 
     /// <summary>
@@ -83,7 +98,9 @@ public sealed class SnippetCatalog
     {
         _snippets.Clear();
         _snippetsByKey.Clear();
+        _snippetIndexesByKey.Clear();
         _snippetsByText.Clear();
+        _snippetTextCounts.Clear();
     }
 
     /// <summary>Finds a snippet by normalized folder and case-insensitive name.</summary>
@@ -123,14 +140,64 @@ public sealed class SnippetCatalog
     private void RebuildIndexes()
     {
         _snippetsByKey.Clear();
+        _snippetIndexesByKey.Clear();
         _snippetsByText.Clear();
-        foreach (var snippet in _snippets)
+        _snippetTextCounts.Clear();
+        for (var index = 0; index < _snippets.Count; index++)
         {
-            _snippetsByKey[CreateKey(snippet.Folder, snippet.Name)] = snippet;
-            if (!_snippetsByText.ContainsKey(snippet.Text))
+            var snippet = _snippets[index];
+            var key = CreateKey(snippet.Folder, snippet.Name);
+            _snippetsByKey[key] = snippet;
+            _snippetIndexesByKey[key] = index;
+            AddTextIndex(snippet);
+        }
+    }
+
+    private void AddTextIndex(Snippet snippet)
+    {
+        if (!_snippetTextCounts.TryAdd(snippet.Text, 1))
+        {
+            _snippetTextCounts[snippet.Text]++;
+        }
+
+        _snippetsByText.TryAdd(snippet.Text, snippet);
+    }
+
+    private void RemoveTextIndex(string text, Snippet existing, int replacementIndex)
+    {
+        if (!_snippetTextCounts.TryGetValue(text, out var count))
+        {
+            return;
+        }
+
+        if (count <= 1)
+        {
+            _snippetTextCounts.Remove(text);
+            _snippetsByText.Remove(text);
+            return;
+        }
+
+        _snippetTextCounts[text] = count - 1;
+        if (!_snippetsByText.TryGetValue(text, out var mapped) || !ReferenceEquals(mapped, existing))
+        {
+            return;
+        }
+
+        for (var index = 0; index < _snippets.Count; index++)
+        {
+            if (index == replacementIndex)
             {
-                _snippetsByText[snippet.Text] = snippet;
+                continue;
+            }
+
+            var candidate = _snippets[index];
+            if (string.Equals(candidate.Text, text, StringComparison.Ordinal))
+            {
+                _snippetsByText[text] = candidate;
+                return;
             }
         }
+
+        _snippetsByText.Remove(text);
     }
 }

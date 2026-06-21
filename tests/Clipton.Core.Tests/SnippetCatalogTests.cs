@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Clipton.Core;
 
 namespace Clipton.Core.Tests;
@@ -158,6 +159,19 @@ public sealed class SnippetCatalogTests
     }
 
     [Fact]
+    public void FindByText_PromotesNextDuplicateWhenFirstTextChanges()
+    {
+        var catalog = new SnippetCatalog();
+
+        catalog.Upsert(new Snippet("First", "shared", "A"));
+        catalog.Upsert(new Snippet("Second", "shared", "B"));
+        catalog.Upsert(new Snippet("First", "changed", "A"));
+
+        Assert.Equal("B / Second", catalog.FindByText("shared")?.DisplayName);
+        Assert.Equal("A / First", catalog.FindByText("changed")?.DisplayName);
+    }
+
+    [Fact]
     public void Find_NormalizesFolderSeparators()
     {
         var catalog = new SnippetCatalog();
@@ -192,5 +206,27 @@ public sealed class SnippetCatalogTests
 
         Assert.Equal("Text-1999", catalog.Find("Folder-19", "name-1999")?.Text);
         Assert.Equal("Folder-19 / Name-1999", catalog.FindByText("Text-1999")?.DisplayName);
+    }
+
+    [Fact]
+    public void Upsert_ReplacesLargeCatalogWithinBudget()
+    {
+        var catalog = new SnippetCatalog();
+        const int count = 3_000;
+        for (var i = 0; i < count; i++)
+        {
+            catalog.Upsert(new Snippet($"Name-{i}", $"Text-{i}", $"Folder-{i % 20}"));
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        for (var i = 0; i < count; i++)
+        {
+            catalog.Upsert(new Snippet($"Name-{i}", $"Updated-{i}", $"Folder-{i % 20}"));
+        }
+
+        stopwatch.Stop();
+
+        Assert.Equal($"Updated-{count - 1}", catalog.Find("Folder-19", $"Name-{count - 1}")?.Text);
+        Assert.True(stopwatch.ElapsedMilliseconds < 250, $"Replacing {count} snippets took {stopwatch.ElapsedMilliseconds} ms.");
     }
 }
