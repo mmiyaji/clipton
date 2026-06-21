@@ -218,6 +218,7 @@ public sealed class MainWindow : Window
     private bool _storeUpdateChecking;
     private bool _storeUpdateInstalling;
     private bool _storeUpdateAvailable = IsDebugStoreUpdateAvailableForced();
+    private bool _storeUpdateCheckCompleted;
 
     public MainWindow(CliptonRuntime runtime)
     {
@@ -2253,6 +2254,7 @@ public sealed class MainWindow : Window
         }
 
         _storeUpdateChecking = true;
+        _storeUpdateCheckCompleted = false;
         SetStoreUpdateStatus("StoreUpdateStatusChecking", isBusy: true, canCheck: false, canInstall: false);
         try
         {
@@ -2260,7 +2262,7 @@ public sealed class MainWindow : Window
             {
                 _storePackageUpdates = [];
                 _storeUpdateAvailable = true;
-                SetStoreUpdateStatus("StoreUpdateStatusAvailable", isBusy: false, canCheck: true, canInstall: false);
+                SetStoreUpdateStatus("StoreUpdateStatusAvailable", isBusy: false, canCheck: true, canInstall: false, FormatStoreUpdateCheckedAt());
                 UpdateNavButtonContents();
                 return;
             }
@@ -2282,7 +2284,8 @@ public sealed class MainWindow : Window
                 _storeUpdateAvailable ? "StoreUpdateStatusAvailable" : "StoreUpdateStatusNotAvailable",
                 isBusy: false,
                 canCheck: true,
-                canInstall: _storeUpdateAvailable);
+                canInstall: _storeUpdateAvailable,
+                FormatStoreUpdateCheckedAt());
             UpdateNavButtonContents();
         }
         catch (Exception exception)
@@ -2296,6 +2299,12 @@ public sealed class MainWindow : Window
         finally
         {
             _storeUpdateChecking = false;
+            if (!string.Equals(_storeUpdateStatusKey, "StoreUpdateStatusChecking", StringComparison.Ordinal))
+            {
+                _storeUpdateCheckCompleted = true;
+            }
+
+            RefreshStoreUpdateTexts();
             UpdateStoreUpdateButtons();
         }
     }
@@ -2365,6 +2374,11 @@ public sealed class MainWindow : Window
 #endif
     }
 
+    private string FormatStoreUpdateCheckedAt()
+    {
+        return DateTimeOffset.Now.ToString("HH:mm", System.Globalization.CultureInfo.CurrentCulture);
+    }
+
     private void SetStoreUpdateStatus(string key, bool isBusy, bool canCheck, bool canInstall, string? detail = null)
     {
         _storeUpdateStatusKey = key;
@@ -2379,7 +2393,12 @@ public sealed class MainWindow : Window
 
     private void RefreshStoreUpdateTexts()
     {
-        SetCommandButton(_checkStoreUpdateButton, "\uE72C", _runtime.Translate("CheckForUpdates"));
+        var checkLabelKey = _storeUpdateChecking
+            ? "CheckingForUpdates"
+            : _storeUpdateCheckCompleted
+                ? "CheckAgainForUpdates"
+                : "CheckForUpdates";
+        SetCommandButton(_checkStoreUpdateButton, "\uE72C", _runtime.Translate(checkLabelKey));
         SetCommandButton(_installStoreUpdateButton, "\uE895", _runtime.Translate("InstallUpdate"));
         _changelogLinkButton.Content = _runtime.Translate("OpenChangelog");
         AutomationProperties.SetName(_changelogLinkButton, _runtime.Translate("OpenChangelog"));
