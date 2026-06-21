@@ -86,6 +86,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private Button? _backButton;
     private Button? _searchButton;
     private int _selectedIndex;
+    private int _lastStyledSelectedIndex = -1;
     private HeaderFilter _activeFilter = HeaderFilter.All;
     private AppWindow? _appWindow;
     private IntPtr _hwnd;
@@ -748,6 +749,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _itemHost.Children.Clear();
         _visibleItems.Clear();
         _itemCards.Clear();
+        _lastStyledSelectedIndex = -1;
 
         IEnumerable<QuickMenuItem> source = _searchResults ?? _items;
         foreach (var item in source.Where(item => !item.IsSeparator && MatchesFilter(item)))
@@ -1064,13 +1066,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
     private void UpdateSelection(bool bringIntoView = true)
     {
-        for (var i = 0; i < _itemCards.Count; i++)
-        {
-            var selected = i == _selectedIndex;
-            _itemCards[i].BorderBrush = selected ? Brush(28, 160, 230) : Brush(56, 56, 56);
-            _itemCards[i].BorderThickness = selected ? new Thickness(2) : new Thickness(1);
-            _itemCards[i].Background = selected ? Brush(48, 48, 48) : Brush(40, 40, 40);
-        }
+        ApplyItemSelectionStyle(_lastStyledSelectedIndex, selected: false);
+        ApplyItemSelectionStyle(_selectedIndex, selected: true);
+        _lastStyledSelectedIndex = _selectedIndex;
 
         if (bringIntoView)
         {
@@ -1082,6 +1080,18 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         _ = UpdatePreviewAsync(GetSelectedItem());
+    }
+
+    private void ApplyItemSelectionStyle(int index, bool selected)
+    {
+        if (index < 0 || index >= _itemCards.Count)
+        {
+            return;
+        }
+
+        _itemCards[index].BorderBrush = selected ? Brush(28, 160, 230) : Brush(56, 56, 56);
+        _itemCards[index].BorderThickness = selected ? new Thickness(2) : new Thickness(1);
+        _itemCards[index].Background = selected ? Brush(48, 48, 48) : Brush(40, 40, 40);
     }
 
     private async Task UpdatePreviewAsync(QuickMenuItem? item)
