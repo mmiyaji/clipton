@@ -623,6 +623,16 @@ public sealed class MainWindow : Window
             _sidebarCollapsed = false;
             UpdateNavigationPaneFooterVisibility();
         };
+        _navigationView.PaneOpening += (_, _) =>
+        {
+            _sidebarCollapsed = false;
+            UpdateNavigationPaneFooterVisibility();
+        };
+        _navigationView.PaneClosing += (_, _) =>
+        {
+            _sidebarCollapsed = true;
+            UpdateNavigationPaneFooterVisibility();
+        };
         _navigationView.PaneClosed += (_, _) =>
         {
             _sidebarCollapsed = true;
@@ -4009,6 +4019,7 @@ public sealed class MainWindow : Window
     private void SetSidebarCollapsed(bool collapsed)
     {
         _sidebarCollapsed = collapsed;
+        UpdateNavigationPaneFooterVisibility();
         _navigationView.PaneDisplayMode = collapsed
             ? NavigationViewPaneDisplayMode.LeftCompact
             : NavigationViewPaneDisplayMode.Left;
@@ -4018,9 +4029,10 @@ public sealed class MainWindow : Window
 
     private void UpdateNavigationPaneFooterVisibility()
     {
-        var hideExpandedFooter = _sidebarCollapsed || !_navigationView.IsPaneOpen;
+        var hideExpandedFooter = _sidebarCollapsed;
         _hotkeyPill.Visibility = hideExpandedFooter ? Visibility.Collapsed : Visibility.Visible;
-        _navigationPaneFooter.Visibility = hideExpandedFooter ? Visibility.Collapsed : Visibility.Visible;
+        _titleText.Visibility = hideExpandedFooter ? Visibility.Collapsed : Visibility.Visible;
+        _navigationPaneFooter.Visibility = Visibility.Visible;
     }
 
     private void UpdateSidebarForWindowWidth(double width)
@@ -4530,7 +4542,12 @@ public sealed class MainWindow : Window
 
     private UIElement BuildBrandHeader()
     {
-        var grid = new Grid { ColumnSpacing = 12, Margin = new Thickness(4, 0, 4, 0) };
+        var grid = new Grid
+        {
+            ColumnSpacing = 12,
+            Margin = new Thickness(4, 0, 4, 0),
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.Children.Add(new Border
