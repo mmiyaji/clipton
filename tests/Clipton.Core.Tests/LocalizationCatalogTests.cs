@@ -77,8 +77,8 @@ public sealed class LocalizationCatalogTests
 
         Assert.Equal("Store updates", catalog.Translate("en", "StoreUpdate"));
         Assert.Equal("Store 更新", catalog.Translate("ja", "StoreUpdate"));
-        Assert.Contains("update available", catalog.Translate("en", "AboutUpdateAvailableTab"));
-        Assert.Contains("更新あり", catalog.Translate("ja", "AboutUpdateAvailableTab"));
+        Assert.Contains("update available", catalog.Translate("en", "AboutUpdateAvailableTooltip"));
+        Assert.Contains("更新あり", catalog.Translate("ja", "AboutUpdateAvailableTooltip"));
         Assert.Contains("Microsoft Store", catalog.Translate("en", "StoreUpdateDescription"));
         Assert.Contains("Microsoft Store", catalog.Translate("ja", "StoreUpdateDescription"));
     }

@@ -4490,13 +4490,13 @@ public sealed class MainWindow : Window
             return;
         }
 
-        var label = _runtime.Translate(labelKey);
-        if (_storeUpdateAvailable && string.Equals(labelKey, "About", StringComparison.Ordinal))
-        {
-            label = string.Format(_runtime.Translate("AboutUpdateAvailableTab"), label);
-        }
-
         var item = _navItems[index];
+        var label = _runtime.Translate(labelKey);
+        var hasStoreUpdateBadge = _storeUpdateAvailable && string.Equals(labelKey, "About", StringComparison.Ordinal);
+        var accessibleLabel = hasStoreUpdateBadge
+            ? string.Format(_runtime.Translate("AboutUpdateAvailableTooltip"), label)
+            : label;
+
         item.Content = label;
         item.Icon = new FontIcon
         {
@@ -4504,8 +4504,9 @@ public sealed class MainWindow : Window
             FontFamily = new FontFamily("Segoe Fluent Icons"),
             FontSize = 16
         };
-        AutomationProperties.SetName(item, label);
-        ToolTipService.SetToolTip(item, label);
+        item.InfoBadge = hasStoreUpdateBadge ? new InfoBadge() : null;
+        AutomationProperties.SetName(item, accessibleLabel);
+        ToolTipService.SetToolTip(item, accessibleLabel);
     }
 
     private static void SetCommandButton(Button button, string glyph, string label)
