@@ -59,6 +59,7 @@ public sealed class MainWindow : Window
     private readonly Dictionary<TreeViewNode, SnippetItemViewModel> _snippetNodes = [];
     private readonly Dictionary<TreeViewNode, string> _snippetFolderNodes = [];
     private readonly List<Border> _cards = [];
+    private readonly List<Border> _rowSeparators = [];
     private readonly List<NavigationViewItem> _navItems = [];
     private readonly Dictionary<ToggleSwitch, TextBlock> _toggleStateLabels = [];
     private readonly List<(TextBlock TextBlock, string Key)> _localizedTextBlocks = [];
@@ -858,7 +859,7 @@ public sealed class MainWindow : Window
     {
         var row = new Grid
         {
-            Padding = new Thickness(0, 7, 0, 7),
+            Padding = new Thickness(16, 7, 16, 7),
             ColumnSpacing = 12,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -979,12 +980,17 @@ public sealed class MainWindow : Window
         return row;
     }
 
-    private Border RowSeparator() => new()
+    private Border RowSeparator()
     {
-        Height = 1,
-        Margin = new Thickness(16, 0, 16, 0),
-        Background = CardBorderBrush()
-    };
+        var separator = new Border
+        {
+            Height = 1,
+            Margin = new Thickness(16, 0, 16, 0),
+            Background = RowSeparatorBrush()
+        };
+        _rowSeparators.Add(separator);
+        return separator;
+    }
 
     private void BuildHistoryPage()
     {
@@ -4150,6 +4156,12 @@ public sealed class MainWindow : Window
             card.Background = CardBackground();
             card.BorderBrush = CardBorderBrush();
         }
+
+        foreach (var separator in _rowSeparators)
+        {
+            separator.Background = RowSeparatorBrush();
+        }
+
         RefreshThemeTextBrushes();
         RefreshItems();
         UpdateMaskTestPreview();
@@ -4734,6 +4746,8 @@ public sealed class MainWindow : Window
     private Brush CardBackground() => Brush(IsDark ? "#2B2B2B" : "#FFFFFF");
 
     private Brush CardBorderBrush() => Brush(IsDark ? "#3F3F3F" : "#E5E5E5");
+
+    private Brush RowSeparatorBrush() => Brush(IsDark ? "#3F3F3F" : "#EAECF0");
 
     private Brush DescriptionBrush() => Brush(IsDark ? "#D0D5DD" : "#344054");
 
