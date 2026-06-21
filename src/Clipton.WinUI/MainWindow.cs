@@ -35,6 +35,7 @@ public sealed class MainWindow : Window
     private const double SidebarAutoExpandWidth = 1120;
     private const double SettingControlHeight = 36;
     private const double SearchControlHeight = 32;
+    private const int StoreUpdateManualCheckMinimumBusyMilliseconds = 700;
     private const string TermsUrl = "https://mmiyaji.github.io/clipton/terms/";
     private const string PrivacyUrl = "https://mmiyaji.github.io/clipton/privacy/";
     private const string AuthorUrl = "https://ruhenheim.org";
@@ -2255,6 +2256,7 @@ public sealed class MainWindow : Window
 
         _storeUpdateChecking = true;
         _storeUpdateCheckCompleted = false;
+        var checkStartedTimestamp = Stopwatch.GetTimestamp();
         SetStoreUpdateStatus("StoreUpdateStatusChecking", isBusy: true, canCheck: false, canInstall: false);
         try
         {
@@ -2262,6 +2264,7 @@ public sealed class MainWindow : Window
             {
                 _storePackageUpdates = [];
                 _storeUpdateAvailable = true;
+                await DelayStoreUpdateResultIfNeededAsync(checkStartedTimestamp, userInitiated);
                 SetStoreUpdateStatus("StoreUpdateStatusAvailable", isBusy: false, canCheck: true, canInstall: false, FormatStoreUpdateCheckedAt());
                 UpdateNavButtonContents();
                 return;
@@ -2271,6 +2274,7 @@ public sealed class MainWindow : Window
             {
                 _storePackageUpdates = [];
                 _storeUpdateAvailable = false;
+                await DelayStoreUpdateResultIfNeededAsync(checkStartedTimestamp, userInitiated);
                 SetStoreUpdateStatus("StoreUpdateStatusNotSupported", isBusy: false, canCheck: true, canInstall: false);
                 UpdateNavButtonContents();
                 return;
@@ -2280,6 +2284,7 @@ public sealed class MainWindow : Window
             InitializeStoreContextWindow(context);
             _storePackageUpdates = (await context.GetAppAndOptionalStorePackageUpdatesAsync()).ToArray();
             _storeUpdateAvailable = _storePackageUpdates.Count > 0;
+            await DelayStoreUpdateResultIfNeededAsync(checkStartedTimestamp, userInitiated);
             SetStoreUpdateStatus(
                 _storeUpdateAvailable ? "StoreUpdateStatusAvailable" : "StoreUpdateStatusNotAvailable",
                 isBusy: false,
@@ -2293,6 +2298,7 @@ public sealed class MainWindow : Window
             AppDiagnostics.Log(exception, userInitiated ? "Store update manual-check" : "Store update auto-check");
             _storePackageUpdates = [];
             _storeUpdateAvailable = false;
+            await DelayStoreUpdateResultIfNeededAsync(checkStartedTimestamp, userInitiated);
             SetStoreUpdateStatus("StoreUpdateStatusFailed", isBusy: false, canCheck: true, canInstall: false, exception.Message);
             UpdateNavButtonContents();
         }
@@ -2306,6 +2312,20 @@ public sealed class MainWindow : Window
 
             RefreshStoreUpdateTexts();
             UpdateStoreUpdateButtons();
+        }
+    }
+
+    private static async Task DelayStoreUpdateResultIfNeededAsync(long startedTimestamp, bool userInitiated)
+    {
+        if (!userInitiated)
+        {
+            return;
+        }
+
+        var remaining = TimeSpan.FromMilliseconds(StoreUpdateManualCheckMinimumBusyMilliseconds) - Stopwatch.GetElapsedTime(startedTimestamp);
+        if (remaining > TimeSpan.Zero)
+        {
+            await Task.Delay(remaining);
         }
     }
 
