@@ -74,6 +74,7 @@ public sealed class CliptonRuntime : IDisposable
     private bool _clipboardServicesStarted;
     private uint _lastCapturedClipboardSequence;
     private CancellationTokenSource? _clipboardCaptureDelay;
+    private DispatcherQueueTimer? _historyAccessLockTimer;
     private DateTimeOffset? _historyAccessUnlockedUntilUtc;
 
     /// <summary>
@@ -263,6 +264,11 @@ public sealed class CliptonRuntime : IDisposable
 
     public void PasteHistoryItem(string id, bool asPlainText)
     {
+        if (RequiresHistoryAccessUnlock)
+        {
+            return;
+        }
+
         var item = History.Find(id);
         if (item is null)
         {
@@ -275,6 +281,11 @@ public sealed class CliptonRuntime : IDisposable
 
     public void PasteSnippet(string folder, string name)
     {
+        if (RequiresHistoryAccessUnlock)
+        {
+            return;
+        }
+
         var snippet = Snippets.Find(folder, name);
         if (snippet is null)
         {
@@ -287,6 +298,11 @@ public sealed class CliptonRuntime : IDisposable
 
     public void PasteText(string text)
     {
+        if (RequiresHistoryAccessUnlock)
+        {
+            return;
+        }
+
         if (string.IsNullOrEmpty(text))
         {
             return;
@@ -298,6 +314,11 @@ public sealed class CliptonRuntime : IDisposable
 
     public void QuickEditAndPasteText(string text, string title)
     {
+        if (RequiresHistoryAccessUnlock)
+        {
+            return;
+        }
+
         if (string.IsNullOrEmpty(text))
         {
             return;
@@ -308,6 +329,11 @@ public sealed class CliptonRuntime : IDisposable
 
     public void PreviewText(string text, string title)
     {
+        if (RequiresHistoryAccessUnlock)
+        {
+            return;
+        }
+
         if (string.IsNullOrEmpty(text))
         {
             return;
@@ -339,6 +365,11 @@ public sealed class CliptonRuntime : IDisposable
 
     public void PasteImage(string id, ImagePasteMode mode, bool sendPaste)
     {
+        if (RequiresHistoryAccessUnlock)
+        {
+            return;
+        }
+
         var item = History.Find(id);
         if (item?.ImagePng is not { Length: > 0 } imagePng)
         {
@@ -371,6 +402,11 @@ public sealed class CliptonRuntime : IDisposable
 
     public IReadOnlyList<QuickMenuPasteOption> CreateHistoryContextOptions(string id)
     {
+        if (RequiresHistoryAccessUnlock)
+        {
+            return [];
+        }
+
         var item = History.Find(id);
         if (item is null)
         {
@@ -444,6 +480,7 @@ public sealed class CliptonRuntime : IDisposable
         else
         {
             _historyAccessUnlockedUntilUtc = null;
+            StopHistoryAccessLockTimer();
         }
     }
 
@@ -471,9 +508,11 @@ public sealed class CliptonRuntime : IDisposable
     public void LockHistoryAccess()
     {
         _historyAccessUnlockedUntilUtc = null;
+        StopHistoryAccessLockTimer();
         if (_mainWindow is { } window)
         {
             window.HideHistoryPageForLock();
+            window.RefreshItems();
         }
 
         _defaultQuickMenu?.Dismiss();
@@ -489,6 +528,7 @@ public sealed class CliptonRuntime : IDisposable
         Settings.HistoryAccessLockPinHash = string.Empty;
         Settings.HistoryAccessLockTimeoutMinutes = HistoryAccessLockCredential.DefaultTimeoutMinutes;
         _historyAccessUnlockedUntilUtc = null;
+        StopHistoryAccessLockTimer();
         _defaultQuickMenu?.Dismiss();
         _richQuickMenu?.Dismiss();
         ClearHistory();
@@ -508,12 +548,77 @@ public sealed class CliptonRuntime : IDisposable
         return _historyAccessUnlockedUntilUtc is { } until && until > DateTimeOffset.UtcNow;
     }
 
+    private void ThrowIfHistoryAccessLocked()
+    {
+        if (RequiresHistoryAccessUnlock)
+        {
+            throw new InvalidOperationException("History access is locked.");
+        }
+    }
+
     private void MarkHistoryAccessUnlocked()
     {
         var timeoutMinutes = HistoryAccessLockCredential.NormalizeTimeoutMinutes(Settings.HistoryAccessLockTimeoutMinutes);
         _historyAccessUnlockedUntilUtc = timeoutMinutes <= 0
             ? DateTimeOffset.UtcNow.AddSeconds(10)
             : DateTimeOffset.UtcNow.AddMinutes(timeoutMinutes);
+        ScheduleHistoryAccessLockTimer();
+    }
+
+    private void ScheduleHistoryAccessLockTimer()
+    {
+        StopHistoryAccessLockTimer();
+        if (!IsHistoryAccessLockEnabled || _historyAccessUnlockedUntilUtc is not { } unlockedUntil)
+        {
+            return;
+        }
+
+        var dispatcherQueue = _dispatcherQueue;
+        if (dispatcherQueue is null)
+        {
+            return;
+        }
+
+        var interval = unlockedUntil - DateTimeOffset.UtcNow;
+        if (interval <= TimeSpan.Zero)
+        {
+            LockHistoryAccess();
+            return;
+        }
+
+        var timer = dispatcherQueue.CreateTimer();
+        _historyAccessLockTimer = timer;
+        timer.IsRepeating = false;
+        timer.Interval = interval;
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (!ReferenceEquals(_historyAccessLockTimer, timer))
+            {
+                return;
+            }
+
+            _historyAccessLockTimer = null;
+            if (IsExiting || !IsHistoryAccessLockEnabled)
+            {
+                return;
+            }
+
+            if (IsHistoryAccessUnlocked())
+            {
+                ScheduleHistoryAccessLockTimer();
+                return;
+            }
+
+            LockHistoryAccess();
+        };
+        timer.Start();
+    }
+
+    private void StopHistoryAccessLockTimer()
+    {
+        _historyAccessLockTimer?.Stop();
+        _historyAccessLockTimer = null;
     }
 
     public void SetPauseCapture(bool paused)
@@ -720,6 +825,11 @@ public sealed class CliptonRuntime : IDisposable
 
     public void RemoveHistoryItem(string id)
     {
+        if (RequiresHistoryAccessUnlock)
+        {
+            return;
+        }
+
         if (History.Remove(id))
         {
             UnpinHistoryItem(id, refresh: false);
@@ -731,6 +841,11 @@ public sealed class CliptonRuntime : IDisposable
 
     public void TogglePinnedHistoryItem(string id)
     {
+        if (RequiresHistoryAccessUnlock)
+        {
+            return;
+        }
+
         if (IsHistoryPinned(id))
         {
             UnpinHistoryItem(id, refresh: true);
@@ -751,6 +866,11 @@ public sealed class CliptonRuntime : IDisposable
     /// </summary>
     public void LoadMorePersistedHistory(int count = QuickMenuHistoryBuckets.BucketSize)
     {
+        if (RequiresHistoryAccessUnlock)
+        {
+            return;
+        }
+
         if (count <= 0)
         {
             return;
@@ -777,6 +897,8 @@ public sealed class CliptonRuntime : IDisposable
 
     public void UpsertSnippet(string folder, string name, string text)
     {
+        ThrowIfHistoryAccessLocked();
+
         if (string.IsNullOrWhiteSpace(name))
         {
             return;
@@ -789,6 +911,8 @@ public sealed class CliptonRuntime : IDisposable
 
     public void RemoveSnippet(string folder, string name)
     {
+        ThrowIfHistoryAccessLocked();
+
         if (Snippets.Remove(folder, name))
         {
             SaveSnippets(_snippetPath, Snippets);
@@ -801,6 +925,8 @@ public sealed class CliptonRuntime : IDisposable
     /// </summary>
     public int ExportHistory(string path)
     {
+        ThrowIfHistoryAccessLocked();
+
         var items = History.Items.Select(HistoryExportItemDto.FromSnapshot).ToArray();
         WriteExportFile(path, new HistoryExportDto(1, DateTimeOffset.UtcNow, items));
         return items.Length;
@@ -811,6 +937,8 @@ public sealed class CliptonRuntime : IDisposable
     /// </summary>
     public int ImportHistory(string path)
     {
+        ThrowIfHistoryAccessLocked();
+
         var dto = ReadExportFile<HistoryExportDto>(path);
         var items = dto.Items ?? throw new InvalidOperationException("The selected file does not contain history items.");
         var before = History.Items.Count;
@@ -831,6 +959,8 @@ public sealed class CliptonRuntime : IDisposable
     /// </summary>
     public HistoryImportPreview PreviewImportHistory(string path)
     {
+        ThrowIfHistoryAccessLocked();
+
         var dto = ReadExportFile<HistoryExportDto>(path);
         var items = dto.Items ?? throw new InvalidOperationException("The selected file does not contain history items.");
         var importedFingerprints = new HashSet<string>(StringComparer.Ordinal);
@@ -855,6 +985,8 @@ public sealed class CliptonRuntime : IDisposable
 
     public int ExportSnippets(string path)
     {
+        ThrowIfHistoryAccessLocked();
+
         var items = Snippets.Snippets.ToArray();
         WriteExportFile(path, new SnippetExportDto(1, DateTimeOffset.UtcNow, items));
         return items.Length;
@@ -862,6 +994,8 @@ public sealed class CliptonRuntime : IDisposable
 
     public int ImportSnippets(string path)
     {
+        ThrowIfHistoryAccessLocked();
+
         var dto = ReadExportFile<SnippetExportDto>(path);
         var items = dto.Items ?? throw new InvalidOperationException("The selected file does not contain snippet items.");
         var imported = 0;
@@ -883,6 +1017,8 @@ public sealed class CliptonRuntime : IDisposable
 
     public SnippetImportPreview PreviewImportSnippets(string path)
     {
+        ThrowIfHistoryAccessLocked();
+
         var dto = ReadExportFile<SnippetExportDto>(path);
         var items = dto.Items ?? throw new InvalidOperationException("The selected file does not contain snippet items.");
         var validItems = items
@@ -968,6 +1104,7 @@ public sealed class CliptonRuntime : IDisposable
     public void Dispose()
     {
         IsExiting = true;
+        StopHistoryAccessLockTimer();
         _clipboardCaptureDelay?.Cancel();
         _clipboardCaptureDelay?.Dispose();
         _captureWorker.Dispose();

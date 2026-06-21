@@ -63,6 +63,41 @@ public sealed class HistoryAccessLockPrivacyTests
         Assert.Equal(HistoryAccessLockCredential.DefaultTimeoutMinutes, loadedSettings.HistoryAccessLockTimeoutMinutes);
     }
 
+    [Fact]
+    public void ProtectedDataOperations_RequireUnlockedHistoryAccess()
+    {
+        var root = CreateTestRoot();
+        var historyPath = Path.Combine(root, "history.dat");
+        var store = new EncryptedHistoryStore(historyPath);
+        store.Save([new ClipboardSnapshot(
+            "history-1",
+            DateTimeOffset.UtcNow,
+            [ClipboardFormatKind.Text],
+            text: "private clipboard text")]);
+        using var runtime = new CliptonRuntime(root, isSafeMode: true);
+        runtime.UpsertSnippet("Secrets", "ApiKey", "private snippet text");
+        runtime.ConfigureHistoryAccessLock("2468", timeoutMinutes: 15);
+        runtime.LockHistoryAccess();
+        var historyExportPath = Path.Combine(root, "history-export.json");
+        var snippetsExportPath = Path.Combine(root, "snippets-export.json");
+
+        Assert.True(runtime.RequiresHistoryAccessUnlock);
+        Assert.Empty(runtime.CreateHistoryContextOptions("history-1"));
+        Assert.Throws<InvalidOperationException>(() => runtime.ExportHistory(historyExportPath));
+        Assert.Throws<InvalidOperationException>(() => runtime.ExportSnippets(snippetsExportPath));
+        Assert.Throws<InvalidOperationException>(() => runtime.UpsertSnippet("Secrets", "Other", "new private snippet"));
+        Assert.False(File.Exists(historyExportPath));
+        Assert.False(File.Exists(snippetsExportPath));
+
+        Assert.True(runtime.UnlockHistoryAccess("2468"));
+
+        Assert.NotEmpty(runtime.CreateHistoryContextOptions("history-1"));
+        Assert.Equal(1, runtime.ExportHistory(historyExportPath));
+        Assert.Equal(1, runtime.ExportSnippets(snippetsExportPath));
+        Assert.Contains("private clipboard text", File.ReadAllText(historyExportPath), StringComparison.Ordinal);
+        Assert.Contains("private snippet text", File.ReadAllText(snippetsExportPath), StringComparison.Ordinal);
+    }
+
     private static string CreateTestRoot()
     {
         return Path.Combine(Path.GetTempPath(), "clipton-winui-lock-privacy-tests", Guid.NewGuid().ToString("N"));

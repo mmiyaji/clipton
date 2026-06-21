@@ -350,6 +350,17 @@ public sealed class MainWindow : Window
     {
         var filter = SearchFilter.Parse(_historySearchQuery);
         _historyListView.Items.Clear();
+        if (_runtime.RequiresHistoryAccessUnlock)
+        {
+            _historyRowCache.Clear();
+            _selectedHistoryId = null;
+            _historyEmptyText.Text = _runtime.Translate("UnlockHistoryAccess");
+            _historyEmptyText.Visibility = Visibility.Visible;
+            _loadMoreHistoryButton.Visibility = Visibility.Collapsed;
+            RefreshSnippetTree();
+            return;
+        }
+
         var visibleHistoryItems = new List<ClipboardSnapshot>(_historyVisibleLimit);
         var matchedHistoryCount = 0;
         foreach (var snapshot in _runtime.History.Items)
@@ -2950,6 +2961,11 @@ public sealed class MainWindow : Window
         pinBox.Loaded += (_, _) => pinBox.Focus(FocusState.Programmatic);
         await ShowContentDialogAsync(dialog);
         UpdateHistoryAccessLockUi();
+        if (confirmed)
+        {
+            RefreshItems();
+        }
+
         return confirmed;
     }
 
@@ -3156,6 +3172,11 @@ public sealed class MainWindow : Window
         pinBox.Loaded += (_, _) => pinBox.Focus(FocusState.Programmatic);
         await ShowContentDialogAsync(dialog);
         UpdateHistoryAccessLockUi();
+        if (unlocked)
+        {
+            RefreshItems();
+        }
+
         return unlocked;
     }
 
@@ -3410,6 +3431,28 @@ public sealed class MainWindow : Window
         _snippetNodes.Clear();
         _snippetFolderNodes.Clear();
         _snippetTree.RootNodes.Clear();
+        var locked = _runtime.RequiresHistoryAccessUnlock;
+        _newSnippetButton.IsEnabled = !locked;
+        _exportSnippetsButton.IsEnabled = !locked;
+        _importSnippetsButton.IsEnabled = !locked;
+        if (locked)
+        {
+            _selectedSnippet = null;
+            _selectedSnippetFolder = string.Empty;
+            _snippetTree.RootNodes.Add(new TreeViewNode
+            {
+                Content = new TextBlock
+                {
+                    Text = _runtime.Translate("UnlockHistoryAccess"),
+                    Foreground = DescriptionBrush(),
+                    Margin = new Thickness(8, 6, 8, 6)
+                }
+            });
+            _updatingSnippetTreeSelection = false;
+            UpdateSelectedSnippetText();
+            _selectedSnippetText.Text = _runtime.Translate("UnlockHistoryAccess");
+            return;
+        }
 
         var folderNodesByPath = new Dictionary<string, TreeViewNode>(StringComparer.OrdinalIgnoreCase);
         foreach (var folder in CollectSnippetFolders())
