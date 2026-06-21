@@ -1457,11 +1457,20 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             return true;
         }
 
-        return filter.MatchesDate(item.CapturedAt ?? DateTimeOffset.Now)
-            && filter.MatchesPinned(item.IsPinned)
-            && filter.MatchesUrl(CliptonRuntime.ExtractUrls($"{item.Title} {item.Subtitle} {item.RevealedTitle}").Length > 0)
-            && filter.MatchesType(item.Formats ?? [])
-            && filter.MatchesText(() => $"{item.Title} {item.Subtitle} {item.KindLabel} {item.RevealedTitle}");
+        if (!filter.MatchesDate(item.CapturedAt ?? DateTimeOffset.Now)
+            || !filter.MatchesPinned(item.IsPinned)
+            || !filter.MatchesType(item.Formats ?? []))
+        {
+            return false;
+        }
+
+        if (filter.HasUrl is not null
+            && !filter.MatchesUrl(CliptonRuntime.ExtractUrls($"{item.Title} {item.Subtitle} {item.RevealedTitle}").Length > 0))
+        {
+            return false;
+        }
+
+        return filter.MatchesText(() => $"{item.Title} {item.Subtitle} {item.KindLabel} {item.RevealedTitle}");
     }
 
     private void AddItems(IList<MenuFlyoutItemBase> target, IReadOnlyList<QuickMenuItem> items, MenuFlyoutSubItem? parent)

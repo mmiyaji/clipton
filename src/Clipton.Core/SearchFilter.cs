@@ -147,18 +147,30 @@ public sealed class SearchFilter
             return true;
         }
 
-        var values = formats.ToArray();
         return Type switch
         {
-            "text" => values.Contains(ClipboardFormatKind.Text),
-            "rich" => values.Contains(ClipboardFormatKind.RichText),
-            "rtf" => values.Contains(ClipboardFormatKind.RichText),
-            "html" => values.Contains(ClipboardFormatKind.Html),
-            "image" => values.Contains(ClipboardFormatKind.Image),
-            "file" => values.Contains(ClipboardFormatKind.FileDrop),
-            "files" => values.Contains(ClipboardFormatKind.FileDrop),
+            "text" => ContainsFormat(formats, ClipboardFormatKind.Text),
+            "rich" => ContainsFormat(formats, ClipboardFormatKind.RichText),
+            "rtf" => ContainsFormat(formats, ClipboardFormatKind.RichText),
+            "html" => ContainsFormat(formats, ClipboardFormatKind.Html),
+            "image" => ContainsFormat(formats, ClipboardFormatKind.Image),
+            "file" => ContainsFormat(formats, ClipboardFormatKind.FileDrop),
+            "files" => ContainsFormat(formats, ClipboardFormatKind.FileDrop),
             _ => true
         };
+    }
+
+    private static bool ContainsFormat(IEnumerable<ClipboardFormatKind> formats, ClipboardFormatKind expected)
+    {
+        foreach (var format in formats)
+        {
+            if (format == expected)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static string? NormalizeType(string value)

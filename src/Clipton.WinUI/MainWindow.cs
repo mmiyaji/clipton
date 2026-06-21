@@ -1680,21 +1680,28 @@ public sealed class MainWindow : Window
             return true;
         }
 
-        var plainText = ClipboardBridge.GetPlainText(item);
         if (!filter.MatchesDate(item.CapturedAt)
             || !filter.MatchesPinned(_runtime.IsHistoryPinned(item.Id))
-            || !filter.MatchesType(item.Formats)
-            || !filter.MatchesUrl(CliptonRuntime.ExtractUrls(plainText ?? string.Empty).Length > 0))
+            || !filter.MatchesType(item.Formats))
+        {
+            return false;
+        }
+
+        string? plainText = null;
+        string GetPlainText() => plainText ??= ClipboardBridge.GetPlainText(item) ?? string.Empty;
+        if (filter.HasUrl is not null
+            && !filter.MatchesUrl(CliptonRuntime.ExtractUrls(GetPlainText()).Length > 0))
         {
             return false;
         }
 
         return filter.MatchesText(() =>
         {
+            var text = GetPlainText();
             var formats = string.Join(" ", item.Formats);
-            var snippet = _runtime.Snippets.FindByText(plainText);
+            var snippet = _runtime.Snippets.FindByText(text);
             var preview = _runtime.CreateHistoryItemViewModel(item, includeThumbnail: false).Preview;
-            return $"{formats} {snippet?.DisplayName} {preview} {plainText} {string.Join(" ", item.FilePaths)}";
+            return $"{formats} {snippet?.DisplayName} {preview} {text} {string.Join(" ", item.FilePaths)}";
         });
     }
 
