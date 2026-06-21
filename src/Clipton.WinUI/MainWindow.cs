@@ -384,6 +384,7 @@ public sealed class MainWindow : Window
             _historyEmptyText.Text = _runtime.Translate("UnlockHistoryAccess");
             _historyEmptyText.Visibility = Visibility.Visible;
             _loadMoreHistoryButton.Visibility = Visibility.Collapsed;
+            UpdateHistoryActionButtons();
             RefreshSnippetTree();
             return;
         }
@@ -440,6 +441,7 @@ public sealed class MainWindow : Window
             }
         }
 
+        UpdateHistoryActionButtons();
         RefreshSnippetTree();
     }
 
@@ -461,6 +463,7 @@ public sealed class MainWindow : Window
             MinHeight = 56,
             UseSystemFocusVisuals = true
         };
+        AutomationProperties.SetName(listItem, item.ToString());
         listItem.DoubleTapped += (_, _) => _runtime.PasteHistoryItem(item.Id, asPlainText: false);
         listItem.RightTapped += (_, _) =>
         {
@@ -519,6 +522,7 @@ public sealed class MainWindow : Window
         SetCommandButton(_maskDefinitionsButton, "\uE713", t("MaskDefinitions"));
         _historySearchBox.PlaceholderText = t("SearchPlaceholder");
         SetIconButton(_advancedHistorySearchButton, "\uE71C", t("AdvancedSearch"));
+        UpdateAdvancedHistorySearchButtonState();
         SetCommandButton(_clearHistorySearchButton, "\uE711", t("ClearSearch"));
         SetHistoryFilterToggle(_historyTypeTextFilter, t("FormatText"));
         SetHistoryFilterToggle(_historyTypeRichFilter, t("FormatRichText"));
@@ -1035,6 +1039,12 @@ public sealed class MainWindow : Window
             {
                 _selectedHistoryId = item.Id;
             }
+            else
+            {
+                _selectedHistoryId = null;
+            }
+
+            UpdateHistoryActionButtons();
         };
         _historyListView.DoubleTapped += (_, _) =>
         {
@@ -1752,11 +1762,33 @@ public sealed class MainWindow : Window
         ApplyHistorySearch(string.Empty);
     }
 
+    private void UpdateHistoryActionButtons()
+    {
+        var locked = _runtime.RequiresHistoryAccessUnlock;
+        var hasHistory = !locked && _runtime.AvailableHistoryCount > 0;
+        _registerFromHistoryButton.IsEnabled = !locked
+            && _selectedHistoryId is not null
+            && !string.IsNullOrWhiteSpace(_runtime.History.Find(_selectedHistoryId)?.Text);
+        _exportHistoryButton.IsEnabled = hasHistory;
+        _clearButton.IsEnabled = hasHistory;
+        _importHistoryButton.IsEnabled = !locked;
+    }
+
     private void ToggleAdvancedHistorySearch()
     {
         _historyAdvancedSearchPanel.Visibility = _historyAdvancedSearchPanel.Visibility == Visibility.Visible
             ? Visibility.Collapsed
             : Visibility.Visible;
+        UpdateAdvancedHistorySearchButtonState();
+    }
+
+    private void UpdateAdvancedHistorySearchButtonState()
+    {
+        var expanded = _historyAdvancedSearchPanel.Visibility == Visibility.Visible;
+        _advancedHistorySearchButton.Opacity = expanded ? 1.0 : 0.72;
+        AutomationProperties.SetHelpText(
+            _advancedHistorySearchButton,
+            _runtime.Translate(expanded ? "AdvancedSearchExpanded" : "AdvancedSearchCollapsed"));
     }
 
     private void ApplyAdvancedHistoryFiltersFromUi()
@@ -4617,6 +4649,7 @@ public sealed class MainWindow : Window
             FontSize = 14,
             VerticalAlignment = VerticalAlignment.Center
         };
+        AutomationProperties.SetName(button, label);
         ToolTipService.SetToolTip(button, label);
     }
 

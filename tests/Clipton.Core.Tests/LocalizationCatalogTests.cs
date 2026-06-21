@@ -90,4 +90,13 @@ public sealed class LocalizationCatalogTests
         Assert.Contains("{0}", catalog.Translate("en", "StoreUpdateStatusNotAvailable"));
         Assert.Contains("最新", catalog.Translate("ja", "StoreUpdateStatusNotAvailable"));
     }
+
+    [Fact]
+    public void Translate_ProvidesAdvancedSearchStateLabels()
+    {
+        var catalog = new LocalizationCatalog();
+
+        Assert.Contains("hidden", catalog.Translate("en", "AdvancedSearchCollapsed"));
+        Assert.Contains("shown", catalog.Translate("en", "AdvancedSearchExpanded"));
+    }
 }
