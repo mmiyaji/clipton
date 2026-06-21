@@ -431,7 +431,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
 
         var focusedElement = FocusManager.GetFocusedElement(_host.XamlRoot);
         var targetItem = _hoveredPasteOptionsItem ?? focusedElement as MenuFlyoutItemBase;
-        if (targetItem is not { Tag: QuickMenuItem { PasteOptions.Count: > 0 } item } flyoutItem)
+        if (targetItem is not { Tag: QuickMenuItem item } flyoutItem || !item.HasPasteOptions)
         {
             return NativeMethods.CallNextHookEx(s_mouseHook, nCode, wParam, lParam);
         }
@@ -747,7 +747,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                     if (flyoutItem.Tag is QuickMenuItem item)
                     {
                         flyoutItem.Text = BuildDisplayText(item);
-                        flyoutItem.KeyboardAcceleratorTextOverride = item.PasteOptions is { Count: > 0 }
+                        flyoutItem.KeyboardAcceleratorTextOverride = item.HasPasteOptions
                             ? BuildPasteOptionsHint(item)
                             : BuildCommandHint(item);
                     }
@@ -1513,8 +1513,9 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             // the whole menu chain. The chevron is swapped for the More glyph
             // so it stays visually distinct from folder navigation, and Enter
             // is overridden in the keyboard hook to paste directly.
-            if (parent is not null && item.PasteOptions is { Count: > 0 })
+            if (parent is not null && item.HasPasteOptions)
             {
+                var pasteOptions = item.GetPasteOptions();
                 var optionSubItem = new MenuFlyoutSubItem
                 {
                     Text = BuildDisplayText(item),
@@ -1524,13 +1525,13 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                 if (HasImagePreview(item))
                 {
                     optionSubItem.Items.Add(CreateImagePreviewMenuItem(item));
-                    if (item.PasteOptions.Count > 0)
+                    if (pasteOptions.Count > 0)
                     {
                         optionSubItem.Items.Add(new MenuFlyoutSeparator());
                     }
                 }
 
-                foreach (var option in item.PasteOptions)
+                foreach (var option in pasteOptions)
                 {
                     optionSubItem.Items.Add(CreatePasteOptionMenuItem(option));
                 }
@@ -1553,12 +1554,12 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             var flyoutItem = new MenuFlyoutItem
             {
                 Text = BuildDisplayText(item),
-                KeyboardAcceleratorTextOverride = item.PasteOptions is { Count: > 0 }
+                KeyboardAcceleratorTextOverride = item.HasPasteOptions
                     ? BuildPasteOptionsHint(item)
                     : BuildCommandHint(item),
                 Icon = CreateIcon(item)
             };
-            if (item.PasteOptions is { Count: > 0 })
+            if (item.HasPasteOptions)
             {
                 flyoutItem.KeyDown += (_, args) =>
                 {
@@ -1761,13 +1762,13 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         if (HasImagePreview(item))
         {
             flyout.Items.Add(CreateImagePreviewMenuItem(item));
-            if (item.PasteOptions is { Count: > 0 })
+            if (item.GetPasteOptions().Count > 0)
             {
                 flyout.Items.Add(new MenuFlyoutSeparator());
             }
         }
 
-        foreach (var option in item.PasteOptions ?? [])
+        foreach (var option in item.GetPasteOptions())
         {
             flyout.Items.Add(CreatePasteOptionMenuItem(option));
         }
@@ -1909,7 +1910,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private MenuFlyoutItem? GetFocusedPasteOptionsItem()
     {
         var (element, tag) = GetFocusedMenuElement();
-        return element is MenuFlyoutItem flyoutItem && tag is QuickMenuItem { PasteOptions.Count: > 0 }
+        return element is MenuFlyoutItem flyoutItem && tag is QuickMenuItem item && item.HasPasteOptions
             ? flyoutItem
             : null;
     }
@@ -1927,7 +1928,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private QuickMenuItem? GetFocusedPasteOptionsSubItem()
     {
         var (element, tag) = GetFocusedMenuElement();
-        return element is MenuFlyoutSubItem && tag is QuickMenuItem { PasteOptions.Count: > 0 } item && !item.IsFolder
+        return element is MenuFlyoutSubItem && tag is QuickMenuItem item && item.HasPasteOptions && !item.IsFolder
             ? item
             : null;
     }
@@ -2375,13 +2376,17 @@ public sealed record QuickMenuItem(
     DateTimeOffset? CapturedAt = null,
     bool IsPinned = false,
     IReadOnlyCollection<ClipboardFormatKind>? Formats = null,
-    bool IsNumberShortcutEnabled = false)
+    bool IsNumberShortcutEnabled = false,
+    Func<IReadOnlyList<QuickMenuPasteOption>>? LazyPasteOptions = null)
 {
     private IReadOnlyList<QuickMenuItem>? _resolvedChildren = Children;
+    private IReadOnlyList<QuickMenuPasteOption>? _resolvedPasteOptions = PasteOptions;
 
     public bool IsSelected { get; set; }
 
     public bool IsFolder => !IsSeparator && (_resolvedChildren is { Count: > 0 } || LazyChildren is not null);
+
+    public bool HasPasteOptions => !IsSeparator && (_resolvedPasteOptions is { Count: > 0 } || LazyPasteOptions is not null);
 
     public Visibility FolderVisibility => IsFolder ? Visibility.Visible : Visibility.Collapsed;
 
@@ -2403,6 +2408,17 @@ public sealed record QuickMenuItem(
         }
 
         return children;
+    }
+
+    public IReadOnlyList<QuickMenuPasteOption> GetPasteOptions()
+    {
+        if (_resolvedPasteOptions is not null)
+        {
+            return _resolvedPasteOptions;
+        }
+
+        _resolvedPasteOptions = LazyPasteOptions?.Invoke() ?? [];
+        return _resolvedPasteOptions;
     }
 
     public override string ToString() => Title;

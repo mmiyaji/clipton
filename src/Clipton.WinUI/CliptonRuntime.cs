@@ -2783,11 +2783,11 @@ public sealed class CliptonRuntime : IDisposable
             : null;
         var plainText = ClipboardBridge.GetPlainText(item);
         var textActionTitle = string.IsNullOrWhiteSpace(display.Preview) ? Translate("QuickEdit") : display.Preview;
-        var pasteOptions = item.ImagePng is { Length: > 0 }
-            ? CreateImagePasteOptions(item)
+        Func<IReadOnlyList<QuickMenuPasteOption>> pasteOptionsFactory = item.ImagePng is { Length: > 0 }
+            ? () => CreateImagePasteOptions(item)
             : item.FilePaths.Count > 0
-                ? CreateFilePasteOptions(item)
-                : CreateTextPasteOptions(plainText, item.Id);
+                ? () => CreateFilePasteOptions(item)
+                : () => CreateTextPasteOptions(plainText, item.Id);
         return new QuickMenuItem(
             header,
             display.FormatSummary,
@@ -2795,7 +2795,7 @@ public sealed class CliptonRuntime : IDisposable
             BuildHistoryCommandHint(plainText),
             () => PasteHistoryItem(item.Id, asPlainText: false),
             !string.IsNullOrEmpty(plainText) ? () => PasteHistoryItem(item.Id, asPlainText: true) : null,
-            PasteOptions: pasteOptions,
+            LazyPasteOptions: pasteOptionsFactory,
             IconGlyph: GetHistoryIconGlyph(item),
             IconFontFamily: GetHistoryIconFontFamily(item),
             IconImageBytes: includeImageThumbnail ? GetHistoryThumbnailBytes(item) : null,
@@ -3307,7 +3307,7 @@ public sealed class CliptonRuntime : IDisposable
             "Enter / E",
             () => PasteSnippet(snippet.Folder, snippet.Name),
             PlainTextInvoke: () => PasteSnippet(snippet.Folder, snippet.Name),
-            PasteOptions: CreateTextPasteOptions(RenderSnippetText),
+            LazyPasteOptions: () => CreateTextPasteOptions(RenderSnippetText),
             IconGlyph: "S",
             EditInvoke: () => QuickEditAndPasteText(RenderSnippetText(), snippet.Name),
             PreviewInvoke: () => PreviewText(RenderSnippetText(), snippet.Name),

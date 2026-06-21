@@ -854,7 +854,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         grid.Children.Add(textPanel);
 
         var trailing = item.IsFolder ? CreateFolderGlyph()
-            : item.PasteOptions is { Count: > 0 } ? CreatePasteOptionsButton(item)
+            : item.HasPasteOptions ? CreatePasteOptionsButton(item)
             : CreatePinnedGlyph(item);
         Grid.SetColumn(trailing, 2);
         grid.Children.Add(trailing);
@@ -926,7 +926,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
     private void ShowPasteOptions(QuickMenuItem item, FrameworkElement anchor, bool focusOptions = false)
     {
-        if (item.PasteOptions is not { Count: > 0 })
+        if (!item.HasPasteOptions)
         {
             return;
         }
@@ -938,7 +938,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         };
         _pasteOptionsFlyout = flyout;
         _pasteOptionsAnchor = anchor;
-        foreach (var option in item.PasteOptions)
+        foreach (var option in item.GetPasteOptions())
         {
             flyout.Items.Add(CreatePasteOptionMenuItem(option));
         }
@@ -1537,7 +1537,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             return;
         }
 
-        if (item.PasteOptions is { Count: > 0 } && _itemCards.ElementAtOrDefault(_selectedIndex) is { } anchor)
+        if (item.HasPasteOptions && _itemCards.ElementAtOrDefault(_selectedIndex) is { } anchor)
         {
             ShowPasteOptions(item, anchor, focusOptions: true);
         }

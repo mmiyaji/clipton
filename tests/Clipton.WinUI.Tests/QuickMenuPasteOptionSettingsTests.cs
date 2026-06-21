@@ -48,6 +48,29 @@ public sealed class QuickMenuPasteOptionSettingsTests
         Assert.Contains(child.GetChildren(), item => item.Title == "Nested");
     }
 
+    [Fact]
+    public void QuickMenuItem_CachesLazyPasteOptions()
+    {
+        var factoryCalls = 0;
+        var item = new QuickMenuItem(
+            "Item",
+            "Text",
+            "T",
+            "Enter",
+            () => { },
+            LazyPasteOptions: () =>
+            {
+                factoryCalls++;
+                return [new QuickMenuPasteOption("Paste", "P", () => { })];
+            });
+
+        Assert.True(item.HasPasteOptions);
+        Assert.Equal(0, factoryCalls);
+        Assert.Single(item.GetPasteOptions());
+        Assert.Single(item.GetPasteOptions());
+        Assert.Equal(1, factoryCalls);
+    }
+
     private static string CreateTestRoot()
     {
         return Path.Combine(Path.GetTempPath(), "clipton-winui-option-tests", Guid.NewGuid().ToString("N"));
