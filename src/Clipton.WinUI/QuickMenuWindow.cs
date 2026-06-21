@@ -53,6 +53,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private static readonly TimeSpan ImagePreviewTempDeleteDelay = TimeSpan.FromMinutes(10);
     private static readonly NativeMethods.LowLevelKeyboardProc s_keyboardProc = OnStaticKeyboardHook;
     private static readonly NativeMethods.LowLevelMouseProc s_mouseProc = OnStaticMouseHook;
+    private static readonly Lazy<ControlTemplate> s_appTitleTemplate = new(CreateAppTitleTemplate);
     private static QuickMenuWindow? s_activeWindow;
     private static IntPtr s_keyboardHook;
     private static IntPtr s_mouseHook;
@@ -777,7 +778,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             IsEnabled = false,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             Foreground = new SolidColorBrush(Color.FromArgb(255, 170, 170, 170)),
-            Template = CreateAppTitleTemplate()
+            Template = s_appTitleTemplate.Value
         });
         _flyout.Items.Add(new MenuFlyoutSeparator());
     }
