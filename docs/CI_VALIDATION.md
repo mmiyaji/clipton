@@ -28,5 +28,5 @@ Run the quick menu smoke locally or on a logged-in self-hosted Windows runner:
 
 ```powershell
 dotnet build src\Clipton.WinUI\Clipton.WinUI.csproj -c Release -p:WindowsPackageType=None
-tools\e2e\quickmenu-e2e.ps1 -ExePath src\Clipton.WinUI\bin\Release\net8.0-windows10.0.19041.0\Clipton.WinUI.exe -Hotkey "Shift+Alt+V" -ScenarioTimeoutSeconds 90 -KillExisting
+tools\e2e\quickmenu-e2e.ps1 -ExePath src\Clipton.WinUI\bin\Release\net8.0-windows10.0.19041.0\Clipton.exe -Hotkey "Shift+Alt+V" -ScenarioTimeoutSeconds 90 -KillExisting
 ```

@@ -47,7 +47,7 @@
       <Extensions>
         <uap5:Extension
           Category="windows.startupTask"
-          Executable="Clipton.WinUI\Clipton.WinUI.exe"
+          Executable="Clipton.WinUI\Clipton.exe"
           EntryPoint="Windows.FullTrustApplication">
           <uap5:StartupTask
             TaskId="CliptonStartup"

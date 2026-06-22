@@ -3,7 +3,7 @@
 # quick menu with the configured hotkey, then verifies menu state through UI
 # Automation. Every wait is bounded so GitHub Actions cannot hang indefinitely.
 param(
-    [string]$ExePath = (Join-Path $PSScriptRoot "..\..\src\Clipton.WinUI\bin\Debug\net8.0-windows10.0.19041.0\Clipton.WinUI.exe"),
+    [string]$ExePath = (Join-Path $PSScriptRoot "..\..\src\Clipton.WinUI\bin\Debug\net8.0-windows10.0.19041.0\Clipton.exe"),
     [string]$DataDir = (Join-Path $env:TEMP ("clipton-e2e-data-" + [Guid]::NewGuid().ToString("N"))),
     [string]$Hotkey = "Shift+Alt+V",
     [int]$StartupTimeoutSeconds = 12,
