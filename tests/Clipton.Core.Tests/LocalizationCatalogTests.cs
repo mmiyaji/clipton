@@ -101,6 +101,18 @@ public sealed class LocalizationCatalogTests
     }
 
     [Fact]
+    public void Translate_ProvidesSnippetManagementLabels()
+    {
+        var catalog = new LocalizationCatalog();
+
+        Assert.Equal("Search snippets", catalog.Translate("en", "SnippetSearchPlaceholder"));
+        Assert.Contains("{0}", catalog.Translate("en", "SnippetSearchStatus"));
+        Assert.Contains("{0}", catalog.Translate("ja", "SnippetSearchStatus"));
+        Assert.Contains("name and text", catalog.Translate("en", "SnippetValidationRequired"));
+        Assert.NotEqual("SnippetPreviewPlaceholder", catalog.Translate("ja", "SnippetPreviewPlaceholder"));
+    }
+
+    [Fact]
     public void Translate_ProvidesQuickMenuPasteOptionAccessibilityLabels()
     {
         var catalog = new LocalizationCatalog();
