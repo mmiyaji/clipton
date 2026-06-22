@@ -230,6 +230,19 @@ public sealed class HistoryAccessLockPrivacyTests
     }
 
     [Fact]
+    public void ExcludedCaptureApplicationPatterns_AreSavedNormalized()
+    {
+        var root = CreateTestRoot();
+        using var runtime = new CliptonRuntime(root, isSafeMode: true);
+
+        runtime.SetExcludedCaptureApplicationPatterns([" notepad.exe ", "NOTEPAD", "*", "Teams*"]);
+
+        Assert.Equal(["notepad", "Teams*"], runtime.Settings.ExcludedCaptureApplicationPatterns);
+        var loadedSettings = new JsonSettingsStore(Path.Combine(root, "settings.json")).Load();
+        Assert.Equal(["notepad", "Teams*"], loadedSettings.ExcludedCaptureApplicationPatterns);
+    }
+
+    [Fact]
     public void EncryptedExports_DoNotPersistPayloadAsPlainTextAndRoundTrip()
     {
         var root = CreateTestRoot();

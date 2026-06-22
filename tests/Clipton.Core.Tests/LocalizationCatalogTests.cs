@@ -113,6 +113,17 @@ public sealed class LocalizationCatalogTests
     }
 
     [Fact]
+    public void Translate_ProvidesExcludedCaptureApplicationLabels()
+    {
+        var catalog = new LocalizationCatalog();
+
+        Assert.Equal("Excluded apps", catalog.Translate("en", "ExcludedCaptureApplications"));
+        Assert.Contains("process names", catalog.Translate("en", "ExcludedCaptureApplicationsDescription"));
+        Assert.Contains("{0}", catalog.Translate("en", "ExcludedCaptureApplicationsSaved"));
+        Assert.Contains("{0}", catalog.Translate("ja", "ExcludedCaptureApplicationsSaved"));
+    }
+
+    [Fact]
     public void Translate_ProvidesQuickMenuPasteOptionAccessibilityLabels()
     {
         var catalog = new LocalizationCatalog();

@@ -69,6 +69,7 @@ public sealed class JsonSettingsStore
         settings.QuickMenuDisplayMode = NormalizeQuickMenuDisplayMode(settings.QuickMenuDisplayMode);
         settings.QuickMenuImagePreviewSize = NormalizeQuickMenuImagePreviewSize(settings.QuickMenuImagePreviewSize);
         settings.QuickMenuTopLevelHistoryItems = QuickMenuHistoryBuckets.NormalizeTopLevelHistoryItems(settings.QuickMenuTopLevelHistoryItems);
+        settings.ExcludedCaptureApplicationPatterns = ApplicationExclusionList.Normalize(settings.ExcludedCaptureApplicationPatterns);
         NormalizeHistoryAccessLock(settings);
         NormalizeMaskRuleSettings(settings, maskRuleDefinitionsConfigured);
         NormalizeQuickMenuShortcuts(settings);
@@ -82,6 +83,7 @@ public sealed class JsonSettingsStore
     public void Save(CliptonSettings settings)
     {
         settings.QuickMenuDisplayMode = NormalizeQuickMenuDisplayMode(settings.QuickMenuDisplayMode);
+        settings.ExcludedCaptureApplicationPatterns = ApplicationExclusionList.Normalize(settings.ExcludedCaptureApplicationPatterns);
         NormalizeHistoryAccessLock(settings);
         NormalizeMaskRuleSettings(settings, preferConfiguredDefinitions: true);
         NormalizeQuickMenuPasteOptions(settings);

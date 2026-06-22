@@ -111,6 +111,9 @@ public sealed class MainWindow : Window
     private readonly ToggleSwitch _diagnosticLoggingToggle = CompactToggle();
     private readonly ToggleSwitch _persistHistoryToggle = CompactToggle();
     private readonly ToggleSwitch _saveSourceMetadataToggle = CompactToggle();
+    private readonly TextBox _excludedCaptureAppsBox = new();
+    private readonly Button _saveExcludedCaptureAppsButton = new();
+    private readonly TextBlock _excludedCaptureAppsStatusText = Description();
     private readonly ToggleSwitch _historyAccessLockToggle = CompactToggle();
     private readonly ComboBox _historyAccessLockTimeoutBox = new();
     private readonly Button _historyAccessLockPinButton = new();
@@ -254,6 +257,7 @@ public sealed class MainWindow : Window
             _snippetSearchStatusText,
             _snippetSelectionMetaText,
             _dataDirectoryText,
+            _excludedCaptureAppsStatusText,
             _historyAccessLockStatusText,
             _maskDefinitionsErrorText,
             _maskTestResultText);
@@ -609,6 +613,8 @@ public sealed class MainWindow : Window
         SetCommandButton(_historyAccessLockPinButton, "\uE72E", _runtime.IsHistoryAccessLockConfigured ? t("ChangePin") : t("SetPin"));
         SetCommandButton(_historyAccessLockResetButton, "\uE777", t("ResetPin"));
         SetCommandButton(_historyAccessLockNowButton, "\uE785", t("LockNow"));
+        SetCommandButton(_saveExcludedCaptureAppsButton, "\uE74E", t("Save"));
+        _excludedCaptureAppsBox.PlaceholderText = t("ExcludedCaptureApplicationsPlaceholder");
         _startupToggle.IsOn = _runtime.Settings.StartWithWindows;
         _hideSettingsWindowOnStartupToggle.IsOn = _runtime.Settings.HideSettingsWindowOnStartup;
         _pauseCaptureToggle.IsOn = _runtime.Settings.PauseCapture;
@@ -617,6 +623,7 @@ public sealed class MainWindow : Window
         _saveSourceMetadataToggle.IsOn = _runtime.Settings.SaveHistorySourceMetadata;
         _historyAccessLockToggle.IsOn = _runtime.Settings.HistoryAccessLockEnabled && _runtime.IsHistoryAccessLockConfigured;
         _maskSensitiveContentToggle.IsOn = _runtime.Settings.MaskSensitiveContent;
+        RefreshExcludedCaptureApplicationsEditor();
         ApplyMaskRuleDefinitionsToUi();
         _maskCustomPatternToggle.IsOn = _runtime.Settings.MaskRules.CustomPattern;
         EnsureHistoryLimitComboItem(_runtime.Settings.MaxHistoryItems);
@@ -1108,6 +1115,7 @@ public sealed class MainWindow : Window
         }
 
         _historySettingsPage.Children.Add(SettingCard("\uE769", "PauseCapture", "PauseCaptureDescription", _pauseCaptureToggle));
+        _historySettingsPage.Children.Add(BuildExcludedCaptureApplicationsCard());
         _diagnosticLoggingToggle.Toggled += (_, _) => SaveDiagnosticLogging();
         var diagnosticControls = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         _openLogsButton.Click += (_, _) => _runtime.OpenDiagnosticLogDirectory();
@@ -1141,6 +1149,45 @@ public sealed class MainWindow : Window
         _maskDefinitionsButton.Click += (_, _) => ToggleMaskDefinitionsPanel();
         _historySettingsPage.Children.Add(SettingCard("\uE8D7", "MaskSensitiveContent", "MaskSensitiveContentDescription", maskControls));
         _historySettingsPage.Children.Add(BuildMaskDefinitionsPanel());
+    }
+
+    private UIElement BuildExcludedCaptureApplicationsCard()
+    {
+        _excludedCaptureAppsBox.AcceptsReturn = true;
+        _excludedCaptureAppsBox.TextWrapping = TextWrapping.NoWrap;
+        _excludedCaptureAppsBox.MinHeight = 92;
+        _excludedCaptureAppsBox.MaxHeight = 160;
+        _excludedCaptureAppsBox.Width = 420;
+        _excludedCaptureAppsBox.HorizontalAlignment = HorizontalAlignment.Stretch;
+        ScrollViewer.SetVerticalScrollBarVisibility(_excludedCaptureAppsBox, ScrollBarVisibility.Auto);
+        ScrollViewer.SetHorizontalScrollBarVisibility(_excludedCaptureAppsBox, ScrollBarVisibility.Auto);
+        _excludedCaptureAppsBox.TextChanged += (_, _) =>
+        {
+            if (_loading)
+            {
+                return;
+            }
+
+            UpdateExcludedCaptureApplicationsSaveState();
+        };
+
+        _saveExcludedCaptureAppsButton.HorizontalAlignment = HorizontalAlignment.Right;
+        _saveExcludedCaptureAppsButton.Click += (_, _) => SaveExcludedCaptureApplications();
+
+        var controls = new StackPanel
+        {
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            MaxWidth = 420,
+            Children =
+            {
+                _excludedCaptureAppsBox,
+                _excludedCaptureAppsStatusText,
+                _saveExcludedCaptureAppsButton
+            }
+        };
+
+        return SettingCard("\uE71F", "ExcludedCaptureApplications", "ExcludedCaptureApplicationsDescription", controls);
     }
 
     private UIElement BuildHistoryAccessLockCard()
@@ -2814,6 +2861,50 @@ public sealed class MainWindow : Window
         {
             _historyOptionsSaving = false;
         }
+    }
+
+    private void RefreshExcludedCaptureApplicationsEditor()
+    {
+        var text = string.Join(Environment.NewLine, _runtime.Settings.ExcludedCaptureApplicationPatterns);
+        if (!string.Equals(_excludedCaptureAppsBox.Text, text, StringComparison.Ordinal))
+        {
+            _excludedCaptureAppsBox.Text = text;
+        }
+
+        UpdateExcludedCaptureApplicationsSaveState();
+    }
+
+    private void SaveExcludedCaptureApplications()
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        _runtime.SetExcludedCaptureApplicationPatterns(GetExcludedCaptureApplicationPatternsFromEditor());
+        RefreshExcludedCaptureApplicationsEditor();
+    }
+
+    private void UpdateExcludedCaptureApplicationsSaveState()
+    {
+        var editorPatterns = GetExcludedCaptureApplicationPatternsFromEditor();
+        var hasChanges = !editorPatterns.SequenceEqual(
+            _runtime.Settings.ExcludedCaptureApplicationPatterns,
+            StringComparer.OrdinalIgnoreCase);
+        _saveExcludedCaptureAppsButton.IsEnabled = hasChanges;
+        _excludedCaptureAppsStatusText.Text = hasChanges
+            ? _runtime.Translate("ExcludedCaptureApplicationsUnsaved")
+            : _runtime.Settings.ExcludedCaptureApplicationPatterns.Length == 0
+                ? _runtime.Translate("ExcludedCaptureApplicationsEmpty")
+                : string.Format(
+                    _runtime.Translate("ExcludedCaptureApplicationsSaved"),
+                    _runtime.Settings.ExcludedCaptureApplicationPatterns.Length);
+    }
+
+    private string[] GetExcludedCaptureApplicationPatternsFromEditor()
+    {
+        return ApplicationExclusionList.Normalize(_excludedCaptureAppsBox.Text
+            .Split(["\r\n", "\n", "\r"], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
     }
 
     private async Task ChangeHistoryAccessLockEnabledAsync()

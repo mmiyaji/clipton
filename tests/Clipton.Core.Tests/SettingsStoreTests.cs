@@ -574,6 +574,34 @@ public sealed class SettingsStoreTests
     }
 
     [Fact]
+    public void Load_NormalizesExcludedCaptureApplicationPatterns()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"ExcludedCaptureApplicationPatterns":[" notepad.exe ","NOTEPAD","*","Teams*"]}""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Equal(["notepad", "Teams*"], loaded.ExcludedCaptureApplicationPatterns);
+    }
+
+    [Fact]
+    public void Save_NormalizesExcludedCaptureApplicationPatterns()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        var store = new JsonSettingsStore(path);
+
+        store.Save(new CliptonSettings
+        {
+            ExcludedCaptureApplicationPatterns = [" notepad.exe ", "NOTEPAD", "*"]
+        });
+
+        var loaded = store.Load();
+        Assert.Equal(["notepad"], loaded.ExcludedCaptureApplicationPatterns);
+    }
+
+    [Fact]
     public void Save_WritesRelativePathInCurrentDirectory()
     {
         var root = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"));

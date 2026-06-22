@@ -654,6 +654,12 @@ public sealed class CliptonRuntime : IDisposable
         SaveSettings();
     }
 
+    public void SetExcludedCaptureApplicationPatterns(IEnumerable<string>? patterns)
+    {
+        Settings.ExcludedCaptureApplicationPatterns = ApplicationExclusionList.Normalize(patterns);
+        SaveSettings();
+    }
+
     /// <summary>
     /// Enables or disables encrypted local history persistence.
     /// </summary>
@@ -1397,6 +1403,18 @@ public sealed class CliptonRuntime : IDisposable
             return null;
         }
 
+        var origin = CaptureOriginMetadata(sourceWindow);
+        if (ApplicationExclusionList.Matches(Settings.ExcludedCaptureApplicationPatterns, origin?.ApplicationName))
+        {
+            if (sequence != 0)
+            {
+                Volatile.Write(ref _lastCapturedClipboardSequence, sequence);
+            }
+
+            AppDiagnostics.Info("Clipboard", "Skipped clipboard capture because the source application is excluded.");
+            return null;
+        }
+
         var snapshot = ClipboardBridge.Capture();
         if (snapshot is null)
         {
@@ -1405,7 +1423,7 @@ public sealed class CliptonRuntime : IDisposable
 
         if (Settings.SaveHistorySourceMetadata)
         {
-            snapshot = AttachOrigin(snapshot, CaptureOriginMetadata(sourceWindow));
+            snapshot = AttachOrigin(snapshot, origin);
         }
 
         return new ClipboardCaptureResult(ApplySourceMetadataPolicy(snapshot), sequence);
