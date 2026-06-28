@@ -1,6 +1,9 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 
 namespace Clipton.Core;
+
+public sealed record SupportedLocale(string Code, string DisplayNameKey);
 
 /// <summary>
 /// In-process localization table for Clipton UI text.
@@ -10,13 +13,24 @@ namespace Clipton.Core;
 /// without separate resource-manager wiring. Missing keys fall back through English and
 /// then to the key itself.
 /// </remarks>
-public sealed class LocalizationCatalog
+public sealed partial class LocalizationCatalog
 {
+    public static IReadOnlyList<SupportedLocale> SupportedLocales { get; } =
+    [
+        new("en", "LanguageEnglish"),
+        new("ja", "LanguageJapanese"),
+        new("de", "LanguageGerman"),
+        new("es", "LanguageSpanish"),
+        new("fr", "LanguageFrench"),
+        new("ko", "LanguageKorean"),
+        new("zh-Hans", "LanguageChineseSimplified")
+    ];
+
     private readonly IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> _resources;
 
     public LocalizationCatalog()
     {
-        _resources = new ReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>(
+        _resources = CompleteResources(new ReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>(
             new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.OrdinalIgnoreCase)
             {
                 ["en"] = new ReadOnlyDictionary<string, string>(new Dictionary<string, string>
@@ -165,14 +179,21 @@ public sealed class LocalizationCatalog
                     ["PasteImageOriginal"] = "Paste original image",
                     ["PasteImagePng"] = "Paste as PNG",
                     ["PasteImageJpeg"] = "Paste as JPEG",
+                    ["PasteImageResizeHalf"] = "Paste resized image (50%)",
                     ["PasteImageFile"] = "Paste as image file",
                     ["PreviewImage"] = "Preview image",
+                    ["ImagePreviewOpenDefaultApp"] = "Open with default app",
                     ["ImagePreviewFeedbackCopy"] = "Copied",
                     ["ImagePreviewFeedbackCut"] = "Copied and removed",
                     ["ImagePreviewFeedbackZoomIn"] = "Zoomed in",
                     ["ImagePreviewFeedbackZoomOut"] = "Zoomed out",
                     ["ImagePreviewFeedbackZoomReset"] = "Default size",
                     ["CopyImageOnly"] = "Copy image only",
+                    ["Copy"] = "Copy",
+                    ["CopyAndRemove"] = "Copy and remove",
+                    ["ZoomOut"] = "Zoom out",
+                    ["ResetZoom"] = "Reset zoom",
+                    ["ZoomIn"] = "Zoom in",
                     ["PinnedHistory"] = "Pinned",
                     ["PinHistory"] = "Pin to folder",
                     ["UnpinHistory"] = "Remove pin",
@@ -201,6 +222,8 @@ public sealed class LocalizationCatalog
                     ["ExcludedCaptureApplicationsEmpty"] = "No apps are excluded.",
                     ["ExcludedCaptureApplicationsSaved"] = "Saved excluded app pattern(s): {0}.",
                     ["ExcludedCaptureApplicationsUnsaved"] = "Save to apply changes.",
+                    ["ExcludedCaptureApplicationsExpand"] = "Edit list",
+                    ["ExcludedCaptureApplicationsCollapse"] = "Hide editor",
                     ["DiagnosticLogging"] = "Diagnostic logging",
                     ["DiagnosticLoggingDescription"] = "Save detailed local logs for troubleshooting. Logs rotate automatically and never upload from Clipton.",
                     ["OpenLogs"] = "Open logs",
@@ -326,6 +349,11 @@ public sealed class LocalizationCatalog
                     ["QuickMenuPasteOptionsImageGroup"] = "Image",
                     ["QuickMenuPasteOptionsFileGroup"] = "Files",
                     ["QuickMenuPasteOptionTogglePin"] = "Pin or unpin history",
+                    ["QuickMenuFolderLoading"] = "Loading...",
+                    ["QuickMenuFolderLoadingNamed"] = "Loading {0}...",
+                    ["QuickMenuFolderNoItems"] = "No items",
+                    ["QuickMenuItemCount"] = "{0} item(s)",
+                    ["QuickMenuKeyboardHelp"] = "Enter paste  T text  Left/Right",
                     ["QuickMenuShortcutsSection"] = "Menu shortcuts",
                     ["QuickMenuShortcutSearch"] = "Search menu",
                     ["QuickMenuShortcutSearchDescription"] = "Open search while the quick menu is visible.",
@@ -351,6 +379,12 @@ public sealed class LocalizationCatalog
                     ["SimpleContextMenuModeDescription"] = "Use the compact WinUI context menu for the quick paste surface.",
                     ["PastePlainMenu"] = "Paste as plain text",
                     ["PasteOriginalMenu"] = "Paste original",
+                    ["PlainText"] = "Plain text",
+                    ["Back"] = "Back",
+                    ["RelativeTimeJustNow"] = "Just now",
+                    ["RelativeTimeSecondsAgo"] = "{0}s ago",
+                    ["RelativeTimeMinutesAgo"] = "{0}m ago",
+                    ["RelativeTimeHoursAgo"] = "{0}h ago",
                     ["Hotkey"] = "Global hotkey",
                     ["HotkeyDescription"] = "Shortcut used to open the quick paste menu.",
                     ["CaptureHotkey"] = "Input",
@@ -365,6 +399,11 @@ public sealed class LocalizationCatalog
                     ["LanguageSystem"] = "Use system setting",
                     ["LanguageEnglish"] = "English",
                     ["LanguageJapanese"] = "Japanese",
+                    ["LanguageGerman"] = "German",
+                    ["LanguageSpanish"] = "Spanish",
+                    ["LanguageFrench"] = "French",
+                    ["LanguageKorean"] = "Korean",
+                    ["LanguageChineseSimplified"] = "Chinese (Simplified)",
                     ["Theme"] = "Theme",
                     ["ThemeDescription"] = "Choose the window color theme.",
                     ["ThemeSystem"] = "Use system setting",
@@ -523,14 +562,21 @@ public sealed class LocalizationCatalog
                     ["PasteImageOriginal"] = "\u5143\u306E\u753B\u50CF\u3067\u8CBC\u308A\u4ED8\u3051",
                     ["PasteImagePng"] = "PNG\u3068\u3057\u3066\u8CBC\u308A\u4ED8\u3051",
                     ["PasteImageJpeg"] = "JPEG\u3068\u3057\u3066\u8CBC\u308A\u4ED8\u3051",
+                    ["PasteImageResizeHalf"] = "50%\u306B\u30EA\u30B5\u30A4\u30BA\u3057\u3066\u8CBC\u308A\u4ED8\u3051",
                     ["PasteImageFile"] = "\u753B\u50CF\u30D5\u30A1\u30A4\u30EB\u3068\u3057\u3066\u8CBC\u308A\u4ED8\u3051",
                     ["PreviewImage"] = "\u753B\u50CF\u3092\u30D7\u30EC\u30D3\u30E5\u30FC",
+                    ["ImagePreviewOpenDefaultApp"] = "\u65E2\u5B9A\u306E\u30A2\u30D7\u30EA\u3067\u958B\u304F",
                     ["ImagePreviewFeedbackCopy"] = "\u30B3\u30D4\u30FC\u3057\u307E\u3057\u305F",
                     ["ImagePreviewFeedbackCut"] = "\u30B3\u30D4\u30FC\u3057\u3066\u5C65\u6B74\u304B\u3089\u524A\u9664",
                     ["ImagePreviewFeedbackZoomIn"] = "\u62E1\u5927",
                     ["ImagePreviewFeedbackZoomOut"] = "\u7E2E\u5C0F",
                     ["ImagePreviewFeedbackZoomReset"] = "\u65E2\u5B9A\u30B5\u30A4\u30BA",
                     ["CopyImageOnly"] = "\u753B\u50CF\u3060\u3051\u30B3\u30D4\u30FC",
+                    ["Copy"] = "\u30B3\u30D4\u30FC",
+                    ["CopyAndRemove"] = "\u30B3\u30D4\u30FC\u3057\u3066\u524A\u9664",
+                    ["ZoomOut"] = "\u7E2E\u5C0F",
+                    ["ResetZoom"] = "\u30BA\u30FC\u30E0\u3092\u521D\u671F\u5316",
+                    ["ZoomIn"] = "\u62E1\u5927",
                     ["PinnedHistory"] = "\u30D4\u30F3\u7559\u3081",
                     ["PinHistory"] = "\u30D4\u30F3\u7559\u3081\u306B\u8FFD\u52A0",
                     ["UnpinHistory"] = "\u30D4\u30F3\u7559\u3081\u3092\u89E3\u9664",
@@ -559,6 +605,8 @@ public sealed class LocalizationCatalog
                     ["ExcludedCaptureApplicationsEmpty"] = "\u9664\u5916\u30A2\u30D7\u30EA\u306F\u3042\u308A\u307E\u305B\u3093\u3002",
                     ["ExcludedCaptureApplicationsSaved"] = "\u4FDD\u5B58\u6E08\u307F\u306E\u9664\u5916\u30A2\u30D7\u30EA: {0} \u4EF6\u3002",
                     ["ExcludedCaptureApplicationsUnsaved"] = "\u4FDD\u5B58\u3059\u308B\u3068\u5909\u66F4\u304C\u53CD\u6620\u3055\u308C\u307E\u3059\u3002",
+                    ["ExcludedCaptureApplicationsExpand"] = "\u30EA\u30B9\u30C8\u3092\u7DE8\u96C6",
+                    ["ExcludedCaptureApplicationsCollapse"] = "\u7DE8\u96C6\u6B04\u3092\u9589\u3058\u308B",
                     ["DiagnosticLogging"] = "\u8A3A\u65AD\u30ED\u30B0",
                     ["DiagnosticLoggingDescription"] = "\u30C8\u30E9\u30D6\u30EB\u30B7\u30E5\u30FC\u30C8\u7528\u306E\u8A73\u7D30\u30ED\u30B0\u3092\u30ED\u30FC\u30AB\u30EB\u306B\u4FDD\u5B58\u3057\u307E\u3059\u3002\u30ED\u30B0\u306F\u81EA\u52D5\u30ED\u30FC\u30C6\u30FC\u30B7\u30E7\u30F3\u3055\u308C\u3001Clipton \u304B\u3089\u9001\u4FE1\u3055\u308C\u307E\u305B\u3093\u3002",
                     ["OpenLogs"] = "\u30ED\u30B0\u3092\u958B\u304F",
@@ -684,6 +732,11 @@ public sealed class LocalizationCatalog
                     ["QuickMenuPasteOptionsImageGroup"] = "\u753B\u50CF",
                     ["QuickMenuPasteOptionsFileGroup"] = "\u30D5\u30A1\u30A4\u30EB",
                     ["QuickMenuPasteOptionTogglePin"] = "\u30D4\u30F3\u7559\u3081\u306E\u8FFD\u52A0\u30FB\u89E3\u9664",
+                    ["QuickMenuFolderLoading"] = "\u8AAD\u307F\u8FBC\u307F\u4E2D...",
+                    ["QuickMenuFolderLoadingNamed"] = "{0} \u3092\u8AAD\u307F\u8FBC\u307F\u4E2D...",
+                    ["QuickMenuFolderNoItems"] = "\u9805\u76EE\u304C\u3042\u308A\u307E\u305B\u3093",
+                    ["QuickMenuItemCount"] = "{0} \u4EF6",
+                    ["QuickMenuKeyboardHelp"] = "Enter \u8CBC\u308A\u4ED8\u3051  T \u30C6\u30AD\u30B9\u30C8  Left/Right",
                     ["QuickMenuShortcutsSection"] = "\u30E1\u30CB\u30E5\u30FC\u8868\u793A\u4E2D\u306E\u30B7\u30E7\u30FC\u30C8\u30AB\u30C3\u30C8",
                     ["QuickMenuShortcutSearch"] = "\u30E1\u30CB\u30E5\u30FC\u691C\u7D22",
                     ["QuickMenuShortcutSearchDescription"] = "\u30AF\u30A4\u30C3\u30AF\u30E1\u30CB\u30E5\u30FC\u8868\u793A\u4E2D\u306B\u691C\u7D22\u3092\u958B\u304D\u307E\u3059\u3002",
@@ -709,6 +762,12 @@ public sealed class LocalizationCatalog
                     ["SimpleContextMenuModeDescription"] = "\u30AF\u30A4\u30C3\u30AF\u8CBC\u308A\u4ED8\u3051\u3092 WinUI \u306E\u30B3\u30F3\u30D1\u30AF\u30C8\u306A\u30E1\u30CB\u30E5\u30FC\u3067\u8868\u793A\u3057\u307E\u3059\u3002",
                     ["PastePlainMenu"] = "\u30D7\u30EC\u30FC\u30F3\u30C6\u30AD\u30B9\u30C8\u3067\u8CBC\u308A\u4ED8\u3051",
                     ["PasteOriginalMenu"] = "\u5143\u306E\u5F62\u5F0F\u3067\u8CBC\u308A\u4ED8\u3051",
+                    ["PlainText"] = "\u30D7\u30EC\u30FC\u30F3\u30C6\u30AD\u30B9\u30C8",
+                    ["Back"] = "\u623B\u308B",
+                    ["RelativeTimeJustNow"] = "\u305F\u3063\u305F\u4ECA",
+                    ["RelativeTimeSecondsAgo"] = "{0} \u79D2\u524D",
+                    ["RelativeTimeMinutesAgo"] = "{0} \u5206\u524D",
+                    ["RelativeTimeHoursAgo"] = "{0} \u6642\u9593\u524D",
                     ["Hotkey"] = "\u30B0\u30ED\u30FC\u30D0\u30EB\u30DB\u30C3\u30C8\u30AD\u30FC",
                     ["HotkeyDescription"] = "\u30AF\u30A4\u30C3\u30AF\u8CBC\u308A\u4ED8\u3051\u30E1\u30CB\u30E5\u30FC\u3092\u958B\u304F\u30B7\u30E7\u30FC\u30C8\u30AB\u30C3\u30C8\u3067\u3059\u3002",
                     ["CaptureHotkey"] = "\u5165\u529B",
@@ -721,8 +780,13 @@ public sealed class LocalizationCatalog
                     ["Language"] = "\u8A00\u8A9E",
                     ["LanguageDescription"] = "Clipton \u306E\u8868\u793A\u8A00\u8A9E\u3092\u9078\u629E\u3057\u307E\u3059\u3002",
                     ["LanguageSystem"] = "\u30B7\u30B9\u30C6\u30E0\u8A2D\u5B9A\u3092\u4F7F\u7528",
-                    ["LanguageEnglish"] = "\u82F1\u8A9E",
-                    ["LanguageJapanese"] = "\u65E5\u672C\u8A9E",
+                    ["LanguageEnglish"] = "\u82F1\u8A9E (English)",
+                    ["LanguageJapanese"] = "\u65E5\u672C\u8A9E (Japanese)",
+                    ["LanguageGerman"] = "\u30C9\u30A4\u30C4\u8A9E (German)",
+                    ["LanguageSpanish"] = "\u30B9\u30DA\u30A4\u30F3\u8A9E (Spanish)",
+                    ["LanguageFrench"] = "\u30D5\u30E9\u30F3\u30B9\u8A9E (French)",
+                    ["LanguageKorean"] = "\u97D3\u56FD\u8A9E (Korean)",
+                    ["LanguageChineseSimplified"] = "\u4E2D\u56FD\u8A9E\uFF08\u7C21\u4F53\u5B57\uFF09 (Chinese, Simplified)",
                     ["Theme"] = "\u30C6\u30FC\u30DE",
                     ["ThemeDescription"] = "\u30A6\u30A3\u30F3\u30C9\u30A6\u306E\u8272\u30C6\u30FC\u30DE\u3092\u9078\u629E\u3057\u307E\u3059\u3002",
                     ["ThemeSystem"] = "\u30B7\u30B9\u30C6\u30E0\u8A2D\u5B9A\u3092\u4F7F\u7528",
@@ -734,8 +798,163 @@ public sealed class LocalizationCatalog
                     ["FormatHtml"] = "HTML",
                     ["FormatFileDrop"] = "\u30D5\u30A1\u30A4\u30EB",
                     ["ClipboardItem"] = "\u30AF\u30EA\u30C3\u30D7\u30DC\u30FC\u30C9\u9805\u76EE"
+                }),
+                ["de"] = new ReadOnlyDictionary<string, string>(new Dictionary<string, string>
+                {
+                    ["General"] = "Allgemein",
+                    ["GeneralDescription"] = "Legen Sie fest, wie Clipton startet, geöffnet wird und Befehle anzeigt.",
+                    ["History"] = "Zwischenablageverlauf",
+                    ["HistorySettings"] = "Verlaufseinstellungen",
+                    ["Advanced"] = "Erweiterte Einstellungen",
+                    ["Snippets"] = "Textbausteine",
+                    ["Donation"] = "Spenden",
+                    ["About"] = "Info",
+                    ["Settings"] = "Einstellungen",
+                    ["Language"] = "Sprache",
+                    ["LanguageDescription"] = "Wählen Sie die Anzeigesprache für Clipton.",
+                    ["LanguageSystem"] = "Systemeinstellung verwenden",
+                    ["LanguageEnglish"] = "Englisch (English)",
+                    ["LanguageJapanese"] = "Japanisch (Japanese)",
+                    ["LanguageGerman"] = "Deutsch (German)",
+                    ["LanguageSpanish"] = "Spanisch (Spanish)",
+                    ["LanguageFrench"] = "Französisch (French)",
+                    ["LanguageKorean"] = "Koreanisch (Korean)",
+                    ["LanguageChineseSimplified"] = "Chinesisch, vereinfacht (Chinese, Simplified)",
+                    ["Theme"] = "Design",
+                    ["Startup"] = "Mit Windows starten",
+                    ["Hotkey"] = "Globaler Hotkey",
+                    ["Save"] = "Speichern",
+                    ["Cancel"] = "Abbrechen",
+                    ["Close"] = "Schließen",
+                    ["Exit"] = "Beenden",
+                    ["UseDefault"] = "Standard verwenden",
+                    ["OpenFolder"] = "Ordner öffnen"
+                }),
+                ["es"] = new ReadOnlyDictionary<string, string>(new Dictionary<string, string>
+                {
+                    ["General"] = "General",
+                    ["GeneralDescription"] = "Configura cómo se inicia Clipton, cómo se abre y cómo muestra comandos.",
+                    ["History"] = "Historial del portapapeles",
+                    ["HistorySettings"] = "Configuración del historial",
+                    ["Advanced"] = "Configuración avanzada",
+                    ["Snippets"] = "Fragmentos",
+                    ["Donation"] = "Donación",
+                    ["About"] = "Acerca de",
+                    ["Settings"] = "Configuración",
+                    ["Language"] = "Idioma",
+                    ["LanguageDescription"] = "Elige el idioma de visualización de Clipton.",
+                    ["LanguageSystem"] = "Usar configuración del sistema",
+                    ["LanguageEnglish"] = "Inglés (English)",
+                    ["LanguageJapanese"] = "Japonés (Japanese)",
+                    ["LanguageGerman"] = "Alemán (German)",
+                    ["LanguageSpanish"] = "Español (Spanish)",
+                    ["LanguageFrench"] = "Francés (French)",
+                    ["LanguageKorean"] = "Coreano (Korean)",
+                    ["LanguageChineseSimplified"] = "Chino simplificado (Chinese, Simplified)",
+                    ["Theme"] = "Tema",
+                    ["Startup"] = "Iniciar con Windows",
+                    ["Hotkey"] = "Atajo global",
+                    ["Save"] = "Guardar",
+                    ["Cancel"] = "Cancelar",
+                    ["Close"] = "Cerrar",
+                    ["Exit"] = "Salir",
+                    ["UseDefault"] = "Usar predeterminado",
+                    ["OpenFolder"] = "Abrir carpeta"
+                }),
+                ["fr"] = new ReadOnlyDictionary<string, string>(new Dictionary<string, string>
+                {
+                    ["General"] = "Général",
+                    ["GeneralDescription"] = "Configurez le démarrage, l'ouverture et l'affichage des commandes de Clipton.",
+                    ["History"] = "Historique du presse-papiers",
+                    ["HistorySettings"] = "Paramètres de l'historique",
+                    ["Advanced"] = "Paramètres avancés",
+                    ["Snippets"] = "Extraits",
+                    ["Donation"] = "Don",
+                    ["About"] = "À propos",
+                    ["Settings"] = "Paramètres",
+                    ["Language"] = "Langue",
+                    ["LanguageDescription"] = "Choisissez la langue d'affichage de Clipton.",
+                    ["LanguageSystem"] = "Utiliser le paramètre système",
+                    ["LanguageEnglish"] = "Anglais (English)",
+                    ["LanguageJapanese"] = "Japonais (Japanese)",
+                    ["LanguageGerman"] = "Allemand (German)",
+                    ["LanguageSpanish"] = "Espagnol (Spanish)",
+                    ["LanguageFrench"] = "Français (French)",
+                    ["LanguageKorean"] = "Coréen (Korean)",
+                    ["LanguageChineseSimplified"] = "Chinois simplifié (Chinese, Simplified)",
+                    ["Theme"] = "Thème",
+                    ["Startup"] = "Démarrer avec Windows",
+                    ["Hotkey"] = "Raccourci global",
+                    ["Save"] = "Enregistrer",
+                    ["Cancel"] = "Annuler",
+                    ["Close"] = "Fermer",
+                    ["Exit"] = "Quitter",
+                    ["UseDefault"] = "Utiliser la valeur par défaut",
+                    ["OpenFolder"] = "Ouvrir le dossier"
+                }),
+                ["ko"] = new ReadOnlyDictionary<string, string>(new Dictionary<string, string>
+                {
+                    ["General"] = "일반",
+                    ["GeneralDescription"] = "Clipton의 시작, 호출, 명령 표시 방식을 설정합니다.",
+                    ["History"] = "클립보드 기록",
+                    ["HistorySettings"] = "기록 설정",
+                    ["Advanced"] = "고급 설정",
+                    ["Snippets"] = "스니펫",
+                    ["Donation"] = "후원",
+                    ["About"] = "정보",
+                    ["Settings"] = "설정",
+                    ["Language"] = "언어",
+                    ["LanguageDescription"] = "Clipton의 표시 언어를 선택합니다.",
+                    ["LanguageSystem"] = "시스템 설정 사용",
+                    ["LanguageEnglish"] = "영어 (English)",
+                    ["LanguageJapanese"] = "일본어 (Japanese)",
+                    ["LanguageGerman"] = "독일어 (German)",
+                    ["LanguageSpanish"] = "스페인어 (Spanish)",
+                    ["LanguageFrench"] = "프랑스어 (French)",
+                    ["LanguageKorean"] = "한국어 (Korean)",
+                    ["LanguageChineseSimplified"] = "중국어(간체) (Chinese, Simplified)",
+                    ["Theme"] = "테마",
+                    ["Startup"] = "Windows 시작 시 실행",
+                    ["Hotkey"] = "전역 단축키",
+                    ["Save"] = "저장",
+                    ["Cancel"] = "취소",
+                    ["Close"] = "닫기",
+                    ["Exit"] = "종료",
+                    ["UseDefault"] = "기본값 사용",
+                    ["OpenFolder"] = "폴더 열기"
+                }),
+                ["zh-Hans"] = new ReadOnlyDictionary<string, string>(new Dictionary<string, string>
+                {
+                    ["General"] = "常规",
+                    ["GeneralDescription"] = "配置 Clipton 的启动、唤出和命令显示方式。",
+                    ["History"] = "剪贴板历史",
+                    ["HistorySettings"] = "历史设置",
+                    ["Advanced"] = "高级设置",
+                    ["Snippets"] = "片段",
+                    ["Donation"] = "捐赠",
+                    ["About"] = "关于",
+                    ["Settings"] = "设置",
+                    ["Language"] = "语言",
+                    ["LanguageDescription"] = "选择 Clipton 的显示语言。",
+                    ["LanguageSystem"] = "使用系统设置",
+                    ["LanguageEnglish"] = "英语 (English)",
+                    ["LanguageJapanese"] = "日语 (Japanese)",
+                    ["LanguageGerman"] = "德语 (German)",
+                    ["LanguageSpanish"] = "西班牙语 (Spanish)",
+                    ["LanguageFrench"] = "法语 (French)",
+                    ["LanguageKorean"] = "韩语 (Korean)",
+                    ["LanguageChineseSimplified"] = "中文（简体） (Chinese, Simplified)",
+                    ["Theme"] = "主题",
+                    ["Startup"] = "随 Windows 启动",
+                    ["Hotkey"] = "全局快捷键",
+                    ["Save"] = "保存",
+                    ["Cancel"] = "取消",
+                    ["Close"] = "关闭",
+                    ["Exit"] = "退出",
+                    ["UseDefault"] = "使用默认值",
+                    ["OpenFolder"] = "打开文件夹"
                 })
-            });
+            }));
     }
 
     /// <summary>
@@ -743,11 +962,55 @@ public sealed class LocalizationCatalog
     /// </summary>
     public string Translate(string locale, string key)
     {
-        if (_resources.TryGetValue(locale, out var localized) && localized.TryGetValue(key, out var value))
+        var resolvedLocale = ResolveLocale(locale);
+        if (_resources.TryGetValue(resolvedLocale, out var localized) && localized.TryGetValue(key, out var value))
         {
             return value;
         }
 
         return _resources["en"].TryGetValue(key, out var fallback) ? fallback : key;
+    }
+
+    public static string ResolveLocale(string locale)
+    {
+        if (!string.Equals(locale, "system", StringComparison.OrdinalIgnoreCase))
+        {
+            return NormalizeLocale(locale);
+        }
+
+        return NormalizeLocale(CultureInfo.CurrentUICulture.Name);
+    }
+
+    public static string NormalizeLocale(string? locale)
+    {
+        if (string.Equals(locale, "system", StringComparison.OrdinalIgnoreCase))
+        {
+            return "system";
+        }
+
+        if (string.IsNullOrWhiteSpace(locale))
+        {
+            return "en";
+        }
+
+        var normalized = locale.Trim().Replace('_', '-');
+        if (normalized.Equals("zh", StringComparison.OrdinalIgnoreCase)
+            || normalized.Equals("zh-Hans", StringComparison.OrdinalIgnoreCase)
+            || normalized.StartsWith("zh-CN", StringComparison.OrdinalIgnoreCase)
+            || normalized.StartsWith("zh-SG", StringComparison.OrdinalIgnoreCase))
+        {
+            return "zh-Hans";
+        }
+
+        foreach (var supportedLocale in SupportedLocales)
+        {
+            if (normalized.Equals(supportedLocale.Code, StringComparison.OrdinalIgnoreCase)
+                || normalized.StartsWith($"{supportedLocale.Code}-", StringComparison.OrdinalIgnoreCase))
+            {
+                return supportedLocale.Code;
+            }
+        }
+
+        return "en";
     }
 }

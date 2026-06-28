@@ -38,7 +38,7 @@ internal static class AppDiagnostics
     public static void OpenLogDirectory()
     {
         Directory.CreateDirectory(LogDirectory);
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(LogDirectory) { UseShellExecute = true });
+        _ = ExternalLauncher.OpenFolderAsync(LogDirectory);
     }
 
     public static void ClearLogs()

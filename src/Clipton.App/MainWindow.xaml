@@ -294,8 +294,14 @@
                             <ComboBox x:Name="LocaleBox"
                                       Grid.Column="1"
                                       SelectionChanged="LocaleBox_OnSelectionChanged">
+                                <ComboBoxItem Content="Use system setting" Tag="system" />
                                 <ComboBoxItem Content="English" Tag="en" />
                                 <ComboBoxItem Content="Japanese" Tag="ja" />
+                                <ComboBoxItem Content="German" Tag="de" />
+                                <ComboBoxItem Content="Spanish" Tag="es" />
+                                <ComboBoxItem Content="French" Tag="fr" />
+                                <ComboBoxItem Content="Korean" Tag="ko" />
+                                <ComboBoxItem Content="Chinese (Simplified)" Tag="zh-Hans" />
                             </ComboBox>
                         </Grid>
                     </Border>

@@ -282,6 +282,7 @@ public static class QuickMenuPasteOptionIds
     public const string PasteImageOriginal = "paste-image-original";
     public const string PasteImagePng = "paste-image-png";
     public const string PasteImageJpeg = "paste-image-jpeg";
+    public const string PasteImageResizeHalf = "paste-image-resize-half";
     public const string PasteImageFile = "paste-image-file";
     public const string CopyImageOnly = "copy-image-only";
     public const string TogglePin = "toggle-pin";
@@ -305,6 +306,7 @@ public static class QuickMenuPasteOptionIds
         PasteImageOriginal,
         PasteImagePng,
         PasteImageJpeg,
+        PasteImageResizeHalf,
         PasteImageFile,
         CopyImageOnly,
         TogglePin

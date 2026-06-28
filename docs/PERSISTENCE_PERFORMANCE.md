@@ -1,5 +1,16 @@
 # Clipboard History Persistence Performance
 
+## Current Format
+
+The current Clipton history store uses format version 5, an itemized encrypted layout:
+
+- `history/manifest.dat`: plaintext ordering and format metadata.
+- `history/items/*.dat`: one Windows DPAPI-protected payload per clipboard item.
+
+This layout keeps startup bounded because the runtime can load only the recent head of history and page older items on demand. Older single-file, segmented base/delta, and chunked stores remain readable so existing users can upgrade without losing local history.
+
+The benchmark below is retained as historical context for the earlier segmented base/delta design that replaced the legacy single-file store. It does not describe the final v5 file layout.
+
 Measured on Windows, .NET Release build, using Windows DPAPI (`DataProtectionScope.CurrentUser`).
 Each scenario used 200 clipboard history items.
 
@@ -21,14 +32,14 @@ Each scenario used 200 clipboard history items.
 
 ## Summary
 
-The previous store rewrote and re-encrypted the entire history file for every persisted change.
-The segmented store keeps:
+The legacy store rewrote and re-encrypted the entire history file for every persisted change.
+The measured segmented store kept:
 
 - `history/manifest.dat`: ordered item IDs and segment membership.
 - `history/base.dat`: compacted encrypted history snapshot.
 - `history/delta.dat`: encrypted recent additions since the last compaction.
 
-This preserves comparable initial load performance while making normal append saves substantially cheaper:
+That preserved comparable initial load performance while making normal append saves substantially cheaper:
 
 - Text append save: 10.74 ms to 4.36 ms, about 59% faster.
 - Mixed append save: 14.74 ms to 3.50 ms, about 76% faster.
@@ -37,8 +48,8 @@ The storage size increases slightly because there are multiple files and a manif
 
 ## Migration
 
-If only the legacy `%APPDATA%/Clipton/history.dat` exists, the store loads it, writes the segmented format, then moves the legacy file to `history.dat.legacy.bak`.
+If only the legacy `%APPDATA%/Clipton/history.dat` exists, the store loads it, writes the current itemized format, then moves the legacy file to `history.dat.legacy.bak`.
 
 ## Notes
 
-An item-per-file prototype was not adopted. It improved some append cases, but it made startup load significantly worse because each item required a separate DPAPI decrypt. The final base/delta design keeps startup to at most two encrypted payload reads plus a small manifest.
+The current itemized design avoids decrypting every item at startup by loading only a recent range and paging older ranges as needed. That gives the append/update benefits of individual item files without requiring a full-history decrypt during normal startup.

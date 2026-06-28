@@ -124,12 +124,7 @@ public sealed class JsonSettingsStore
 
     private static string NormalizeLocale(string? locale)
     {
-        if (string.Equals(locale, "system", StringComparison.OrdinalIgnoreCase))
-        {
-            return "system";
-        }
-
-        return string.Equals(locale, "ja", StringComparison.OrdinalIgnoreCase) ? "ja" : "en";
+        return LocalizationCatalog.NormalizeLocale(locale);
     }
 
     private static string NormalizeTheme(string? theme)

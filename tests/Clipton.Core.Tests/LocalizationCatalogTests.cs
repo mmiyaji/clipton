@@ -17,7 +17,7 @@ public sealed class LocalizationCatalogTests
     {
         var catalog = new LocalizationCatalog();
 
-        Assert.Equal("Settings", catalog.Translate("fr", "Settings"));
+        Assert.Equal("Settings", catalog.Translate("it", "Settings"));
     }
 
     [Fact]
@@ -26,6 +26,92 @@ public sealed class LocalizationCatalogTests
         var catalog = new LocalizationCatalog();
 
         Assert.Equal("MissingKey", catalog.Translate("ja", "MissingKey"));
+    }
+
+    [Fact]
+    public void SupportedLocales_IncludeAdditionalLanguages()
+    {
+        var locales = LocalizationCatalog.SupportedLocales.Select(locale => locale.Code).ToArray();
+
+        Assert.Contains("de", locales);
+        Assert.Contains("es", locales);
+        Assert.Contains("fr", locales);
+        Assert.Contains("ko", locales);
+        Assert.Contains("zh-Hans", locales);
+    }
+
+    [Theory]
+    [InlineData("de-DE", "de")]
+    [InlineData("es-MX", "es")]
+    [InlineData("fr-CA", "fr")]
+    [InlineData("ko-KR", "ko")]
+    [InlineData("zh-CN", "zh-Hans")]
+    [InlineData("system", "system")]
+    [InlineData("unknown", "en")]
+    public void NormalizeLocale_MapsSupportedCultureNames(string locale, string expected)
+    {
+        Assert.Equal(expected, LocalizationCatalog.NormalizeLocale(locale));
+    }
+
+    [Fact]
+    public void Translate_ReturnsAdditionalLanguageResources()
+    {
+        var catalog = new LocalizationCatalog();
+
+        Assert.Equal("Einstellungen", catalog.Translate("de-DE", "Settings"));
+        Assert.Equal("Configuración", catalog.Translate("es", "Settings"));
+        Assert.Equal("Paramètres", catalog.Translate("fr-FR", "Settings"));
+        Assert.Equal("설정", catalog.Translate("ko-KR", "Settings"));
+        Assert.Equal("设置", catalog.Translate("zh-CN", "Settings"));
+    }
+
+    [Fact]
+    public void SupportedLocales_ProvideEveryEnglishResourceKey()
+    {
+        var resources = GetResources();
+        var englishKeys = resources["en"].Keys.Order(StringComparer.Ordinal).ToArray();
+
+        foreach (var locale in LocalizationCatalog.SupportedLocales.Select(locale => locale.Code))
+        {
+            var localeKeys = resources[locale].Keys.Order(StringComparer.Ordinal).ToArray();
+            Assert.Equal(englishKeys, localeKeys);
+        }
+    }
+
+    [Fact]
+    public void SupportedLocales_PreserveFormattingPlaceholders()
+    {
+        var resources = GetResources();
+        var english = resources["en"];
+
+        foreach (var locale in LocalizationCatalog.SupportedLocales.Select(locale => locale.Code).Where(locale => locale != "en"))
+        {
+            foreach (var (key, englishValue) in english)
+            {
+                var localizedValue = resources[locale][key];
+                Assert.Equal(ExtractPlaceholders(englishValue), ExtractPlaceholders(localizedValue));
+            }
+        }
+    }
+
+    [Fact]
+    public void Translate_LanguageNamesKeepEnglishFallbackLabels()
+    {
+        var catalog = new LocalizationCatalog();
+
+        Assert.Contains("(German)", catalog.Translate("ja", "LanguageGerman"));
+        Assert.Contains("(English)", catalog.Translate("ja", "LanguageEnglish"));
+        Assert.Contains("(Japanese)", catalog.Translate("ja", "LanguageJapanese"));
+        Assert.Contains("(German)", catalog.Translate("de", "LanguageGerman"));
+        Assert.Contains("(Spanish)", catalog.Translate("de", "LanguageSpanish"));
+        Assert.Contains("(Spanish)", catalog.Translate("es", "LanguageSpanish"));
+        Assert.Contains("(French)", catalog.Translate("es", "LanguageFrench"));
+        Assert.Contains("(French)", catalog.Translate("fr", "LanguageFrench"));
+        Assert.Contains("(Korean)", catalog.Translate("fr", "LanguageKorean"));
+        Assert.Contains("(Korean)", catalog.Translate("ko", "LanguageKorean"));
+        Assert.Contains("(Chinese, Simplified)", catalog.Translate("ko", "LanguageChineseSimplified"));
+        Assert.Contains("(English)", catalog.Translate("zh-CN", "LanguageEnglish"));
+        Assert.Contains("(Chinese, Simplified)", catalog.Translate("zh-CN", "LanguageChineseSimplified"));
     }
 
     [Fact]
@@ -121,6 +207,8 @@ public sealed class LocalizationCatalogTests
         Assert.Contains("process names", catalog.Translate("en", "ExcludedCaptureApplicationsDescription"));
         Assert.Contains("{0}", catalog.Translate("en", "ExcludedCaptureApplicationsSaved"));
         Assert.Contains("{0}", catalog.Translate("ja", "ExcludedCaptureApplicationsSaved"));
+        Assert.Equal("Edit list", catalog.Translate("en", "ExcludedCaptureApplicationsExpand"));
+        Assert.NotEqual("ExcludedCaptureApplicationsCollapse", catalog.Translate("ja", "ExcludedCaptureApplicationsCollapse"));
     }
 
     [Fact]
@@ -131,5 +219,22 @@ public sealed class LocalizationCatalogTests
         Assert.Contains("Right", catalog.Translate("en", "QuickMenuPasteOptionsHelp"));
         Assert.Contains("{0}", catalog.Translate("en", "QuickMenuPasteOptionsButtonName"));
         Assert.Contains("{0}", catalog.Translate("ja", "QuickMenuPasteOptionsButtonName"));
+        Assert.Equal("Paste resized image (50%)", catalog.Translate("en", "PasteImageResizeHalf"));
+        Assert.NotEqual("PasteImageResizeHalf", catalog.Translate("ja", "PasteImageResizeHalf"));
+    }
+
+    private static IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> GetResources()
+    {
+        var field = typeof(LocalizationCatalog).GetField("_resources", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("_resources field was not found.");
+        return (IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>)field.GetValue(new LocalizationCatalog())!;
+    }
+
+    private static string[] ExtractPlaceholders(string value)
+    {
+        return System.Text.RegularExpressions.Regex.Matches(value, @"\{\d+\}")
+            .Select(match => match.Value)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
     }
 }

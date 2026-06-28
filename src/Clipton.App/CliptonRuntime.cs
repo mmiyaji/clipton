@@ -1,4 +1,5 @@
 using System.IO;
+using System.Globalization;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
@@ -62,6 +63,11 @@ public sealed class CliptonRuntime : IDisposable
 
     /// <summary>Translates a UI text key for the configured locale.</summary>
     public string Translate(string key) => _localization.Translate(Settings.Locale, key);
+
+    private string FormatItemCount(int count)
+    {
+        return string.Format(CultureInfo.GetCultureInfo(LocalizationCatalog.ResolveLocale(Settings.Locale)), Translate("QuickMenuItemCount"), count);
+    }
 
     /// <summary>Starts clipboard capture, hotkey registration and the tray icon.</summary>
     public void Start()
@@ -217,7 +223,7 @@ public sealed class CliptonRuntime : IDisposable
 
     public void SetLocale(string locale)
     {
-        Settings.Locale = locale;
+        Settings.Locale = LocalizationCatalog.NormalizeLocale(locale);
         SaveSettings();
         RefreshTrayText();
     }
@@ -333,7 +339,7 @@ public sealed class CliptonRuntime : IDisposable
                 var rangeOffset = start;
                 menuItems.Add(new QuickMenuItem(
                     $"{rangeStart}~{rangeEnd}",
-                    $"{rangeCount} items",
+                    FormatItemCount(rangeCount),
                     ">",
                     "Enter",
                     Brushes.DimGray,
@@ -368,7 +374,12 @@ public sealed class CliptonRuntime : IDisposable
                 IsEnabled: true));
         }
 
-        var quickMenuWindow = new QuickMenuWindow(Translate("History"), menuItems, Settings.Theme, Settings.SimpleContextMenuMode);
+        var quickMenuWindow = new QuickMenuWindow(
+            Translate("History"),
+            menuItems,
+            Settings.Theme,
+            Settings.SimpleContextMenuMode,
+            Translate("QuickMenuKeyboardHelp"));
         _quickMenuWindow = quickMenuWindow;
         var cursor = Forms.Cursor.Position;
         quickMenuWindow.Left = cursor.X;

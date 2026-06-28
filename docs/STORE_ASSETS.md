@@ -1,8 +1,10 @@
 # Microsoft Store Asset Plan
 
-Last updated: 2026-06-17
+Last updated: 2026-06-28
 
 This file tracks Store submission assets for Clipton.
+
+Current app UI languages are English, Japanese, German, Spanish, French, Korean, and Simplified Chinese. This document still tracks English and Japanese Store-listing screenshots first because those are the maintained listing drafts.
 
 ## Official Requirements Checked
 
@@ -33,6 +35,15 @@ References:
 
 Important: existing generated screenshots in `artifacts/store/` are useful as layout drafts, but they include marketing-style overlay text. Do not submit them as final screenshots unless they are replaced with actual app UI captures that follow Microsoft guidance.
 
+Recent engineering verification captures for light-mode quick menus:
+
+- `artifacts/light-menu-check/default-light-menu.png`
+- `artifacts/light-menu-check/rich-light-menu.png`
+- `artifacts/light-menu-check/default-light-image-menu.png`
+- `artifacts/light-menu-check/rich-light-image-menu.png`
+
+These captures prove the latest default and rich quick menus render in light mode, including image preview surfaces. They are not final Partner Center screenshots.
+
 ## Final Screenshot Shot List
 
 Capture at 1920 x 1080 PNG. Use actual app UI only. Avoid marketing overlays, additional logos, or text banners.
@@ -43,7 +54,8 @@ Demo clipboard history data uses safe fake REST/API-style examples based on JSON
 
 1. `01-quick-menu-en.png`
    - Show Notepad or another neutral text target with Clipton quick menu open.
-   - Highlight visible history rows, shortcut hints, and paste options.
+   - Highlight visible history rows, paste options, and either default or rich menu mode.
+   - Capture both light and dark theme variants internally before choosing the final Store screenshot.
 
 2. `02-history-en.png`
    - Show the Clipboard history tab.
@@ -198,6 +210,8 @@ Clipton は Windows のタスクトレイからローカルで動作します。
 - Confirm every screenshot is PNG, at least 1366 x 768, under 50 MB.
 - Upload English and Japanese screenshots separately in each Store listing.
 - Use captions from `docs/STORE_LISTING.md`.
+- Verify quick menu screenshots reflect the latest light/dark theme behavior and the current default `Shift+Alt+V` hotkey.
+- Verify UI language screenshots use the selected listing language consistently.
 - If a trailer is uploaded, include MP4/MOV video, PNG thumbnail, title, and optional VTT captions.
 - Confirm privacy and terms URLs are public before submission.
 - Run Windows App Certification Kit before Partner Center upload.

@@ -10,14 +10,15 @@ Clipton is a local-first clipboard manager for Windows. It keeps recent clipboar
 - Global hotkey menu, default `Shift+Alt+V`, with preset fallback shortcuts when the default is unavailable.
 - Clipboard history capture for text, RTF, HTML, images, and file drops.
 - Keyboard-driven quick menu with folder navigation, search, plain-text paste, temporary mask reveal, and timestamp display.
+- Default and rich quick menu styles, including thumbnail and image preview support.
 - Paste history items in their original clipboard format when possible.
 - Registered snippets with folder support.
 - Register snippets directly from history.
-- Configurable hotkey, startup registration, theme, language, and saved history limit.
-- Pause capture, clear history, sensitive-content masking, and encrypted local history.
+- Configurable hotkey, startup registration, light/dark/system theme, language, and saved history limit.
+- Pause capture, clear history, sensitive-content masking, PIN lock, and encrypted local history.
 - Local-only privacy posture: no cloud sync, telemetry, crash reporting, ads, or third-party data sharing.
-- English and Japanese UI strings.
-- Unit tests for history, hotkeys, settings, localization, clipboard bridge behavior, and encrypted persistence.
+- UI strings for English, Japanese, German, Spanish, French, Korean, and Simplified Chinese.
+- Unit tests for history, hotkeys, settings, localization completeness, clipboard bridge behavior, encrypted persistence, and quick menu theme palettes.
 
 ## Run
 
@@ -37,14 +38,16 @@ Coverage measurement is documented in [docs/COVERAGE.md](docs/COVERAGE.md).
 
 ## Local data
 
-Settings and snippets are stored under `%APPDATA%\Clipton`.
+Settings, snippets, encrypted history, and thumbnails are stored under `%APPDATA%\Clipton` by default. The app can also be launched with `--data-dir <path>` for isolated validation runs.
 
 - `settings.json`: hotkey, startup, language, and history size settings.
-- `snippets.json`: registered text snippets.
-- `history\manifest.dat`, `history\base.dat`, `history\delta.dat`: encrypted clipboard history segments.
+- `snippets.dat`: encrypted registered text snippets. Legacy `snippets.json` is migrated when found.
+- `history\manifest.dat`: encrypted-history ordering and format metadata.
+- `history\items\*.dat`: encrypted clipboard history payloads, one item per file.
 - `thumbs\`: local image thumbnails used by the quick menu.
+- `%LOCALAPPDATA%\Clipton\TempPaste`: temporary files used for paste and image preview operations.
 
-Clipboard history is encrypted and persisted locally by default. Users can disable encrypted local history in the settings window. When enabled, history payloads are protected with Windows user-scoped DPAPI. Older single-file history stores are migrated to the segmented format and backed up as `history.dat.legacy.bak`.
+Clipboard history is encrypted and persisted locally by default. Users can disable encrypted local history in the settings window. When enabled, history payloads are protected with Windows user-scoped DPAPI. Older single-file, segmented, and chunked history stores remain readable and are upgraded to the current itemized format.
 
 See [docs/PERSISTENCE_PERFORMANCE.md](docs/PERSISTENCE_PERFORMANCE.md) for the persistence performance comparison.
 
@@ -57,7 +60,7 @@ Clipton reads clipboard content only to show recent clipboard history and paste 
 
 ## Store readiness
 
-The WinUI app builds today, and the packaging project targets the WinUI executable. Microsoft Store submission still requires Partner Center identity association, signing, Store listing metadata, and clean-profile package validation.
+The WinUI app builds today, and the packaging project targets the WinUI executable. Release package verification passes locally with `tools\ci\verify-store-package.ps1`; Microsoft Store submission still requires Partner Center identity association, production signing, Store listing metadata, and final clean-profile/WACK validation.
 
 - Store preparation checklist: [docs/STORE_PREP.md](docs/STORE_PREP.md)
 - Store listing draft: [docs/STORE_LISTING.md](docs/STORE_LISTING.md)

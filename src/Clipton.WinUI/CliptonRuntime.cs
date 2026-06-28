@@ -1,8 +1,10 @@
 using System.Text.Json;
+using System.Globalization;
 using System.Reflection;
 using System.Runtime;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 using Clipton.Core;
 using Microsoft.UI;
@@ -41,6 +43,7 @@ public sealed class CliptonRuntime : IDisposable
     private const string HistoryExportKind = "history";
     private const string SnippetExportKind = "snippets";
     private const int QuickMenuClipboardCaptureTimeoutMilliseconds = 500;
+    private const string PreviewLineBreakMarker = " \u21B5 ";
     private static readonly TimeSpan DispatcherMarshalTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan TempPasteMaxAge = TimeSpan.FromHours(1);
     private static readonly TimeSpan TempPasteDeleteDelay = TimeSpan.FromMinutes(30);
@@ -414,6 +417,9 @@ public sealed class CliptonRuntime : IDisposable
             case ImagePasteMode.Jpeg:
                 ClipboardBridge.PutImageJpeg(imagePng);
                 break;
+            case ImagePasteMode.ResizedHalf:
+                ClipboardBridge.PutImagePng(ResizeImagePng(imagePng, 0.5));
+                break;
             case ImagePasteMode.File:
                 ClipboardBridge.PutFileDrop(CreateTempImageFile(item));
                 break;
@@ -759,7 +765,7 @@ public sealed class CliptonRuntime : IDisposable
     public void OpenDataDirectory()
     {
         Directory.CreateDirectory(DataDirectory);
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(DataDirectory) { UseShellExecute = true });
+        _ = ExternalLauncher.OpenFolderAsync(DataDirectory);
     }
 
     public void SetConfiguredDataDirectory(string? path)
@@ -1503,13 +1509,9 @@ public sealed class CliptonRuntime : IDisposable
         string? applicationName = null;
         try
         {
-            using var process = System.Diagnostics.Process.GetProcessById((int)processId);
-            applicationName = process.ProcessName;
+            applicationName = GetProcessName(processId);
         }
-        catch (ArgumentException)
-        {
-        }
-        catch (InvalidOperationException)
+        catch
         {
         }
 
@@ -1520,6 +1522,34 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         return new ClipboardOriginMetadata(applicationName, windowTitle);
+    }
+
+    private static string? GetProcessName(uint processId)
+    {
+        var process = NativeMethods.OpenProcess(NativeMethods.ProcessQueryLimitedInformation, false, processId);
+        if (process == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        try
+        {
+            var capacity = 1024;
+            var builder = new StringBuilder(capacity);
+            if (!NativeMethods.QueryFullProcessImageName(process, 0, builder, ref capacity) || capacity <= 0)
+            {
+                return null;
+            }
+
+            var path = builder.ToString();
+            return string.IsNullOrWhiteSpace(path)
+                ? null
+                : Path.GetFileNameWithoutExtension(path);
+        }
+        finally
+        {
+            NativeMethods.CloseHandle(process);
+        }
     }
 
     private static string? GetWindowTitle(IntPtr hwnd)
@@ -1759,12 +1789,23 @@ public sealed class CliptonRuntime : IDisposable
                 Translate("QuickMenuPasteOptionsHelp"),
                 new Dictionary<string, string>
                 {
+                    ["ImagePreviewOpenDefaultApp"] = Translate("ImagePreviewOpenDefaultApp"),
+                    ["Paste"] = Translate("Paste"),
+                    ["Copy"] = Translate("Copy"),
+                    ["CopyAndRemove"] = Translate("CopyAndRemove"),
+                    ["ZoomOut"] = Translate("ZoomOut"),
+                    ["ResetZoom"] = Translate("ResetZoom"),
+                    ["ZoomIn"] = Translate("ZoomIn"),
+                    ["Close"] = Translate("Close"),
                     ["ImagePreviewFeedbackCopy"] = Translate("ImagePreviewFeedbackCopy"),
                     ["ImagePreviewFeedbackCut"] = Translate("ImagePreviewFeedbackCut"),
                     ["ImagePreviewFeedbackZoomIn"] = Translate("ImagePreviewFeedbackZoomIn"),
                     ["ImagePreviewFeedbackZoomOut"] = Translate("ImagePreviewFeedbackZoomOut"),
-                    ["ImagePreviewFeedbackZoomReset"] = Translate("ImagePreviewFeedbackZoomReset")
-                });
+                    ["ImagePreviewFeedbackZoomReset"] = Translate("ImagePreviewFeedbackZoomReset"),
+                    ["QuickMenuFolderLoading"] = Translate("QuickMenuFolderLoading"),
+                    ["QuickMenuFolderNoItems"] = Translate("QuickMenuFolderNoItems")
+                },
+                GetEffectiveCulture());
             _defaultQuickMenu.FocusMenu();
             return;
         }
@@ -1833,8 +1874,31 @@ public sealed class CliptonRuntime : IDisposable
             Translate("ImagePreviewFeedbackCopy"),
             Translate("ImagePreviewFeedbackCut"),
             Translate("SearchPlaceholder"),
+            Translate("PinnedHistory"),
+            Translate("FormatText"),
+            Translate("Back"),
+            Translate("Close"),
+            Translate("Paste"),
+            Translate("PlainText"),
+            Translate("QuickMenuFolderLoading"),
+            Translate("QuickMenuFolderLoadingNamed"),
+            Translate("RelativeTimeJustNow"),
+            Translate("RelativeTimeSecondsAgo"),
+            Translate("RelativeTimeMinutesAgo"),
+            Translate("RelativeTimeHoursAgo"),
+            GetEffectiveCulture(),
             Settings.QuickMenuShowCapturedAt,
             startInSearchMode);
+    }
+
+    private CultureInfo GetEffectiveCulture()
+    {
+        return CultureInfo.GetCultureInfo(EffectiveLocale);
+    }
+
+    private string FormatItemCount(int count)
+    {
+        return string.Format(GetEffectiveCulture(), Translate("QuickMenuItemCount"), count);
     }
 
     private void ApplyQuickMenuDisplayOptions()
@@ -1868,7 +1932,7 @@ public sealed class CliptonRuntime : IDisposable
         {
             menuItems.Add(new QuickMenuItem(
                 Translate("PinnedHistory"),
-                $"{pinnedItems.Length} items",
+                FormatItemCount(pinnedItems.Length),
                 ">",
                 "Enter",
                 () => { },
@@ -1932,12 +1996,7 @@ public sealed class CliptonRuntime : IDisposable
 
     private static string NormalizeLocale(string locale)
     {
-        if (string.Equals(locale, "system", StringComparison.OrdinalIgnoreCase))
-        {
-            return "system";
-        }
-
-        return string.Equals(locale, "ja", StringComparison.OrdinalIgnoreCase) ? "ja" : "en";
+        return LocalizationCatalog.NormalizeLocale(locale);
     }
 
     private static string NormalizeTheme(string theme)
@@ -2131,7 +2190,7 @@ public sealed class CliptonRuntime : IDisposable
             {
                 menuItems.Add(new QuickMenuItem(
                     range.Label,
-                    $"{range.Count} items",
+                    FormatItemCount(range.Count),
                     ">",
                     "Enter",
                     () => { },
@@ -2151,7 +2210,7 @@ public sealed class CliptonRuntime : IDisposable
     {
         menuItems.Add(new QuickMenuItem(
             range.Label,
-            $"{range.Count} items",
+            FormatItemCount(range.Count),
             ">",
             "Enter",
             () => { },
@@ -2170,7 +2229,7 @@ public sealed class CliptonRuntime : IDisposable
         {
             folders.Add(new QuickMenuItem(
                 range.Label,
-                $"{range.Count} items",
+                FormatItemCount(range.Count),
                 ">",
                 "Enter",
                 () => { },
@@ -2210,14 +2269,7 @@ public sealed class CliptonRuntime : IDisposable
 
     private static string ResolveLocale(string locale)
     {
-        if (!string.Equals(locale, "system", StringComparison.OrdinalIgnoreCase))
-        {
-            return NormalizeLocale(locale);
-        }
-
-        return string.Equals(System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName, "ja", StringComparison.OrdinalIgnoreCase)
-            ? "ja"
-            : "en";
+        return LocalizationCatalog.ResolveLocale(locale);
     }
 
     private static string ResolveTheme(string theme)
@@ -3200,15 +3252,20 @@ public sealed class CliptonRuntime : IDisposable
         var snippet = Snippets.FindByText(plainText);
         if (snippet is not null)
         {
-            return new HistoryItemViewModel(snapshot.Id, snippet.DisplayName, $"{Translate("RegisteredSnippetMasked")} - {metadata}", snapshot.CapturedAt, isImage, thumbnailBytes);
+            return new HistoryItemViewModel(snapshot.Id, snippet.DisplayName, $"{Translate("RegisteredSnippetMasked")} - {metadata}", snapshot.CapturedAt, FormatCapturedAt(snapshot.CapturedAt), isImage, thumbnailBytes);
         }
 
         if (Settings.MaskSensitiveContent && CreateMaskedPreview(plainText) is { } maskedPreview)
         {
-            return new HistoryItemViewModel(snapshot.Id, NormalizePreviewText(maskedPreview), $"{Translate("MaskedSensitive")} - {metadata}", snapshot.CapturedAt, isImage, thumbnailBytes);
+            return new HistoryItemViewModel(snapshot.Id, NormalizePreviewText(maskedPreview), $"{Translate("MaskedSensitive")} - {metadata}", snapshot.CapturedAt, FormatCapturedAt(snapshot.CapturedAt), isImage, thumbnailBytes);
         }
 
-        return new HistoryItemViewModel(snapshot.Id, CreatePreviewText(snapshot, plainText), metadata, snapshot.CapturedAt, isImage, thumbnailBytes);
+        return new HistoryItemViewModel(snapshot.Id, CreatePreviewText(snapshot, plainText), metadata, snapshot.CapturedAt, FormatCapturedAt(snapshot.CapturedAt), isImage, thumbnailBytes);
+    }
+
+    private string FormatCapturedAt(DateTimeOffset capturedAt)
+    {
+        return capturedAt.LocalDateTime.ToString("g", GetEffectiveCulture());
     }
 
     private static string CreateHistoryMetadataSummary(ClipboardSnapshot snapshot, string formats)
@@ -3316,7 +3373,21 @@ public sealed class CliptonRuntime : IDisposable
 
     private static string NormalizePreviewText(string text)
     {
-        return text.ReplaceLineEndings(" ").Trim();
+        var trimmed = text.ReplaceLineEndings("\n").Trim();
+        if (trimmed.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var preview = string.Join(
+            PreviewLineBreakMarker,
+            trimmed.Split('\n').Select(NormalizePreviewLine));
+        return Regex.Replace(preview, " {2,}", " ").Trim();
+    }
+
+    private static string NormalizePreviewLine(string line)
+    {
+        return string.Join(" ", line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
     }
 
     private IReadOnlyList<QuickMenuItem> CreateSnippetMenuItems(IEnumerable<Snippet> snippets)
@@ -3507,6 +3578,7 @@ public sealed class CliptonRuntime : IDisposable
             new QuickMenuPasteOption(originalLabel, "\uEB9F", () => PasteImage(item.Id, ImagePasteMode.Original, sendPaste: true), Id: QuickMenuPasteOptionIds.PasteImageOriginal),
             new QuickMenuPasteOption(Translate("PasteImagePng"), "PNG", () => PasteImage(item.Id, ImagePasteMode.Png, sendPaste: true), "Segoe UI", QuickMenuPasteOptionIds.PasteImagePng),
             new QuickMenuPasteOption(Translate("PasteImageJpeg"), "JPG", () => PasteImage(item.Id, ImagePasteMode.Jpeg, sendPaste: true), "Segoe UI", QuickMenuPasteOptionIds.PasteImageJpeg),
+            new QuickMenuPasteOption(Translate("PasteImageResizeHalf"), "50%", () => PasteImage(item.Id, ImagePasteMode.ResizedHalf, sendPaste: true), "Segoe UI", QuickMenuPasteOptionIds.PasteImageResizeHalf),
             new QuickMenuPasteOption(Translate("PasteImageFile"), "\uE8A5", () => PasteImage(item.Id, ImagePasteMode.File, sendPaste: true), Id: QuickMenuPasteOptionIds.PasteImageFile),
             new QuickMenuPasteOption(Translate("CopyImageOnly"), "\uE8C8", () => PasteImage(item.Id, ImagePasteMode.Png, sendPaste: false), Id: QuickMenuPasteOptionIds.CopyImageOnly)
         };
@@ -3530,6 +3602,33 @@ public sealed class CliptonRuntime : IDisposable
         File.WriteAllBytes(path, item.ImagePng!);
         ScheduleTempPasteFileDeletion(path);
         return path;
+    }
+
+    private static byte[] ResizeImagePng(byte[] imagePng, double scale)
+    {
+        using var input = new MemoryStream(imagePng);
+        using var source = Drawing.Image.FromStream(input);
+        var width = Math.Max(1, (int)Math.Round(source.Width * scale));
+        var height = Math.Max(1, (int)Math.Round(source.Height * scale));
+        using var resized = new Drawing.Bitmap(width, height, Imaging.PixelFormat.Format32bppPArgb);
+        if (source.HorizontalResolution > 0 && source.VerticalResolution > 0)
+        {
+            resized.SetResolution(source.HorizontalResolution, source.VerticalResolution);
+        }
+
+        using (var graphics = Drawing.Graphics.FromImage(resized))
+        {
+            graphics.Clear(Drawing.Color.Transparent);
+            graphics.CompositingQuality = Drawing2D.CompositingQuality.HighQuality;
+            graphics.InterpolationMode = Drawing2D.InterpolationMode.HighQualityBicubic;
+            graphics.PixelOffsetMode = Drawing2D.PixelOffsetMode.HighQuality;
+            graphics.SmoothingMode = Drawing2D.SmoothingMode.HighQuality;
+            graphics.DrawImage(source, 0, 0, width, height);
+        }
+
+        using var output = new MemoryStream();
+        resized.Save(output, Imaging.ImageFormat.Png);
+        return output.ToArray();
     }
 
     private void CleanupTempPasteFiles(bool deleteAll = false)
@@ -3673,6 +3772,9 @@ public enum ImagePasteMode
 
     /// <summary>Paste image bytes converted to JPEG bitmap data.</summary>
     Jpeg,
+
+    /// <summary>Paste image bytes resized to 50% as PNG bitmap data.</summary>
+    ResizedHalf,
 
     /// <summary>Paste a temporary PNG file path as a file drop.</summary>
     File

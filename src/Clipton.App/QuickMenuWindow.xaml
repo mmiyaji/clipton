@@ -54,10 +54,11 @@
                            FontSize="13"
                            FontWeight="SemiBold"
                            Foreground="{DynamicResource QuickTextBrush}" />
-                <TextBlock Grid.Column="1"
+                <TextBlock x:Name="KeyboardHelpText"
+                           Grid.Column="1"
                            FontSize="11"
                            Foreground="{DynamicResource QuickSecondaryTextBrush}"
-                           Text="Enter paste  T text  Left/Right" />
+                           Text="" />
             </Grid>
 
             <ListBox x:Name="ItemsList"

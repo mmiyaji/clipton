@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using Windows.Foundation;
 using Windows.Graphics;
@@ -57,7 +58,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private static RichQuickMenuWindow? s_activeWindow;
     private readonly string _title;
     private readonly string _searchPlaceholder;
-    private readonly string _theme;
+    private readonly RichQuickMenuPalette _palette;
     private readonly QuickMenuShortcutSettings _shortcuts;
     private readonly Action _openHistory;
     private readonly string _showAllHistoryText;
@@ -67,6 +68,19 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private readonly string _pasteOptionsHelpText;
     private readonly string _copyFeedbackText;
     private readonly string _cutFeedbackText;
+    private readonly string _pinnedText;
+    private readonly string _textFilterText;
+    private readonly string _backText;
+    private readonly string _closeText;
+    private readonly string _pasteText;
+    private readonly string _plainText;
+    private readonly string _folderLoadingText;
+    private readonly string _folderLoadingFormat;
+    private readonly string _relativeTimeJustNow;
+    private readonly string _relativeTimeSecondsAgoFormat;
+    private readonly string _relativeTimeMinutesAgoFormat;
+    private readonly string _relativeTimeHoursAgoFormat;
+    private readonly CultureInfo _culture;
     private readonly Grid _root = new();
     private readonly Border _menuCard = new();
     private readonly StackPanel _itemHost = new() { Spacing = 6 };
@@ -74,12 +88,12 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private readonly Dictionary<HeaderFilter, Button> _filterButtons = [];
     private readonly Border _previewCard = new();
     private readonly Image _previewImage = new() { Stretch = Stretch.UniformToFill };
-    private readonly TextBlock _previewMetaText = Text(12, 0.76);
+    private readonly TextBlock _previewMetaText;
     private readonly Border _feedbackPill = new();
-    private readonly TextBlock _feedbackText = Text(12, 0.94);
+    private readonly TextBlock _feedbackText;
     private readonly Border _loadingOverlay = new();
     private readonly ProgressRing _loadingRing = new() { Width = 22, Height = 22, IsActive = false };
-    private readonly TextBlock _loadingText = Text("Loading...", 13, 0.92, Microsoft.UI.Text.FontWeights.SemiBold);
+    private readonly TextBlock _loadingText;
     private readonly DispatcherTimer _feedbackTimer = new() { Interval = TimeSpan.FromMilliseconds(900) };
     private readonly Stack<(IReadOnlyList<QuickMenuItem> Items, int SelectedIndex, HeaderFilter Filter)> _navigationStack = new();
     private IReadOnlyList<QuickMenuItem> _items = [];
@@ -133,6 +147,19 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         string copyFeedbackText,
         string cutFeedbackText,
         string searchPlaceholder,
+        string pinnedText,
+        string textFilterText,
+        string backText,
+        string closeText,
+        string pasteText,
+        string plainText,
+        string folderLoadingText,
+        string folderLoadingFormat,
+        string relativeTimeJustNow,
+        string relativeTimeSecondsAgoFormat,
+        string relativeTimeMinutesAgoFormat,
+        string relativeTimeHoursAgoFormat,
+        CultureInfo culture,
         bool showCapturedAt,
         bool startInSearchMode = false)
     {
@@ -141,7 +168,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _rootItemsForSearch = items;
         _searchPlaceholder = searchPlaceholder;
         _startInSearchMode = startInSearchMode;
-        _theme = theme;
+        _palette = RichQuickMenuPalette.ForTheme(theme);
         _shortcuts = shortcuts;
         _openHistory = openHistory;
         _showAllHistoryText = showAllHistoryText;
@@ -151,7 +178,24 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _pasteOptionsHelpText = pasteOptionsHelpText;
         _copyFeedbackText = copyFeedbackText;
         _cutFeedbackText = cutFeedbackText;
+        _pinnedText = pinnedText;
+        _textFilterText = textFilterText;
+        _backText = backText;
+        _closeText = closeText;
+        _pasteText = pasteText;
+        _plainText = plainText;
+        _folderLoadingText = folderLoadingText;
+        _folderLoadingFormat = folderLoadingFormat;
+        _relativeTimeJustNow = relativeTimeJustNow;
+        _relativeTimeSecondsAgoFormat = relativeTimeSecondsAgoFormat;
+        _relativeTimeMinutesAgoFormat = relativeTimeMinutesAgoFormat;
+        _relativeTimeHoursAgoFormat = relativeTimeHoursAgoFormat;
+        _culture = culture;
         _showCapturedAt = showCapturedAt;
+        _previewMetaText = Text(12, 0.76);
+        _feedbackText = Text(12, 0.94);
+        _feedbackText.Foreground = Brush(_palette.FeedbackForeground);
+        _loadingText = Text(string.Empty, 13, 0.92, Microsoft.UI.Text.FontWeights.SemiBold);
 
         InitializeWindow();
         BuildContent();
@@ -279,6 +323,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         ExtendsContentIntoTitleBar = true;
         Content = _root;
         _root.IsTabStop = true;
+        _root.RequestedTheme = _palette.RequestedTheme;
         _root.KeyDown += OnKeyDown;
         _root.Loaded += (_, _) =>
         {
@@ -292,7 +337,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             Dismiss();
         };
         _root.KeyboardAccelerators.Add(escapeAccelerator);
-        _root.Background = Brush(37, 37, 37);
+        _root.Background = Brush(_palette.RootBackground);
         _hwnd = WindowNative.GetWindowHandle(this);
         var windowId = Win32Interop.GetWindowIdFromWindow(_hwnd);
         _appWindow = AppWindow.GetFromWindowId(windowId);
@@ -319,7 +364,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _menuCard.Height = WindowHeight;
         _menuCard.CornerRadius = new CornerRadius(9);
         _menuCard.BorderThickness = new Thickness(0);
-        _menuCard.Background = Brush(37, 37, 37);
+        _menuCard.Background = Brush(_palette.MenuBackground);
         _menuCard.Padding = new Thickness(10);
         _menuCard.Child = BuildMenuPanel();
         _root.Children.Add(_menuCard);
@@ -327,13 +372,13 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _root.Children.Add(new Border
         {
             Height = 2,
-            Background = Brush(37, 37, 37),
+            Background = Brush(_palette.TopEdge),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Top,
             IsHitTestVisible = false
         });
 
-        _loadingRing.Foreground = Brush(245, 245, 245);
+        _loadingRing.Foreground = Brush(_palette.LoadingRingForeground);
         var loadingPanel = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -345,14 +390,14 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         loadingPanel.Children.Add(_loadingText);
         _loadingOverlay.Width = MenuWidth;
         _loadingOverlay.Height = WindowHeight;
-        _loadingOverlay.Background = new SolidColorBrush(Color.FromArgb(188, 24, 24, 24));
+        _loadingOverlay.Background = Brush(_palette.LoadingOverlayBackground);
         _loadingOverlay.CornerRadius = new CornerRadius(9);
         _loadingOverlay.Visibility = Visibility.Collapsed;
         _loadingOverlay.IsHitTestVisible = true;
         _loadingOverlay.Child = new Border
         {
-            Background = Brush(43, 43, 43),
-            BorderBrush = Brush(72, 72, 72),
+            Background = Brush(_palette.LoadingPanelBackground),
+            BorderBrush = Brush(_palette.LoadingPanelBorder),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(7),
             Padding = new Thickness(18, 13, 18, 13),
@@ -375,7 +420,8 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _previewCard.Height = 338;
         _previewCard.CornerRadius = new CornerRadius(9);
         _previewCard.BorderThickness = new Thickness(0);
-        _previewCard.Background = Brush(44, 44, 44);
+        _previewCard.Background = Brush(_palette.PreviewCardBackground);
+        _previewCard.RequestedTheme = _palette.RequestedTheme;
         _previewCard.Padding = new Thickness(10);
         _previewCard.Visibility = Visibility.Collapsed;
         _previewCard.VerticalAlignment = VerticalAlignment.Center;
@@ -436,8 +482,8 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         AddToolbarButton(toolbar, 0, "\uE8C8", _title, HeaderFilter.All);
-        AddToolbarButton(toolbar, 1, "\uE718", "Pinned", HeaderFilter.Pinned);
-        AddToolbarButton(toolbar, 2, "\uE8D2", "Text", HeaderFilter.Text);
+        AddToolbarButton(toolbar, 1, "\uE718", _pinnedText, HeaderFilter.Pinned);
+        AddToolbarButton(toolbar, 2, "\uE8D2", _textFilterText, HeaderFilter.Text);
         AddToolbarButton(toolbar, 3, "\uEB9F", _previewImageText, HeaderFilter.Image);
         _searchButton = IconButton("\uE721", _searchPlaceholder);
         _searchButton.Margin = new Thickness(2, 0, 8, 0);
@@ -445,13 +491,13 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         UpdateToolbarButton(_searchButton, selected: false);
         Grid.SetColumn(_searchButton, 4);
         toolbar.Children.Add(_searchButton);
-        _backButton = IconButton("\uE72B", "Back");
+        _backButton = IconButton("\uE72B", _backText);
         _backButton.Margin = new Thickness(2, 0, 8, 0);
         _backButton.HorizontalAlignment = HorizontalAlignment.Right;
         _backButton.Click += (_, _) => NavigateBack();
         Grid.SetColumn(_backButton, 5);
         toolbar.Children.Add(_backButton);
-        AddToolbarButton(toolbar, 6, "\uE711", "Close", selected: false, Dismiss);
+        AddToolbarButton(toolbar, 6, "\uE711", _closeText, selected: false, Dismiss);
         panel.Children.Add(toolbar);
 
         _searchBox.PlaceholderText = _searchPlaceholder;
@@ -481,9 +527,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             Height = 52,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 8, 0, 0),
-            Background = Brush(43, 43, 43),
-            BorderBrush = Brush(65, 65, 65),
-            Foreground = Brush(246, 246, 246)
+            Background = Brush(_palette.AllHistoryBackground),
+            BorderBrush = Brush(_palette.AllHistoryBorder),
+            Foreground = Brush(_palette.AllHistoryForeground)
         };
         allHistoryButton.Click += (_, _) =>
         {
@@ -713,7 +759,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         var imageFrame = new Border
         {
             CornerRadius = new CornerRadius(5),
-            Background = Brush(30, 30, 30),
+            Background = Brush(_palette.PreviewImageBackground),
             Clip = new RectangleGeometry { Rect = new Rect(0, 0, 298, 226) },
             Child = _previewImage
         };
@@ -729,16 +775,16 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             actions.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         }
 
-        AddPreviewAction(actions, 0, "\uE8A7", "Paste", InvokeSelected);
+        AddPreviewAction(actions, 0, "\uE8A7", _pasteText, InvokeSelected);
         AddPreviewAction(actions, 1, "\uE8C8", _copyFeedbackText, CopySelectedImage);
-        AddPreviewAction(actions, 2, "\uE8E5", "Plain text", InvokeSelectedPlainText);
+        AddPreviewAction(actions, 2, "\uE8E5", _plainText, InvokeSelectedPlainText);
         AddPreviewAction(actions, 3, "\uE74D", _cutFeedbackText, CutSelectedImage);
-        AddPreviewAction(actions, 4, "\uE711", "Close", HidePreviewOnly);
+        AddPreviewAction(actions, 4, "\uE711", _closeText, HidePreviewOnly);
         Grid.SetRow(actions, 2);
         panel.Children.Add(actions);
 
-        _feedbackPill.Background = Brush(20, 20, 20);
-        _feedbackPill.BorderBrush = Brush(74, 74, 74);
+        _feedbackPill.Background = Brush(_palette.FeedbackBackground);
+        _feedbackPill.BorderBrush = Brush(_palette.FeedbackBorder);
         _feedbackPill.BorderThickness = new Thickness(1);
         _feedbackPill.CornerRadius = new CornerRadius(14);
         _feedbackPill.Padding = new Thickness(10, 5, 10, 5);
@@ -816,8 +862,8 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             Height = 76,
             CornerRadius = new CornerRadius(7),
             BorderThickness = new Thickness(1),
-            BorderBrush = Brush(56, 56, 56),
-            Background = Brush(40, 40, 40),
+            BorderBrush = Brush(_palette.ItemBorder),
+            Background = Brush(_palette.ItemBackground),
             Padding = new Thickness(8),
             Child = BuildItemContent(item)
         };
@@ -848,7 +894,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             Width = 84,
             Height = 60,
             CornerRadius = new CornerRadius(5),
-            Background = Brush(34, 34, 34),
+            Background = Brush(_palette.ItemIconBackground),
             Child = CreateItemIcon(item)
         };
         grid.Children.Add(iconFrame);
@@ -878,8 +924,8 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         button.Width = 34;
         button.Height = 34;
         button.Margin = new Thickness(0);
-        button.Background = Brush(40, 40, 40);
-        button.BorderBrush = Brush(40, 40, 40);
+        button.Background = Brush(_palette.ItemBackground);
+        button.BorderBrush = Brush(_palette.ItemBackground);
         button.Tag = PasteOptionsButtonTag;
         AutomationProperties.SetHelpText(button, _pasteOptionsHelpText);
         button.Tapped += (_, args) => args.Handled = true;
@@ -919,7 +965,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         return false;
     }
 
-    private static TextBlock CreatePinnedGlyph(QuickMenuItem item)
+    private TextBlock CreatePinnedGlyph(QuickMenuItem item)
     {
         var trailing = Text("\uE734", 19, item.IsPinned ? 0.86 : 0.48);
         trailing.FontFamily = new FontFamily("Segoe Fluent Icons");
@@ -927,7 +973,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         return trailing;
     }
 
-    private static TextBlock CreateFolderGlyph()
+    private TextBlock CreateFolderGlyph()
     {
         var trailing = Text("\uE974", 18, 0.78);
         trailing.FontFamily = new FontFamily("Segoe Fluent Icons");
@@ -1078,7 +1124,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             Glyph = glyph,
             FontFamily = new FontFamily(item.IconFontFamily ?? "Segoe Fluent Icons"),
             FontSize = 27,
-            Foreground = Brush(232, 232, 232),
+            Foreground = Brush(_palette.IconForeground),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -1139,9 +1185,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             return;
         }
 
-        _itemCards[index].BorderBrush = selected ? Brush(28, 160, 230) : Brush(56, 56, 56);
+        _itemCards[index].BorderBrush = selected ? Brush(_palette.ItemSelectedBorder) : Brush(_palette.ItemBorder);
         _itemCards[index].BorderThickness = selected ? new Thickness(2) : new Thickness(1);
-        _itemCards[index].Background = selected ? Brush(48, 48, 48) : Brush(40, 40, 40);
+        _itemCards[index].Background = selected ? Brush(_palette.ItemSelectedBackground) : Brush(_palette.ItemBackground);
     }
 
     private async Task UpdatePreviewAsync(QuickMenuItem? item)
@@ -1693,7 +1739,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private void ShowFolderLoading(string title)
     {
         _folderLoading = true;
-        _loadingText.Text = string.IsNullOrWhiteSpace(title) ? "Loading..." : $"Loading {TrimText(title, 18)}...";
+        _loadingText.Text = string.IsNullOrWhiteSpace(title)
+            ? _folderLoadingText
+            : string.Format(_culture, _folderLoadingFormat, TrimText(title, 18));
         _loadingRing.IsActive = true;
         _loadingOverlay.Visibility = Visibility.Visible;
         _previewAppWindow?.Hide();
@@ -1997,8 +2045,8 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     {
         var button = IconButton(glyph, tooltip);
         button.Margin = new Thickness(2, 0, 8, 0);
-        button.Background = selected ? Brush(36, 79, 102) : Brush(37, 37, 37);
-        button.BorderBrush = selected ? Brush(23, 150, 214) : Brush(37, 37, 37);
+        button.Background = selected ? Brush(_palette.ToolbarSelectedBackground) : Brush(_palette.ToolbarBackground);
+        button.BorderBrush = selected ? Brush(_palette.ToolbarSelectedBorder) : Brush(_palette.ToolbarBackground);
         if (action is not null)
         {
             button.Click += (_, _) => action();
@@ -2033,31 +2081,31 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         }
     }
 
-    private static void UpdateToolbarButton(Button button, bool selected)
+    private void UpdateToolbarButton(Button button, bool selected)
     {
-        button.Background = selected ? Brush(36, 79, 102) : Brush(37, 37, 37);
-        button.BorderBrush = selected ? Brush(23, 150, 214) : Brush(37, 37, 37);
+        button.Background = selected ? Brush(_palette.ToolbarSelectedBackground) : Brush(_palette.ToolbarBackground);
+        button.BorderBrush = selected ? Brush(_palette.ToolbarSelectedBorder) : Brush(_palette.ToolbarBackground);
     }
 
     private void AddPreviewAction(Grid actions, int column, string glyph, string tooltip, Action action)
     {
         var button = IconButton(glyph, tooltip);
         button.Height = 42;
-        button.Background = Brush(58, 58, 58);
-        button.BorderBrush = Brush(68, 68, 68);
+        button.Background = Brush(_palette.PreviewActionBackground);
+        button.BorderBrush = Brush(_palette.PreviewActionBorder);
         button.Click += (_, _) => action();
         Grid.SetColumn(button, column);
         actions.Children.Add(button);
     }
 
-    private static Button IconButton(string glyph, string tooltip)
+    private Button IconButton(string glyph, string tooltip)
     {
         var button = new Button
         {
             Width = 42,
             Height = 38,
             Padding = new Thickness(0),
-            Foreground = Brush(236, 236, 236),
+            Foreground = Brush(_palette.ButtonForeground),
             Content = new FontIcon
             {
                 Glyph = glyph,
@@ -2085,23 +2133,23 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         };
     }
 
-    private static TextBlock Text(string text, double size, double opacity, Windows.UI.Text.FontWeight? weight = null)
+    private TextBlock Text(string text, double size, double opacity, Windows.UI.Text.FontWeight? weight = null)
     {
         return new TextBlock
         {
             Text = text,
             FontSize = size,
             FontWeight = weight ?? Microsoft.UI.Text.FontWeights.Normal,
-            Foreground = Brush(245, 245, 245),
+            Foreground = Brush(_palette.TextForeground),
             Opacity = opacity,
             TextTrimming = TextTrimming.CharacterEllipsis,
             MaxLines = 1
         };
     }
 
-    private static TextBlock Text(double size, double opacity) => Text(string.Empty, size, opacity);
+    private TextBlock Text(double size, double opacity) => Text(string.Empty, size, opacity);
 
-    private static SolidColorBrush Brush(byte r, byte g, byte b) => new(Color.FromArgb(255, r, g, b));
+    private static SolidColorBrush Brush(ThemeColor color) => color.ToBrush();
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int attributeValue, int attributeSize);
@@ -2150,27 +2198,27 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         return item.Subtitle;
     }
 
-    private static string CreateRelativeTime(DateTimeOffset capturedAt)
+    private string CreateRelativeTime(DateTimeOffset capturedAt)
     {
         var elapsed = DateTimeOffset.UtcNow - capturedAt.ToUniversalTime();
         if (elapsed.TotalSeconds < 5)
         {
-            return "Just now";
+            return _relativeTimeJustNow;
         }
 
         if (elapsed.TotalSeconds < 60)
         {
-            return $"{Math.Max(1, (int)elapsed.TotalSeconds)}s ago";
+            return string.Format(_culture, _relativeTimeSecondsAgoFormat, Math.Max(1, (int)elapsed.TotalSeconds));
         }
 
         if (elapsed.TotalMinutes < 60)
         {
-            return $"{Math.Max(1, (int)elapsed.TotalMinutes)}m ago";
+            return string.Format(_culture, _relativeTimeMinutesAgoFormat, Math.Max(1, (int)elapsed.TotalMinutes));
         }
 
         return elapsed.TotalHours < 24
-            ? $"{Math.Max(1, (int)elapsed.TotalHours)}h ago"
-            : capturedAt.LocalDateTime.ToString("yyyy/MM/dd HH:mm");
+            ? string.Format(_culture, _relativeTimeHoursAgoFormat, Math.Max(1, (int)elapsed.TotalHours))
+            : capturedAt.LocalDateTime.ToString("g", _culture);
     }
 
     private static string CreatePreviewMeta(QuickMenuItem item, int byteLength)

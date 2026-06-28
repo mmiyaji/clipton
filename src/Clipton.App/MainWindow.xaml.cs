@@ -75,6 +75,12 @@ public sealed partial class MainWindow : Window
         SimpleContextMenuCheckBox.IsChecked = _runtime.Settings.SimpleContextMenuMode;
         HotkeyBox.Text = _runtime.Settings.Hotkey;
         HotkeyText.Text = $"{t("Hotkey")}: {_runtime.Settings.Hotkey}";
+        SetComboBoxText(LocaleBox, "system", t("LanguageSystem"));
+        foreach (var supportedLocale in LocalizationCatalog.SupportedLocales)
+        {
+            SetComboBoxText(LocaleBox, supportedLocale.Code, t(supportedLocale.DisplayNameKey));
+        }
+
         SetComboBoxText(ThemeBox, "light", t("ThemeLight"));
         SetComboBoxText(ThemeBox, "dark", t("ThemeDark"));
 
@@ -362,6 +368,8 @@ public sealed partial class MainWindow
                 return;
             }
         }
+
+        comboBox.Items.Add(new ComboBoxItem { Tag = tag, Content = content });
     }
 
     private static string CreateSnippetName(string text)

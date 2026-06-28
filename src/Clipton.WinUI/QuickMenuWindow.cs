@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Globalization;
 using Clipton.Core;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
@@ -62,13 +63,14 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private readonly string _title;
     private readonly Grid _host = new();
     private readonly MenuFlyout _flyout = new();
-    private readonly string _theme;
+    private readonly QuickMenuThemePalette _palette;
     private readonly string _previewImageText;
     private readonly IReadOnlyDictionary<string, string> _previewStrings;
     private readonly string _imagePreviewSize;
     private readonly Action _openSearch;
     private readonly QuickMenuShortcutSettings _shortcuts;
     private readonly string _pasteOptionsHelpText;
+    private readonly CultureInfo _culture;
     private bool _showShortcutHints;
     private readonly List<MenuFlyoutItemBase> _rootFocusableItems = [];
     private readonly Dictionary<MenuFlyoutItemBase, MenuFlyout> _pasteOptionsFlyouts = [];
@@ -117,12 +119,13 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         Action openSearch,
         string previewImageText,
         string pasteOptionsHelpText,
-        IReadOnlyDictionary<string, string> previewStrings)
+        IReadOnlyDictionary<string, string> previewStrings,
+        CultureInfo culture)
     {
         _title = title;
         _rootItems = items;
         _currentItems = items;
-        _theme = theme;
+        _palette = QuickMenuThemePalette.ForTheme(theme);
         _imagePreviewSize = NormalizeImagePreviewSize(imagePreviewSize);
         _showCapturedAt = showCapturedAt;
         _showShortcutHints = showShortcutHints;
@@ -131,6 +134,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         _previewImageText = previewImageText;
         _pasteOptionsHelpText = pasteOptionsHelpText;
         _previewStrings = previewStrings;
+        _culture = culture;
         Title = "Clipton";
         BuildHost();
         BuildFlyout();
@@ -264,8 +268,8 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
 
     private void BuildHost()
     {
-        var dark = string.Equals(_theme, "dark", StringComparison.OrdinalIgnoreCase);
-        _host.Background = new SolidColorBrush(dark ? Colors.Transparent : Colors.Transparent);
+        _host.RequestedTheme = _palette.RequestedTheme;
+        _host.Background = new SolidColorBrush(Colors.Transparent);
         _host.IsTabStop = true;
         _host.Loaded += (_, _) =>
         {
@@ -780,7 +784,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             Text = AppName,
             IsEnabled = false,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 170, 170, 170)),
+            Foreground = _palette.AppTitleForeground.ToBrush(),
             Template = s_appTitleTemplate.Value
         });
         _flyout.Items.Add(new MenuFlyoutSeparator());
@@ -882,11 +886,10 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         // flyout Closed event would otherwise dismiss this window mid-load.
         _openingImagePreview = true;
         var bitmap = await CreateBitmapImageAsync(imageBytes);
-        var previewBackground = new SolidColorBrush(Color.FromArgb(255, 28, 28, 28));
-        var panelBackground = new SolidColorBrush(Color.FromArgb(255, 33, 33, 33));
-        var imageBackground = new SolidColorBrush(Color.FromArgb(255, 16, 16, 16));
-        var foreground = new SolidColorBrush(Color.FromArgb(245, 255, 255, 255));
-        var secondaryForeground = new SolidColorBrush(Color.FromArgb(190, 255, 255, 255));
+        var previewBackground = _palette.ImagePreviewWindowBackground.ToBrush();
+        var panelBackground = _palette.ImagePreviewPanelBackground.ToBrush();
+        var imageBackground = _palette.ImagePreviewImageBackground.ToBrush();
+        var secondaryForeground = _palette.ImagePreviewSecondaryForeground.ToBrush();
         var image = new Image
         {
             Source = bitmap,
@@ -937,7 +940,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         var separator = new Border
         {
             Height = 1,
-            Background = new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)),
+            Background = _palette.ImagePreviewSeparator.ToBrush(),
             Margin = new Thickness(0, 0, 0, 10)
         };
         Grid.SetRow(separator, 2);
@@ -949,20 +952,20 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             Spacing = 8,
             HorizontalAlignment = HorizontalAlignment.Left
         };
-        actions.Children.Add(CreateImagePreviewActionButton("\uE8A7", "Open with default app", () => OpenImagePreviewInDefaultApp(imageBytes)));
-        actions.Children.Add(CreateImagePreviewActionButton("\uE77F", "Paste", () =>
+        actions.Children.Add(CreateImagePreviewActionButton("\uE8A7", GetPreviewString("ImagePreviewOpenDefaultApp"), () => OpenImagePreviewInDefaultApp(imageBytes)));
+        actions.Children.Add(CreateImagePreviewActionButton("\uE77F", GetPreviewString("Paste"), () =>
         {
             if (_imagePreviewItem is { } previewItem)
             {
                 Invoke(previewItem, asPlainText: false);
             }
         }));
-        actions.Children.Add(CreateImagePreviewActionButton("\uE8C8", "Copy", () => InvokeImagePreviewCopy(cut: false), item?.CopyInvoke is not null));
-        actions.Children.Add(CreateImagePreviewActionButton("\uE74D", "Copy and remove", () => InvokeImagePreviewCopy(cut: true), item?.CutInvoke is not null));
-        actions.Children.Add(CreateImagePreviewActionButton("-", "Zoom out", () => AdjustImagePreviewZoom(-ImagePreviewZoomStep, "ImagePreviewFeedbackZoomOut"), fontFamily: "Segoe UI", fontSize: 22));
-        actions.Children.Add(CreateImagePreviewActionButton("100%", "Reset zoom", () => SetImagePreviewZoom(1.0, "ImagePreviewFeedbackZoomReset"), fontFamily: "Segoe UI", fontSize: 12));
-        actions.Children.Add(CreateImagePreviewActionButton("+", "Zoom in", () => AdjustImagePreviewZoom(ImagePreviewZoomStep, "ImagePreviewFeedbackZoomIn"), fontFamily: "Segoe UI", fontSize: 22));
-        actions.Children.Add(CreateImagePreviewActionButton("\uE711", "Close", HideImagePreview));
+        actions.Children.Add(CreateImagePreviewActionButton("\uE8C8", GetPreviewString("Copy"), () => InvokeImagePreviewCopy(cut: false), item?.CopyInvoke is not null));
+        actions.Children.Add(CreateImagePreviewActionButton("\uE74D", GetPreviewString("CopyAndRemove"), () => InvokeImagePreviewCopy(cut: true), item?.CutInvoke is not null));
+        actions.Children.Add(CreateImagePreviewActionButton("-", GetPreviewString("ZoomOut"), () => AdjustImagePreviewZoom(-ImagePreviewZoomStep, "ImagePreviewFeedbackZoomOut"), fontFamily: "Segoe UI", fontSize: 22));
+        actions.Children.Add(CreateImagePreviewActionButton("100%", GetPreviewString("ResetZoom"), () => SetImagePreviewZoom(1.0, "ImagePreviewFeedbackZoomReset"), fontFamily: "Segoe UI", fontSize: 12));
+        actions.Children.Add(CreateImagePreviewActionButton("+", GetPreviewString("ZoomIn"), () => AdjustImagePreviewZoom(ImagePreviewZoomStep, "ImagePreviewFeedbackZoomIn"), fontFamily: "Segoe UI", fontSize: 22));
+        actions.Children.Add(CreateImagePreviewActionButton("\uE711", GetPreviewString("Close"), HideImagePreview));
         Grid.SetRow(actions, 3);
         panel.Children.Add(actions);
         frame.Child = panel;
@@ -971,7 +974,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             Visibility = Visibility.Collapsed,
             FontSize = 13,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Colors.White),
+            Foreground = _palette.ImagePreviewFeedbackForeground.ToBrush(),
             TextWrapping = TextWrapping.NoWrap
         };
         var feedbackPill = new Border
@@ -979,7 +982,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             Visibility = Visibility.Collapsed,
             Padding = new Thickness(10, 6, 10, 7),
             CornerRadius = new CornerRadius(6),
-            Background = new SolidColorBrush(Color.FromArgb(220, 32, 32, 32)),
+            Background = _palette.ImagePreviewFeedbackBackground.ToBrush(),
             Child = feedbackText,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Bottom,
@@ -988,7 +991,8 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         };
         var previewRoot = new Grid
         {
-            Background = previewBackground
+            Background = previewBackground,
+            RequestedTheme = _palette.RequestedTheme
         };
         previewRoot.Children.Add(frame);
         previewRoot.Children.Add(feedbackPill);
@@ -1088,6 +1092,11 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
 
     private void OpenImagePreviewInDefaultApp(byte[] imageBytes)
     {
+        _ = OpenImagePreviewInDefaultAppAsync(imageBytes);
+    }
+
+    private async Task OpenImagePreviewInDefaultAppAsync(byte[] imageBytes)
+    {
         try
         {
             var directory = GetImagePreviewTempDirectory();
@@ -1095,10 +1104,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             Directory.CreateDirectory(directory);
             var path = Path.Combine(directory, $"preview-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}.png");
             File.WriteAllBytes(path, imageBytes);
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path)
-            {
-                UseShellExecute = true
-            });
+            await ExternalLauncher.OpenFileAsync(path);
             ScheduleImagePreviewTempFileDeletion(path);
         }
         catch
@@ -1194,7 +1200,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         }
     }
 
-    private static Button CreateImagePreviewActionButton(
+    private Button CreateImagePreviewActionButton(
         string glyph,
         string tooltip,
         Action action,
@@ -1208,9 +1214,9 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             Height = 38,
             Padding = new Thickness(0),
             IsEnabled = isEnabled,
-            Background = new SolidColorBrush(Color.FromArgb(255, 43, 43, 43)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(255, 68, 68, 68)),
-            Foreground = new SolidColorBrush(Color.FromArgb(245, 255, 255, 255)),
+            Background = _palette.ImagePreviewActionBackground.ToBrush(),
+            BorderBrush = _palette.ImagePreviewActionBorder.ToBrush(),
+            Foreground = _palette.ImagePreviewActionForeground.ToBrush(),
             Content = new FontIcon
             {
                 Glyph = glyph,
@@ -1301,7 +1307,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         var requestId = ++_imagePreviewFeedbackRequestId;
-        _imagePreviewFeedbackText.Text = _previewStrings.TryGetValue(key, out var text) ? text : key;
+        _imagePreviewFeedbackText.Text = GetPreviewString(key);
         _imagePreviewFeedbackText.Visibility = Visibility.Visible;
         _imagePreviewFeedbackPill.Visibility = Visibility.Visible;
         EnqueueAfterDelay(1200, () =>
@@ -1548,7 +1554,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                     if (!string.Equals(_imagePreviewSize, "none", StringComparison.OrdinalIgnoreCase)
                         && item.IconImageBytes is { Length: > 0 })
                     {
-                        _ = InsertImagePreviewAsync(optionSubItem, item.IconImageBytes, _imagePreviewSize);
+                        _ = InsertImagePreviewAsync(optionSubItem, item.IconImageBytes, _imagePreviewSize, _palette);
                     }
                 };
                 ConfigureImagePreviewShortcut(optionSubItem, item);
@@ -1620,7 +1626,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             if (!string.Equals(_imagePreviewSize, "none", StringComparison.OrdinalIgnoreCase)
                 && item.IconImageBytes is { Length: > 0 })
             {
-                flyoutItem.Loaded += async (_, _) => await InsertImagePreviewAsync(flyoutItem, item.IconImageBytes, _imagePreviewSize);
+                flyoutItem.Loaded += async (_, _) => await InsertImagePreviewAsync(flyoutItem, item.IconImageBytes, _imagePreviewSize, _palette);
             }
 
             ConfigureImagePreviewShortcut(flyoutItem, item);
@@ -1655,11 +1661,11 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         };
     }
 
-    private static void AddFolderPlaceholder(MenuFlyoutSubItem folderItem)
+    private void AddFolderPlaceholder(MenuFlyoutSubItem folderItem)
     {
         folderItem.Items.Add(new MenuFlyoutItem
         {
-            Text = "Loading...",
+            Text = GetPreviewString("QuickMenuFolderLoading"),
             IsEnabled = false,
             Icon = new FontIcon
             {
@@ -1669,11 +1675,11 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         });
     }
 
-    private static void AddFolderUnavailablePlaceholder(MenuFlyoutSubItem folderItem)
+    private void AddFolderUnavailablePlaceholder(MenuFlyoutSubItem folderItem)
     {
         folderItem.Items.Add(new MenuFlyoutItem
         {
-            Text = "No items",
+            Text = GetPreviewString("QuickMenuFolderNoItems"),
             IsEnabled = false,
             Icon = new FontIcon
             {
@@ -1799,7 +1805,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         TrackFocus(previewItem, previewItem.Tag);
         if (item.IconImageBytes is { Length: > 0 } imageBytes)
         {
-            previewItem.Loaded += async (_, _) => await InsertImagePreviewAsync(previewItem, imageBytes, "small");
+            previewItem.Loaded += async (_, _) => await InsertImagePreviewAsync(previewItem, imageBytes, "small", _palette);
         }
 
         previewItem.Click += (_, _) => ToggleImagePreview(item);
@@ -1846,6 +1852,11 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         return string.Join(" ", parts.Distinct(StringComparer.Ordinal));
     }
 
+    private string GetPreviewString(string key)
+    {
+        return _previewStrings.TryGetValue(key, out var text) ? text : key;
+    }
+
     private void ShowPasteOptionsForItem(MenuFlyoutItemBase flyoutItem, MenuFlyout pasteOptionsFlyout, bool focusOptions)
     {
         flyoutItem.Focus(FocusState.Programmatic);
@@ -1873,7 +1884,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             return commandHint;
         }
 
-        var capturedAtText = capturedAt.LocalDateTime.ToString("yyyy/MM/dd HH:mm");
+        var capturedAtText = capturedAt.LocalDateTime.ToString("g", _culture);
         return string.IsNullOrWhiteSpace(commandHint)
             ? capturedAtText
             : $"{commandHint}  |  {capturedAtText}";
@@ -2206,12 +2217,16 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         };
     }
 
-    private static async Task InsertImagePreviewAsync(MenuFlyoutItemBase flyoutItem, byte[]? imageBytes, string size)
+    private static async Task InsertImagePreviewAsync(
+        MenuFlyoutItemBase flyoutItem,
+        byte[]? imageBytes,
+        string size,
+        QuickMenuThemePalette palette)
     {
         // Invoked from async-void Loaded handlers; an exception here would crash the app.
         try
         {
-            await InsertImagePreviewCoreAsync(flyoutItem, imageBytes, size);
+            await InsertImagePreviewCoreAsync(flyoutItem, imageBytes, size, palette);
         }
         catch (Exception exception)
         {
@@ -2219,7 +2234,11 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         }
     }
 
-    private static async Task InsertImagePreviewCoreAsync(MenuFlyoutItemBase flyoutItem, byte[]? imageBytes, string size)
+    private static async Task InsertImagePreviewCoreAsync(
+        MenuFlyoutItemBase flyoutItem,
+        byte[]? imageBytes,
+        string size,
+        QuickMenuThemePalette palette)
     {
         if (imageBytes is not { Length: > 0 })
         {
@@ -2245,8 +2264,8 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             Height = dimensions.Height,
             CornerRadius = new CornerRadius(4),
             BorderThickness = new Thickness(1),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(80, 255, 255, 255)),
-            Background = new SolidColorBrush(Color.FromArgb(32, 255, 255, 255)),
+            BorderBrush = palette.InlineImagePreviewBorder.ToBrush(),
+            Background = palette.InlineImagePreviewBackground.ToBrush(),
             Child = new Image
             {
                 Source = await CreateBitmapImageAsync(imageBytes),

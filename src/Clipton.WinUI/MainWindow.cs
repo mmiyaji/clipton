@@ -37,6 +37,9 @@ public sealed class MainWindow : Window
     private const double SettingControlHeight = 36;
     private const double SearchControlHeight = 32;
     private const int StoreUpdateManualCheckMinimumBusyMilliseconds = 700;
+    private const int DefaultDpi = 96;
+    private const int InitialWindowWidth = 1120;
+    private const int InitialWindowHeight = 760;
     private const string TermsUrl = "https://mmiyaji.github.io/clipton/terms/";
     private const string PrivacyUrl = "https://mmiyaji.github.io/clipton/privacy/";
     private const string AuthorUrl = "https://ruhenheim.org";
@@ -112,8 +115,14 @@ public sealed class MainWindow : Window
     private readonly ToggleSwitch _persistHistoryToggle = CompactToggle();
     private readonly ToggleSwitch _saveSourceMetadataToggle = CompactToggle();
     private readonly TextBox _excludedCaptureAppsBox = new();
+    private readonly Button _toggleExcludedCaptureAppsEditorButton = new();
     private readonly Button _saveExcludedCaptureAppsButton = new();
     private readonly TextBlock _excludedCaptureAppsStatusText = Description();
+    private readonly StackPanel _excludedCaptureAppsEditorPanel = new()
+    {
+        Spacing = 8,
+        Visibility = Visibility.Collapsed
+    };
     private readonly ToggleSwitch _historyAccessLockToggle = CompactToggle();
     private readonly ComboBox _historyAccessLockTimeoutBox = new();
     private readonly Button _historyAccessLockPinButton = new();
@@ -223,6 +232,7 @@ public sealed class MainWindow : Window
     private IntPtr _originalWndProc;
     private bool _hiddenToTray;
     private bool _maskDefinitionsExpanded;
+    private bool _excludedCaptureAppsEditorExpanded;
     private bool _onboardingDialogOpen;
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _onboardingTimer;
     private Border? _maskDefinitionsCard;
@@ -585,8 +595,10 @@ public sealed class MainWindow : Window
         SetComboBoxText(_themeBox, "light", t("ThemeLight"));
         SetComboBoxText(_themeBox, "dark", t("ThemeDark"));
         SetComboBoxText(_localeBox, "system", t("LanguageSystem"));
-        SetComboBoxText(_localeBox, "en", t("LanguageEnglish"));
-        SetComboBoxText(_localeBox, "ja", t("LanguageJapanese"));
+        foreach (var supportedLocale in LocalizationCatalog.SupportedLocales)
+        {
+            SetComboBoxText(_localeBox, supportedLocale.Code, t(supportedLocale.DisplayNameKey));
+        }
         SetComboBoxText(_quickMenuDisplayModeBox, "default", t("QuickMenuDisplayModeDefault"));
         SetComboBoxText(_quickMenuDisplayModeBox, "rich", t("QuickMenuDisplayModeRich"));
         SetComboBoxText(_quickMenuImagePreviewSizeBox, "none", t("ImagePreviewSizeNone"));
@@ -614,6 +626,7 @@ public sealed class MainWindow : Window
         SetCommandButton(_historyAccessLockResetButton, "\uE777", t("ResetPin"));
         SetCommandButton(_historyAccessLockNowButton, "\uE785", t("LockNow"));
         SetCommandButton(_saveExcludedCaptureAppsButton, "\uE74E", t("Save"));
+        UpdateExcludedCaptureApplicationsEditorVisibility();
         _excludedCaptureAppsBox.PlaceholderText = t("ExcludedCaptureApplicationsPlaceholder");
         _startupToggle.IsOn = _runtime.Settings.StartWithWindows;
         _hideSettingsWindowOnStartupToggle.IsOn = _runtime.Settings.HideSettingsWindowOnStartup;
@@ -785,8 +798,10 @@ public sealed class MainWindow : Window
         _generalPage.Children.Add(SettingCard("\uE790", "Theme", "ThemeDescription", _themeBox));
 
         _localeBox.Items.Add(new ComboBoxItem { Tag = "system" });
-        _localeBox.Items.Add(new ComboBoxItem { Tag = "en" });
-        _localeBox.Items.Add(new ComboBoxItem { Tag = "ja" });
+        foreach (var supportedLocale in LocalizationCatalog.SupportedLocales)
+        {
+            _localeBox.Items.Add(new ComboBoxItem { Tag = supportedLocale.Code });
+        }
         _localeBox.SelectionChanged += (_, _) =>
         {
             if (_loading || (_localeBox.SelectedItem as ComboBoxItem)?.Tag is not string locale) return;
@@ -875,6 +890,7 @@ public sealed class MainWindow : Window
                 (QuickMenuPasteOptionIds.PasteImageOriginal, "PasteImageOriginal"),
                 (QuickMenuPasteOptionIds.PasteImagePng, "PasteImagePng"),
                 (QuickMenuPasteOptionIds.PasteImageJpeg, "PasteImageJpeg"),
+                (QuickMenuPasteOptionIds.PasteImageResizeHalf, "PasteImageResizeHalf"),
                 (QuickMenuPasteOptionIds.PasteImageFile, "PasteImageFile"),
                 (QuickMenuPasteOptionIds.CopyImageOnly, "CopyImageOnly")
             ]));
@@ -1173,6 +1189,26 @@ public sealed class MainWindow : Window
 
         _saveExcludedCaptureAppsButton.HorizontalAlignment = HorizontalAlignment.Right;
         _saveExcludedCaptureAppsButton.Click += (_, _) => SaveExcludedCaptureApplications();
+        _toggleExcludedCaptureAppsEditorButton.HorizontalAlignment = HorizontalAlignment.Right;
+        _toggleExcludedCaptureAppsEditorButton.Click += (_, _) => ToggleExcludedCaptureApplicationsEditor();
+
+        _excludedCaptureAppsStatusText.VerticalAlignment = VerticalAlignment.Center;
+        _excludedCaptureAppsStatusText.TextAlignment = TextAlignment.Right;
+
+        _excludedCaptureAppsEditorPanel.Children.Add(_excludedCaptureAppsBox);
+        _excludedCaptureAppsEditorPanel.Children.Add(_saveExcludedCaptureAppsButton);
+
+        var summary = new Grid
+        {
+            ColumnSpacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            MaxWidth = 420
+        };
+        summary.ColumnDefinitions.Add(new ColumnDefinition());
+        summary.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        summary.Children.Add(_excludedCaptureAppsStatusText);
+        Grid.SetColumn(_toggleExcludedCaptureAppsEditorButton, 1);
+        summary.Children.Add(_toggleExcludedCaptureAppsEditorButton);
 
         var controls = new StackPanel
         {
@@ -1181,9 +1217,8 @@ public sealed class MainWindow : Window
             MaxWidth = 420,
             Children =
             {
-                _excludedCaptureAppsBox,
-                _excludedCaptureAppsStatusText,
-                _saveExcludedCaptureAppsButton
+                summary,
+                _excludedCaptureAppsEditorPanel
             }
         };
 
@@ -2390,11 +2425,14 @@ public sealed class MainWindow : Window
         _donationPage.Children.Add(Card(content));
     }
 
-    private static void OpenExternalUrl(string url)
+    private static async void OpenExternalUrl(string url)
     {
         try
         {
-            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            if (!await ExternalLauncher.OpenUriAsync(url))
+            {
+                ClipboardBridge.PutText(url);
+            }
         }
         catch
         {
@@ -2883,6 +2921,8 @@ public sealed class MainWindow : Window
 
         _runtime.SetExcludedCaptureApplicationPatterns(GetExcludedCaptureApplicationPatternsFromEditor());
         RefreshExcludedCaptureApplicationsEditor();
+        _excludedCaptureAppsEditorExpanded = false;
+        UpdateExcludedCaptureApplicationsEditorVisibility();
     }
 
     private void UpdateExcludedCaptureApplicationsSaveState()
@@ -2899,6 +2939,30 @@ public sealed class MainWindow : Window
                 : string.Format(
                     _runtime.Translate("ExcludedCaptureApplicationsSaved"),
                     _runtime.Settings.ExcludedCaptureApplicationPatterns.Length);
+    }
+
+    private void ToggleExcludedCaptureApplicationsEditor()
+    {
+        _excludedCaptureAppsEditorExpanded = !_excludedCaptureAppsEditorExpanded;
+        UpdateExcludedCaptureApplicationsEditorVisibility();
+        if (_excludedCaptureAppsEditorExpanded)
+        {
+            _excludedCaptureAppsBox.Focus(FocusState.Programmatic);
+        }
+    }
+
+    private void UpdateExcludedCaptureApplicationsEditorVisibility()
+    {
+        _excludedCaptureAppsEditorPanel.Visibility = _excludedCaptureAppsEditorExpanded
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        SetCommandButton(
+            _toggleExcludedCaptureAppsEditorButton,
+            _excludedCaptureAppsEditorExpanded ? "\uE711" : "\uE70F",
+            _runtime.Translate(_excludedCaptureAppsEditorExpanded
+                ? "ExcludedCaptureApplicationsCollapse"
+                : "ExcludedCaptureApplicationsExpand"));
     }
 
     private string[] GetExcludedCaptureApplicationPatternsFromEditor()
@@ -5570,12 +5634,21 @@ public sealed class MainWindow : Window
         _hwnd = WindowNative.GetWindowHandle(this);
         var windowId = Win32Interop.GetWindowIdFromWindow(_hwnd);
         _appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
-        _appWindow.Resize(new SizeInt32(1120, 760));
+        _appWindow.Resize(ScaleToPhysicalPixels(InitialWindowWidth, InitialWindowHeight));
         ApplyWindowIcon();
         _originalWndProc = NativeMethods.SetWindowLongPtr(
             _hwnd,
             NativeMethods.GwlWndproc,
             Marshal.GetFunctionPointerForDelegate(_windowProc));
+    }
+
+    private SizeInt32 ScaleToPhysicalPixels(int width, int height)
+    {
+        var dpi = _hwnd == IntPtr.Zero ? DefaultDpi : NativeMethods.GetDpiForWindow(_hwnd);
+        var scale = dpi == 0 ? 1.0 : dpi / (double)DefaultDpi;
+        return new SizeInt32(
+            Math.Max(1, (int)Math.Round(width * scale)),
+            Math.Max(1, (int)Math.Round(height * scale)));
     }
 
     private void ApplyWindowIcon()
@@ -5752,11 +5825,10 @@ public sealed record HistoryItemViewModel(
     string Preview,
     string FormatSummary,
     DateTimeOffset CapturedAt,
+    string CapturedAtText,
     bool IsImage = false,
     byte[]? ThumbnailImageBytes = null)
 {
-    public string CapturedAtText => CapturedAt.LocalDateTime.ToString("yyyy/MM/dd HH:mm");
-
     public bool HasPreviewImage => ThumbnailImageBytes is { Length: > 0 };
 
     public override string ToString() => $"{Preview}  {FormatSummary}  {CapturedAtText}";

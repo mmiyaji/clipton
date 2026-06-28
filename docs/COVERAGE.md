@@ -5,8 +5,9 @@ Clipton tracks C1 coverage as Cobertura `branch-rate`.
 The current unit coverage gate is 98% or higher for code that can be exercised deterministically by unit tests:
 
 - `Clipton.Core` is measured from `Clipton.Core.Tests`.
-- `Clipton.App` is measured from `Clipton.App.Tests` for non-UI logic seams.
-- Generated files, XAML, test assemblies, WPF windows, process startup, native hotkey registration, startup registration, and theme integration are not part of the unit coverage denominator. Those areas require UI or OS integration tests instead of pure unit tests.
+- `Clipton.App` is measured from `Clipton.App.Tests` for legacy WPF non-UI logic seams that are still kept for compatibility.
+- `Clipton.WinUI.Tests` covers current WinUI app regressions such as encrypted history upgrades, PIN privacy, localization UI strings, image paste options, history preview display, and quick menu theme palettes. It is currently run as a regression suite and is not part of the coverlet gate because the project does not reference `coverlet.collector`.
+- Generated files, XAML, test assemblies, desktop windows, process startup, native hotkey registration, startup registration, and OS theme integration are not part of the unit coverage denominator. Those areas require UI, package, or OS integration tests instead of pure unit tests.
 
 ## Prerequisites
 
@@ -28,6 +29,12 @@ Run App unit-logic coverage:
 
 ```powershell
 dotnet test .\tests\Clipton.App.Tests\Clipton.App.Tests.csproj -c Release --collect "XPlat Code Coverage" --settings .\coverage.runsettings --results-directory artifacts\coverage\app -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Include=[Clipton.App]* DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.ExcludeByFile=**/obj/**/*.cs,**/*.g.cs,**/*.g.i.cs,**/*.xaml,**/src/Clipton.App/App.xaml.cs,**/src/Clipton.App/MainWindow.xaml.cs,**/src/Clipton.App/QuickMenuWindow.xaml.cs,**/src/Clipton.App/CliptonRuntime.cs,**/src/Clipton.App/HotkeyMessageWindow.cs,**/src/Clipton.App/StartupRegistration.cs,**/src/Clipton.App/WindowThemeService.cs
+```
+
+Run current WinUI regression tests:
+
+```powershell
+dotnet test .\tests\Clipton.WinUI.Tests\Clipton.WinUI.Tests.csproj -c Release
 ```
 
 Merge and summarize:

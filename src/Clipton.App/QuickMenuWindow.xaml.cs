@@ -16,11 +16,12 @@ public sealed partial class QuickMenuWindow : Window
     private readonly bool _simpleMode;
     private bool _isClosing;
 
-    public QuickMenuWindow(string title, IReadOnlyList<QuickMenuItem> items, string theme, bool simpleMode = false)
+    public QuickMenuWindow(string title, IReadOnlyList<QuickMenuItem> items, string theme, bool simpleMode = false, string keyboardHelpText = "")
     {
         _navigator = new QuickMenuNavigator(title, items);
         _simpleMode = simpleMode;
         InitializeComponent();
+        KeyboardHelpText.Text = keyboardHelpText;
         ApplyTheme(theme);
         ApplyMode();
         ApplyMenuState();

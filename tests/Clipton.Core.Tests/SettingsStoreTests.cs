@@ -323,7 +323,7 @@ public sealed class SettingsStoreTests
     {
         var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, """{"Locale":"fr","Theme":"neon","MaxHistoryItems":200}""");
+        File.WriteAllText(path, """{"Locale":"it","Theme":"neon","MaxHistoryItems":200}""");
         var store = new JsonSettingsStore(path);
 
         var loaded = store.Load();

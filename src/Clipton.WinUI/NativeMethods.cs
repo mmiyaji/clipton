@@ -70,6 +70,7 @@ internal static class NativeMethods
     internal const uint MfSeparator = 0x00000800;
     internal const uint TpmRightButton = 0x0002;
     internal const uint TpmReturnCmd = 0x0100;
+    internal const uint ProcessQueryLimitedInformation = 0x1000;
 
     internal delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
 
@@ -188,6 +189,17 @@ internal static class NativeMethods
 
     [DllImport("kernel32.dll")]
     internal static extern uint GetCurrentThreadId();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern IntPtr OpenProcess(uint desiredAccess, bool inheritHandle, uint processId);
+
+    [DllImport("kernel32.dll", EntryPoint = "QueryFullProcessImageNameW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool QueryFullProcessImageName(IntPtr process, uint flags, System.Text.StringBuilder exeName, ref int size);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool CloseHandle(IntPtr handle);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
