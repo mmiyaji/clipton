@@ -28,6 +28,23 @@ public sealed class HistoryAccessLockPrivacyTests
     }
 
     [Fact]
+    public void UnlockHistoryAccess_TemporarilyBlocksAfterRepeatedFailures()
+    {
+        var root = CreateTestRoot();
+        using var runtime = new CliptonRuntime(root, isSafeMode: true);
+        runtime.ConfigureHistoryAccessLock("2468", timeoutMinutes: 15);
+        runtime.LockHistoryAccess();
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            Assert.False(runtime.UnlockHistoryAccess("0000"));
+        }
+
+        Assert.True(runtime.IsHistoryAccessUnlockBackoffActive);
+        Assert.False(runtime.UnlockHistoryAccess("2468"));
+    }
+
+    [Fact]
     public void ResetHistoryAccessLockAndClearProtectedData_RemovesCredentialHistoryAndSnippets()
     {
         var root = CreateTestRoot();

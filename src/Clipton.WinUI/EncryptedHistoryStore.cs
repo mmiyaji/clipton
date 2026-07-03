@@ -21,7 +21,6 @@ public sealed class EncryptedHistoryStore
     private const int ChunkedFormatVersion = 4;
     private const int LegacySegmentedFormatVersion = 3;
     private const int ChunkSize = 50;
-    private const int CompactDeltaThreshold = 50;
     private readonly string _legacyPath;
     private readonly string _directory;
     private readonly string _manifestPath;
@@ -432,79 +431,6 @@ public sealed class EncryptedHistoryStore
             .ToArray();
     }
 
-    private bool TrySaveHeadDelta(ClipboardSnapshotDto[] items, string[] ids, HistoryManifestDto manifest)
-    {
-        if (ids.SequenceEqual(manifest.OrderedIds))
-        {
-            return true;
-        }
-
-        var knownIds = manifest.OrderedIds.ToHashSet(StringComparer.Ordinal);
-        var newItems = items.TakeWhile(item => !knownIds.Contains(item.Id)).ToArray();
-        if (newItems.Length == 0)
-        {
-            return false;
-        }
-
-        if (!ids.Skip(newItems.Length).SequenceEqual(manifest.OrderedIds.Take(ids.Length - newItems.Length)))
-        {
-            return false;
-        }
-
-        return TryWriteHeadDelta(newItems, ids, manifest);
-    }
-
-    private bool TrySavePreservingOlderHeadDelta(
-        ClipboardSnapshotDto[] currentItems,
-        HashSet<string> currentIds,
-        int loadedPersistedCount,
-        int capacity,
-        HistoryManifestDto manifest)
-    {
-        var currentItemIds = currentItems.Select(item => item.Id).ToArray();
-        var knownIds = manifest.OrderedIds.ToHashSet(StringComparer.Ordinal);
-        var newItems = currentItems.TakeWhile(item => !knownIds.Contains(item.Id)).ToArray();
-        var expectedLoadedCount = Math.Max(0, Math.Min(loadedPersistedCount, currentItems.Length) - newItems.Length);
-        if (!currentItemIds.Skip(newItems.Length).Take(expectedLoadedCount).SequenceEqual(manifest.OrderedIds.Take(expectedLoadedCount)))
-        {
-            return false;
-        }
-
-        var ids = currentItemIds
-            .Concat(manifest.OrderedIds.Skip(expectedLoadedCount).Where(id => !currentIds.Contains(id)))
-            .Take(capacity)
-            .ToArray();
-        if (ids.SequenceEqual(manifest.OrderedIds))
-        {
-            return true;
-        }
-
-        return TryWriteHeadDelta(newItems, ids, manifest);
-    }
-
-    private bool TryWriteHeadDelta(ClipboardSnapshotDto[] newItems, string[] ids, HistoryManifestDto manifest)
-    {
-        var existingHead = ReadHeadDtos(manifest);
-        var head = newItems
-            .Concat(existingHead)
-            .Where(item => ids.Contains(item.Id, StringComparer.Ordinal))
-            .DistinctBy(item => item.Id)
-            .ToArray();
-        if (head.Length >= CompactDeltaThreshold)
-        {
-            return false;
-        }
-
-        WriteHead(head);
-        WriteManifest(manifest with
-        {
-            OrderedIds = ids,
-            BaseIds = ids,
-            DeltaIds = head.Select(item => item.Id).ToArray()
-        });
-        return true;
-    }
-
     private IReadOnlyList<ClipboardSnapshot> LoadRangeFromChunks(HistoryManifestDto manifest, int offset, int count)
     {
         return LoadDtosFromChunks(manifest, offset, count)
@@ -582,21 +508,6 @@ public sealed class EncryptedHistoryStore
             .Where(item => item is not null)
             .Select(item => item!)
             .ToArray();
-    }
-
-    private void WriteHead(ClipboardSnapshotDto[] head)
-    {
-        if (head.Length == 0)
-        {
-            if (File.Exists(_headPath))
-            {
-                File.Delete(_headPath);
-            }
-
-            return;
-        }
-
-        WriteProtected(_headPath, head);
     }
 
     private void SaveChunks(ClipboardSnapshotDto[] items)

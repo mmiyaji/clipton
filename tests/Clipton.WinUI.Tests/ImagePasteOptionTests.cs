@@ -57,6 +57,17 @@ public sealed class ImagePasteOptionTests
         Assert.Equal(2, image.Height);
     }
 
+    [Fact]
+    public void EncodePng_ReturnsEmptyBytesForUndecodableImage()
+    {
+        var method = typeof(ClipboardBridge).GetMethod("EncodePng", BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new InvalidOperationException("EncodePng was not found.");
+
+        var encoded = (byte[])method.Invoke(null, [new byte[] { 1, 2, 3, 4 }])!;
+
+        Assert.Empty(encoded);
+    }
+
     private static string CreateTestRoot()
     {
         return Path.Combine(Path.GetTempPath(), "clipton-winui-image-option-tests", Guid.NewGuid().ToString("N"));

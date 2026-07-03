@@ -80,6 +80,16 @@ public sealed class SnippetTemplateRendererTests
     }
 
     [Fact]
+    public void Render_LeavesInvalidDateFormatsUnchanged()
+    {
+        var now = new DateTimeOffset(2026, 5, 31, 9, 8, 7, TimeSpan.FromHours(9));
+
+        var rendered = SnippetTemplateRenderer.Render("{{date:%}} {{date:'yyyy}} {{adddays:3|%}} {{weekday:%}}", now);
+
+        Assert.Equal("{{date:%}} {{date:'yyyy}} {{adddays:3|%}} {{weekday:%}}", rendered);
+    }
+
+    [Fact]
     public void Render_ExpandsRandomFunctionsWithRequestedLength()
     {
         var rendered = SnippetTemplateRenderer.Render("{{shortuuid}} {{randomhex:12}} {{randomnumber:4}}");

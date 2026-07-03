@@ -360,7 +360,8 @@ public static class ClipboardBridge
         }
         catch (Exception exception) when (exception is ArgumentException or ExternalException)
         {
-            return imageBytes;
+            AppDiagnostics.Info("Clipboard", "Skipped clipboard image because it could not be decoded as an image.");
+            return [];
         }
     }
 

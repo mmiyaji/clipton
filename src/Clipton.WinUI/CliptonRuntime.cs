@@ -43,10 +43,12 @@ public sealed class CliptonRuntime : IDisposable
     private const string HistoryExportKind = "history";
     private const string SnippetExportKind = "snippets";
     private const int QuickMenuClipboardCaptureTimeoutMilliseconds = 500;
+    private const int HistoryAccessUnlockMaxFailedAttempts = 5;
     private const string PreviewLineBreakMarker = " \u21B5 ";
     private static readonly TimeSpan DispatcherMarshalTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan TempPasteMaxAge = TimeSpan.FromHours(1);
     private static readonly TimeSpan TempPasteDeleteDelay = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan HistoryAccessUnlockBackoff = TimeSpan.FromSeconds(30);
     private static readonly Regex UrlRegex = new(@"\b(?:https?|ftp)://[^\s<>()""']+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private readonly DispatcherQueue? _dispatcherQueue;
     private readonly LocalizationCatalog _localization = new();
@@ -83,6 +85,8 @@ public sealed class CliptonRuntime : IDisposable
     private CancellationTokenSource? _clipboardCaptureDelay;
     private DispatcherQueueTimer? _historyAccessLockTimer;
     private DateTimeOffset? _historyAccessUnlockedUntilUtc;
+    private int _historyAccessUnlockFailedAttempts;
+    private DateTimeOffset? _historyAccessUnlockBlockedUntilUtc;
 
     /// <summary>
     /// Creates the runtime and loads settings, snippets and the initial resident history.
@@ -200,6 +204,9 @@ public sealed class CliptonRuntime : IDisposable
 
     public bool RequiresHistoryAccessUnlock => IsHistoryAccessLockEnabled && !IsHistoryAccessUnlocked();
 
+    internal bool IsHistoryAccessUnlockBackoffActive =>
+        _historyAccessUnlockBlockedUntilUtc is { } blockedUntil && blockedUntil > DateTimeOffset.UtcNow;
+
     /// <summary>
     /// Starts tray, lifetime window and clipboard services when onboarding is complete.
     /// </summary>
@@ -305,8 +312,8 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        ClipboardBridge.Put(item, asPlainText || Settings.PastePlainTextByDefault);
-        SendPaste();
+        var pasteAsPlainText = asPlainText || Settings.PastePlainTextByDefault;
+        QueueClipboardPaste(() => ClipboardBridge.Put(item, pasteAsPlainText), sendPaste: true);
     }
 
     public void PasteSnippet(string folder, string name)
@@ -322,8 +329,13 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        ClipboardBridge.PutText(SnippetTemplateRenderer.Render(snippet.Text, filePaths: GetCurrentClipboardFilePaths()));
-        SendPaste();
+        var snippetText = snippet.Text;
+        var requiresFilePaths = SnippetTemplateRenderer.RequiresFilePaths(snippetText);
+        QueueClipboardPaste(() =>
+        {
+            var filePaths = requiresFilePaths ? GetCurrentClipboardFilePaths() : null;
+            ClipboardBridge.PutText(SnippetTemplateRenderer.Render(snippetText, filePaths: filePaths));
+        }, sendPaste: true);
     }
 
     public void PasteText(string text)
@@ -338,8 +350,7 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        ClipboardBridge.PutText(text);
-        SendPaste();
+        QueueClipboardPaste(() => ClipboardBridge.PutText(text), sendPaste: true);
     }
 
     public void QuickEditAndPasteText(string text, string title)
@@ -406,31 +417,34 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        switch (mode)
+        Action? writeClipboard = mode switch
         {
-            case ImagePasteMode.Original:
-                ClipboardBridge.Put(item, asPlainText: false);
-                break;
-            case ImagePasteMode.Png:
-                ClipboardBridge.PutImagePng(imagePng);
-                break;
-            case ImagePasteMode.Jpeg:
-                ClipboardBridge.PutImageJpeg(imagePng);
-                break;
-            case ImagePasteMode.ResizedHalf:
-                ClipboardBridge.PutImagePng(ResizeImagePng(imagePng, 0.5));
-                break;
-            case ImagePasteMode.File:
-                ClipboardBridge.PutFileDrop(CreateTempImageFile(item));
-                break;
-            default:
-                return;
+            ImagePasteMode.Original => () => ClipboardBridge.Put(item, asPlainText: false),
+            ImagePasteMode.Png => () => ClipboardBridge.PutImagePng(imagePng),
+            ImagePasteMode.Jpeg => () => ClipboardBridge.PutImageJpeg(imagePng),
+            ImagePasteMode.ResizedHalf => () => ClipboardBridge.PutImagePng(ResizeImagePng(imagePng, 0.5)),
+            ImagePasteMode.File => () => ClipboardBridge.PutFileDrop(CreateTempImageFile(item)),
+            _ => null
+        };
+        if (writeClipboard is null)
+        {
+            return;
         }
 
-        if (sendPaste)
+        QueueClipboardPaste(writeClipboard, sendPaste);
+    }
+
+    private void QueueClipboardPaste(Action writeClipboard, bool sendPaste)
+    {
+        var pasteTargetWindow = _pasteTargetWindow;
+        _captureWorker.Post(() =>
         {
-            SendPaste();
-        }
+            writeClipboard();
+            if (sendPaste)
+            {
+                SendPaste(pasteTargetWindow);
+            }
+        });
     }
 
     public IReadOnlyList<QuickMenuPasteOption> CreateHistoryContextOptions(string id)
@@ -499,6 +513,7 @@ public sealed class CliptonRuntime : IDisposable
         Settings.HistoryAccessLockTimeoutMinutes = HistoryAccessLockCredential.NormalizeTimeoutMinutes(timeoutMinutes);
         Settings.HistoryAccessLockEnabled = true;
         SaveSettings();
+        ClearHistoryAccessUnlockFailures();
         MarkHistoryAccessUnlocked();
     }
 
@@ -513,6 +528,7 @@ public sealed class CliptonRuntime : IDisposable
         else
         {
             _historyAccessUnlockedUntilUtc = null;
+            ClearHistoryAccessUnlockFailures();
             StopHistoryAccessLockTimer();
         }
     }
@@ -529,11 +545,26 @@ public sealed class CliptonRuntime : IDisposable
 
     public bool UnlockHistoryAccess(string pin)
     {
-        if (!HistoryAccessLockCredential.Verify(pin, Settings.HistoryAccessLockPinSalt, Settings.HistoryAccessLockPinHash))
+        var now = DateTimeOffset.UtcNow;
+        ClearExpiredHistoryAccessUnlockBackoff(now);
+        if (_historyAccessUnlockBlockedUntilUtc is { } blockedUntil && blockedUntil > now)
         {
             return false;
         }
 
+        if (!HistoryAccessLockCredential.Verify(pin, Settings.HistoryAccessLockPinSalt, Settings.HistoryAccessLockPinHash))
+        {
+            _historyAccessUnlockFailedAttempts++;
+            if (_historyAccessUnlockFailedAttempts >= HistoryAccessUnlockMaxFailedAttempts)
+            {
+                _historyAccessUnlockBlockedUntilUtc = now.Add(HistoryAccessUnlockBackoff);
+                AppDiagnostics.Info("HistoryAccessLock", "PIN unlock temporarily blocked after repeated failures.");
+            }
+
+            return false;
+        }
+
+        ClearHistoryAccessUnlockFailures();
         MarkHistoryAccessUnlocked();
         return true;
     }
@@ -561,6 +592,7 @@ public sealed class CliptonRuntime : IDisposable
         Settings.HistoryAccessLockPinHash = string.Empty;
         Settings.HistoryAccessLockTimeoutMinutes = HistoryAccessLockCredential.DefaultTimeoutMinutes;
         _historyAccessUnlockedUntilUtc = null;
+        ClearHistoryAccessUnlockFailures();
         StopHistoryAccessLockTimer();
         _defaultQuickMenu?.Dismiss();
         _richQuickMenu?.Dismiss();
@@ -579,6 +611,20 @@ public sealed class CliptonRuntime : IDisposable
     private bool IsHistoryAccessUnlocked()
     {
         return _historyAccessUnlockedUntilUtc is { } until && until > DateTimeOffset.UtcNow;
+    }
+
+    private void ClearExpiredHistoryAccessUnlockBackoff(DateTimeOffset now)
+    {
+        if (_historyAccessUnlockBlockedUntilUtc is { } blockedUntil && blockedUntil <= now)
+        {
+            ClearHistoryAccessUnlockFailures();
+        }
+    }
+
+    private void ClearHistoryAccessUnlockFailures()
+    {
+        _historyAccessUnlockFailedAttempts = 0;
+        _historyAccessUnlockBlockedUntilUtc = null;
     }
 
     private void ThrowIfHistoryAccessLocked()
@@ -2777,10 +2823,10 @@ public sealed class CliptonRuntime : IDisposable
 
     private sealed record SnippetExportDto(int Version, DateTimeOffset ExportedAt, Snippet[] Items);
 
-    private void SendPaste()
+    private void SendPaste(IntPtr pasteTargetWindow)
     {
-        RestorePasteTarget();
-        WaitForPasteTargetForeground();
+        RestorePasteTarget(pasteTargetWindow);
+        WaitForPasteTargetForeground(pasteTargetWindow);
         WaitForModifierKeyRelease();
         NativeMethods.keybd_event(NativeMethods.VkControl, 0, 0, UIntPtr.Zero);
         NativeMethods.keybd_event(NativeMethods.VkV, 0, 0, UIntPtr.Zero);
@@ -2810,15 +2856,15 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
-    private void RestorePasteTarget()
+    private static void RestorePasteTarget(IntPtr pasteTargetWindow)
     {
-        if (_pasteTargetWindow == IntPtr.Zero)
+        if (pasteTargetWindow == IntPtr.Zero)
         {
             return;
         }
 
         var currentThread = NativeMethods.GetCurrentThreadId();
-        var targetThread = NativeMethods.GetWindowThreadProcessId(_pasteTargetWindow, out _);
+        var targetThread = NativeMethods.GetWindowThreadProcessId(pasteTargetWindow, out _);
         var foreground = NativeMethods.GetForegroundWindow();
         var foregroundThread = foreground == IntPtr.Zero
             ? 0
@@ -2832,10 +2878,10 @@ public sealed class CliptonRuntime : IDisposable
 
         try
         {
-            NativeMethods.BringWindowToTop(_pasteTargetWindow);
-            NativeMethods.SetForegroundWindow(_pasteTargetWindow);
-            NativeMethods.SetActiveWindow(_pasteTargetWindow);
-            NativeMethods.SetFocus(_pasteTargetWindow);
+            NativeMethods.BringWindowToTop(pasteTargetWindow);
+            NativeMethods.SetForegroundWindow(pasteTargetWindow);
+            NativeMethods.SetActiveWindow(pasteTargetWindow);
+            NativeMethods.SetFocus(pasteTargetWindow);
         }
         finally
         {
@@ -2851,9 +2897,9 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
-    private void WaitForPasteTargetForeground()
+    private static void WaitForPasteTargetForeground(IntPtr pasteTargetWindow)
     {
-        if (_pasteTargetWindow == IntPtr.Zero)
+        if (pasteTargetWindow == IntPtr.Zero)
         {
             return;
         }
@@ -2861,7 +2907,7 @@ public sealed class CliptonRuntime : IDisposable
         var deadline = Environment.TickCount64 + 180;
         while (Environment.TickCount64 < deadline)
         {
-            if (NativeMethods.GetForegroundWindow() == _pasteTargetWindow)
+            if (NativeMethods.GetForegroundWindow() == pasteTargetWindow)
             {
                 return;
             }

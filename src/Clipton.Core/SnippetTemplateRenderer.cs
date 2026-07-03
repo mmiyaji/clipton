@@ -40,28 +40,28 @@ public static class SnippetTemplateRenderer
             var format = IsFileVariable(name) ? NormalizeQuotedValue(rawFormat) : NormalizeFormat(rawFormat);
             return name switch
             {
-                "date" => Format(timestamp, format, "yyyy-MM-dd"),
-                "time" => Format(timestamp, format, "HH:mm"),
-                "datetime" or "now" => Format(timestamp, format, "yyyy-MM-dd HH:mm"),
-                "utcdate" => Format(timestamp.ToUniversalTime(), format, "yyyy-MM-dd"),
-                "utctime" => Format(timestamp.ToUniversalTime(), format, "HH:mm"),
-                "utcdatetime" or "utcnow" => Format(timestamp.ToUniversalTime(), format, "yyyy-MM-dd HH:mm"),
+                "date" => Format(timestamp, format, "yyyy-MM-dd", match.Value),
+                "time" => Format(timestamp, format, "HH:mm", match.Value),
+                "datetime" or "now" => Format(timestamp, format, "yyyy-MM-dd HH:mm", match.Value),
+                "utcdate" => Format(timestamp.ToUniversalTime(), format, "yyyy-MM-dd", match.Value),
+                "utctime" => Format(timestamp.ToUniversalTime(), format, "HH:mm", match.Value),
+                "utcdatetime" or "utcnow" => Format(timestamp.ToUniversalTime(), format, "yyyy-MM-dd HH:mm", match.Value),
                 "isodate" => timestamp.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                 "isodatetime" => timestamp.ToString("O", CultureInfo.InvariantCulture),
                 "isoutc" => timestamp.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
                 "year" => timestamp.ToString("yyyy", CultureInfo.InvariantCulture),
                 "month" => timestamp.ToString("MM", CultureInfo.InvariantCulture),
                 "day" => timestamp.ToString("dd", CultureInfo.InvariantCulture),
-                "tomorrow" => Format(timestamp.AddDays(1), format, "yyyy-MM-dd"),
-                "yesterday" => Format(timestamp.AddDays(-1), format, "yyyy-MM-dd"),
-                "adddays" => FormatOffset(format, "yyyy-MM-dd", value => timestamp.AddDays(value)) ?? match.Value,
-                "addmonths" => FormatOffset(format, "yyyy-MM-dd", value => timestamp.AddMonths((int)value)) ?? match.Value,
-                "addyears" => FormatOffset(format, "yyyy-MM-dd", value => timestamp.AddYears((int)value)) ?? match.Value,
-                "addhours" => FormatOffset(format, "yyyy-MM-dd HH:mm", value => timestamp.AddHours(value)) ?? match.Value,
-                "addminutes" => FormatOffset(format, "yyyy-MM-dd HH:mm", value => timestamp.AddMinutes(value)) ?? match.Value,
+                "tomorrow" => Format(timestamp.AddDays(1), format, "yyyy-MM-dd", match.Value),
+                "yesterday" => Format(timestamp.AddDays(-1), format, "yyyy-MM-dd", match.Value),
+                "adddays" => FormatOffset(format, "yyyy-MM-dd", match.Value, value => timestamp.AddDays(value)) ?? match.Value,
+                "addmonths" => FormatOffset(format, "yyyy-MM-dd", match.Value, value => timestamp.AddMonths((int)value)) ?? match.Value,
+                "addyears" => FormatOffset(format, "yyyy-MM-dd", match.Value, value => timestamp.AddYears((int)value)) ?? match.Value,
+                "addhours" => FormatOffset(format, "yyyy-MM-dd HH:mm", match.Value, value => timestamp.AddHours(value)) ?? match.Value,
+                "addminutes" => FormatOffset(format, "yyyy-MM-dd HH:mm", match.Value, value => timestamp.AddMinutes(value)) ?? match.Value,
                 "quarter" => (((timestamp.Month - 1) / 3) + 1).ToString(CultureInfo.InvariantCulture),
                 "week" or "isoweek" => ISOWeek.GetWeekOfYear(timestamp.Date).ToString("00", CultureInfo.InvariantCulture),
-                "weekday" => timestamp.ToString(string.IsNullOrWhiteSpace(format) ? "dddd" : format, CultureInfo.CurrentCulture),
+                "weekday" => Format(timestamp, format, "dddd", match.Value),
                 "unix" => timestamp.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture),
                 "unixms" => timestamp.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture),
                 "timezone" => timestamp.ToString("zzz", CultureInfo.InvariantCulture),
@@ -103,19 +103,26 @@ public static class SnippetTemplateRenderer
         return false;
     }
 
-    private static string Format(DateTimeOffset timestamp, string format, string fallback)
+    private static string Format(DateTimeOffset timestamp, string format, string fallback, string invalidFormatFallback)
     {
-        return timestamp.ToString(string.IsNullOrWhiteSpace(format) ? fallback : format, CultureInfo.CurrentCulture);
+        try
+        {
+            return timestamp.ToString(string.IsNullOrWhiteSpace(format) ? fallback : format, CultureInfo.CurrentCulture);
+        }
+        catch (FormatException)
+        {
+            return invalidFormatFallback;
+        }
     }
 
-    private static string? FormatOffset(string value, string fallbackFormat, Func<double, DateTimeOffset> add)
+    private static string? FormatOffset(string value, string fallbackFormat, string invalidFormatFallback, Func<double, DateTimeOffset> add)
     {
         if (!TryParseOffset(value, out var offset, out var format))
         {
             return null;
         }
 
-        return Format(add(offset), format, fallbackFormat);
+        return Format(add(offset), format, fallbackFormat, invalidFormatFallback);
     }
 
     private static string NormalizeFormat(string value)

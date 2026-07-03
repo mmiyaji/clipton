@@ -2,9 +2,9 @@ using System.Collections.Concurrent;
 
 namespace Clipton.WinUI;
 
-// Dedicated STA thread for clipboard reads. The WinRT clipboard API requires an
-// STA apartment, and capture can block for seconds when another process holds
-// the clipboard, so it must stay off the UI thread.
+// Dedicated STA thread for clipboard work. The WinRT clipboard API requires an
+// STA apartment, and clipboard contention can block for seconds, so reads and
+// paste writes must stay off the UI thread.
 internal sealed class ClipboardCaptureWorker : IDisposable
 {
     private readonly BlockingCollection<Action> _queue = new();
@@ -15,7 +15,7 @@ internal sealed class ClipboardCaptureWorker : IDisposable
         _thread = new Thread(Run)
         {
             IsBackground = true,
-            Name = "Clipton clipboard capture"
+            Name = "Clipton clipboard worker"
         };
         _thread.SetApartmentState(ApartmentState.STA);
         _thread.Start();
