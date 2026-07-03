@@ -135,6 +135,17 @@ public sealed class LocalizationCatalogTests
     }
 
     [Fact]
+    public void Translate_PrivacyTextWarnsAboutUnencryptedTemporaryFiles()
+    {
+        var catalog = new LocalizationCatalog();
+
+        var message = catalog.Translate("en", "PrivacyText");
+
+        Assert.Contains("Temporary files", message);
+        Assert.Contains("unencrypted", message);
+    }
+
+    [Fact]
     public void Translate_ExportConfirmationWarnsAboutUnencryptedFiles()
     {
         var catalog = new LocalizationCatalog();
