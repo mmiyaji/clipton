@@ -42,6 +42,7 @@ public sealed class MainWindow : Window
     private const int InitialWindowHeight = 760;
     private const string TermsUrl = "https://mmiyaji.github.io/clipton/terms/";
     private const string PrivacyUrl = "https://mmiyaji.github.io/clipton/privacy/";
+    private const string MicrosoftStoreUrl = "https://apps.microsoft.com/detail/9nss9p4f6s5m";
     private const string AuthorUrl = "https://ruhenheim.org";
     private const string ChangelogUrl = "https://github.com/mmiyaji/clipton/blob/main/CHANGELOG.md";
     private const string DonationUrl = "https://www.buymeacoffee.com/erumdoor";
@@ -2311,6 +2312,7 @@ public sealed class MainWindow : Window
             ? InfoRow("Package", string.Empty, "PackageUnpackaged")
             : InfoRow("Package", _runtime.PackageStatus));
         info.Children.Add(InfoLinkRow("Author", AuthorUrl, AuthorUrl));
+        info.Children.Add(InfoLinkRow("StorePage", "Microsoft Store", MicrosoftStoreUrl));
         _aboutPage.Children.Add(Card(info));
         _aboutPage.Children.Add(BuildStoreUpdateCard());
 

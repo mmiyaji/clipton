@@ -163,6 +163,8 @@ public sealed class LocalizationCatalogTests
 
         Assert.Equal("Store updates", catalog.Translate("en", "StoreUpdate"));
         Assert.Equal("Store 更新", catalog.Translate("ja", "StoreUpdate"));
+        Assert.Equal("Store page", catalog.Translate("en", "StorePage"));
+        Assert.Equal("公式 Store ページ", catalog.Translate("ja", "StorePage"));
         Assert.Equal("Checking...", catalog.Translate("en", "CheckingForUpdates"));
         Assert.Equal("確認中...", catalog.Translate("ja", "CheckingForUpdates"));
         Assert.Equal("Check again", catalog.Translate("en", "CheckAgainForUpdates"));
