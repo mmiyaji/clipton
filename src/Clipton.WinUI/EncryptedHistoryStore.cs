@@ -687,7 +687,6 @@ public sealed class EncryptedHistoryStore
         catch (Exception exception) when (File.Exists(_manifestPath) && IsPermanentReadException(exception))
         {
             // Compatibility with older builds that wrote manifest.dat as plaintext JSON.
-            AppDiagnostics.Log(exception, "Read protected history manifest");
             return JsonSerializer.Deserialize<HistoryManifestDto>(File.ReadAllBytes(_manifestPath))!;
         }
     }
