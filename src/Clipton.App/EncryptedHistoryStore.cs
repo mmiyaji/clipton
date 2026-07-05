@@ -122,6 +122,12 @@ public sealed class EncryptedHistoryStore
                 File.Delete(_legacyPath);
             }
 
+            var legacyBackupPath = $"{_legacyPath}.legacy.bak";
+            if (File.Exists(legacyBackupPath))
+            {
+                File.Delete(legacyBackupPath);
+            }
+
             if (Directory.Exists(_directory))
             {
                 Directory.Delete(_directory, recursive: true);

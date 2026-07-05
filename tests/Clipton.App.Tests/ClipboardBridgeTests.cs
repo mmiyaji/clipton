@@ -172,6 +172,39 @@ public sealed class ClipboardBridgeTests
     }
 
     [Fact]
+    public void CreateDataObject_WritesRawHtmlAsCfHtml()
+    {
+        var snapshot = new ClipboardSnapshot(
+            "raw-html",
+            DateTimeOffset.UtcNow,
+            [ClipboardFormatKind.Html],
+            html: "<b>Rich text</b>");
+
+        var data = ClipboardBridge.CreateDataObject(snapshot, asPlainText: false);
+        var html = data.GetText(TextDataFormat.Html);
+
+        Assert.StartsWith("Version:1.0", html, StringComparison.Ordinal);
+        Assert.Contains("StartHTML:", html, StringComparison.Ordinal);
+        Assert.Contains("StartFragment:", html, StringComparison.Ordinal);
+        Assert.Contains("<!--StartFragment--><b>Rich text</b><!--EndFragment-->", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CreateDataObject_InsertsCfHtmlMarkersInsideBody()
+    {
+        var snapshot = new ClipboardSnapshot(
+            "html-body",
+            DateTimeOffset.UtcNow,
+            [ClipboardFormatKind.Html],
+            html: "<html><body><p>Rich text</p></body></html>");
+
+        var data = ClipboardBridge.CreateDataObject(snapshot, asPlainText: false);
+        var html = data.GetText(TextDataFormat.Html);
+
+        Assert.Contains("<body><!--StartFragment--><p>Rich text</p><!--EndFragment--></body>", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CreateDataObject_WritesFileDropList()
     {
         var path = Path.Combine(Path.GetTempPath(), "clipton-test-file.txt");

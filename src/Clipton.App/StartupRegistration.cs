@@ -26,8 +26,9 @@ public static class StartupRegistration
             return await SetPackagedStartupAsync(enabled);
         }
 
-        SetRegistryStartup(enabled);
-        return StartupRegistrationResult.Enabled;
+        return SetRegistryStartup(enabled)
+            ? (enabled ? StartupRegistrationResult.Enabled : StartupRegistrationResult.Disabled)
+            : StartupRegistrationResult.Unsupported;
     }
 
     private static async Task<StartupRegistrationResult> SetPackagedStartupAsync(bool enabled)
@@ -57,12 +58,12 @@ public static class StartupRegistration
         }
     }
 
-    private static void SetRegistryStartup(bool enabled)
+    private static bool SetRegistryStartup(bool enabled)
     {
-        using var key = Registry.CurrentUser.OpenSubKey(RunKey, writable: true);
+        using var key = Registry.CurrentUser.CreateSubKey(RunKey, writable: true);
         if (key is null)
         {
-            return;
+            return false;
         }
 
         if (enabled)
@@ -73,6 +74,8 @@ public static class StartupRegistration
         {
             key.DeleteValue(ValueName, throwOnMissingValue: false);
         }
+
+        return true;
     }
 
     private static bool IsPackaged()

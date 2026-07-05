@@ -1,6 +1,7 @@
 using System.Collections.Specialized;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows.Media.Imaging;
 using Clipton.Core;
 using Clipboard = System.Windows.Clipboard;
@@ -215,7 +216,7 @@ public static class ClipboardBridge
 
         if (!string.IsNullOrEmpty(snapshot.Html))
         {
-            data.SetText(snapshot.Html, TextDataFormat.Html);
+            data.SetText(EnsureClipboardHtml(snapshot.Html), TextDataFormat.Html);
         }
 
         return data;
@@ -224,6 +225,56 @@ public static class ClipboardBridge
     private static string? ExtractPlainText(string? rtf, string? html)
     {
         return ClipboardTextExtraction.ExtractPlainText(rtf, html);
+    }
+
+    private static string EnsureClipboardHtml(string html)
+    {
+        if (html.StartsWith("Version:", StringComparison.OrdinalIgnoreCase)
+            && html.Contains("StartHTML:", StringComparison.OrdinalIgnoreCase)
+            && html.Contains("StartFragment:", StringComparison.OrdinalIgnoreCase))
+        {
+            return html;
+        }
+
+        const string startMarker = "<!--StartFragment-->";
+        const string endMarker = "<!--EndFragment-->";
+        var fragment = html;
+        var hasFragmentMarkers = html.Contains(startMarker, StringComparison.OrdinalIgnoreCase)
+            && html.Contains(endMarker, StringComparison.OrdinalIgnoreCase);
+        var body = html;
+        if (!hasFragmentMarkers)
+        {
+            var bodyOpen = body.IndexOf("<body", StringComparison.OrdinalIgnoreCase);
+            var bodyOpenEnd = bodyOpen >= 0 ? body.IndexOf('>', bodyOpen) : -1;
+            var bodyClose = body.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
+            body = bodyOpenEnd >= 0 && bodyClose > bodyOpenEnd
+                ? string.Concat(body[..(bodyOpenEnd + 1)], startMarker, body[(bodyOpenEnd + 1)..bodyClose], endMarker, body[bodyClose..])
+                : $"{startMarker}{fragment}{endMarker}";
+        }
+
+        if (!body.Contains("<html", StringComparison.OrdinalIgnoreCase))
+        {
+            body = $"<html><body>{body}</body></html>";
+        }
+
+        const string headerTemplate =
+            "Version:1.0\r\n" +
+            "StartHTML:0000000000\r\n" +
+            "EndHTML:0000000000\r\n" +
+            "StartFragment:0000000000\r\n" +
+            "EndFragment:0000000000\r\n";
+        var startHtml = Encoding.UTF8.GetByteCount(headerTemplate);
+        var startMarkerIndex = body.IndexOf(startMarker, StringComparison.OrdinalIgnoreCase);
+        var endMarkerIndex = body.IndexOf(endMarker, StringComparison.OrdinalIgnoreCase);
+        var startFragment = startHtml + Encoding.UTF8.GetByteCount(body[..(startMarkerIndex + startMarker.Length)]);
+        var endFragment = startHtml + Encoding.UTF8.GetByteCount(body[..endMarkerIndex]);
+        var endHtml = startHtml + Encoding.UTF8.GetByteCount(body);
+
+        return (headerTemplate + body)
+            .Replace("StartHTML:0000000000", $"StartHTML:{startHtml:0000000000}", StringComparison.Ordinal)
+            .Replace("EndHTML:0000000000", $"EndHTML:{endHtml:0000000000}", StringComparison.Ordinal)
+            .Replace("StartFragment:0000000000", $"StartFragment:{startFragment:0000000000}", StringComparison.Ordinal)
+            .Replace("EndFragment:0000000000", $"EndFragment:{endFragment:0000000000}", StringComparison.Ordinal);
     }
 
     private static T? WithClipboardRetry<T>(Func<T?> action)

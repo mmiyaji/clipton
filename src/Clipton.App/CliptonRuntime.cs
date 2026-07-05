@@ -300,7 +300,9 @@ public sealed class CliptonRuntime : IDisposable
         menu.Items.Add(Translate("History"), null, (_, _) => Application.Current.Dispatcher.Invoke(ShowQuickMenu));
         menu.Items.Add(Translate("Settings"), null, (_, _) => Application.Current.Dispatcher.Invoke(ShowMainWindow));
         menu.Items.Add(Translate("Exit"), null, (_, _) => Application.Current.Dispatcher.Invoke(Application.Current.Shutdown));
+        var previousMenu = _notifyIcon.ContextMenuStrip;
         _notifyIcon.ContextMenuStrip = menu;
+        previousMenu?.Dispose();
     }
 
     private static System.Drawing.Icon LoadTrayIcon()
@@ -467,10 +469,31 @@ public sealed class CliptonRuntime : IDisposable
 
     private static void SendPaste()
     {
+        WaitForModifierKeyRelease();
         NativeMethods.keybd_event(NativeMethods.VkControl, 0, 0, UIntPtr.Zero);
         NativeMethods.keybd_event(NativeMethods.VkV, 0, 0, UIntPtr.Zero);
+        Thread.Sleep(20);
         NativeMethods.keybd_event(NativeMethods.VkV, 0, NativeMethods.KeyeventfKeyup, UIntPtr.Zero);
         NativeMethods.keybd_event(NativeMethods.VkControl, 0, NativeMethods.KeyeventfKeyup, UIntPtr.Zero);
+    }
+
+    private static void WaitForModifierKeyRelease()
+    {
+        static bool IsDown(int key) => (NativeMethods.GetAsyncKeyState(key) & 0x8000) != 0;
+
+        var deadline = Environment.TickCount64 + 600;
+        while (Environment.TickCount64 < deadline)
+        {
+            if (!IsDown(NativeMethods.VkShift)
+                && !IsDown(NativeMethods.VkMenu)
+                && !IsDown(NativeMethods.VkLWin)
+                && !IsDown(NativeMethods.VkRWin))
+            {
+                return;
+            }
+
+            Thread.Sleep(15);
+        }
     }
 
     private static string GetKindLabel(ClipboardSnapshot item)

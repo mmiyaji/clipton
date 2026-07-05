@@ -319,12 +319,14 @@ public sealed class EncryptedHistoryStoreTests
         Directory.CreateDirectory(root);
         var path = Path.Combine(root, "history.dat");
         File.WriteAllText(path, "legacy");
+        File.WriteAllText($"{path}.legacy.bak", "legacy backup");
         var store = new EncryptedHistoryStore(path);
 
         store.Save([TextSnapshot("history-1", "one")]);
         store.Delete();
 
         Assert.False(File.Exists(path));
+        Assert.False(File.Exists($"{path}.legacy.bak"));
         Assert.False(Directory.Exists(Path.Combine(root, "history")));
     }
 
