@@ -198,15 +198,27 @@ public static class SnippetTemplateRenderer
 
     private static string FormatFileValue(string path, FileVariableKind kind)
     {
-        return kind switch
+        try
         {
-            FileVariableKind.FullPath => path,
-            FileVariableKind.Name => Path.GetFileName(path),
-            FileVariableKind.NameWithoutExtension => Path.GetFileNameWithoutExtension(path),
-            FileVariableKind.Extension => Path.GetExtension(path),
-            FileVariableKind.Directory => Path.GetDirectoryName(path) ?? string.Empty,
-            _ => path
-        };
+            if (path.Contains('\0', StringComparison.Ordinal))
+            {
+                return string.Empty;
+            }
+
+            return kind switch
+            {
+                FileVariableKind.FullPath => path,
+                FileVariableKind.Name => Path.GetFileName(path),
+                FileVariableKind.NameWithoutExtension => Path.GetFileNameWithoutExtension(path),
+                FileVariableKind.Extension => Path.GetExtension(path),
+                FileVariableKind.Directory => Path.GetDirectoryName(path) ?? string.Empty,
+                _ => path
+            };
+        }
+        catch (ArgumentException)
+        {
+            return string.Empty;
+        }
     }
 
     private enum FileVariableKind

@@ -179,6 +179,15 @@ public sealed class SnippetTemplateRendererTests
     }
 
     [Fact]
+    public void Render_FileVariablesIgnoreInvalidPaths()
+    {
+        var files = new[] { "bad\0name.txt" };
+
+        Assert.Equal(string.Empty, SnippetTemplateRenderer.Render("{{filename}}", filePaths: files));
+        Assert.Equal(string.Empty, SnippetTemplateRenderer.Render("{{filedirectory}}", filePaths: files));
+    }
+
+    [Fact]
     public void Render_UsesDefaultWeekdayFormatWhenNoFormatIsProvided()
     {
         var now = new DateTimeOffset(2026, 5, 31, 9, 8, 7, TimeSpan.FromHours(9));

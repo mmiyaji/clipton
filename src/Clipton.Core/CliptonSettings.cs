@@ -163,7 +163,7 @@ public static class MaskRuleDefinitionDefaults
             BuiltIn(MaskRuleIds.ShortAlphanumericCode, "MaskRuleShortAlphanumericCode", 60, settings.ShortAlphanumericCode,
                 @"\b(?=[A-Za-z0-9]*[A-Za-z])(?=[A-Za-z0-9]*\d)[A-Za-z0-9]{8,}\b"),
             BuiltIn(MaskRuleIds.PhoneNumber, "MaskRulePhoneNumber", 70, settings.PhoneNumber,
-                @"(?<!\d)(?:\+?\d{1,3}[-. ]?)?(?:\(?\d{2,4}\)?[-. ]?){2,4}\d{3,4}(?!\d)")
+                @"(?<!\d)(?=[+()\d.\- ]*[-. ])(?:\+?\d{1,3}[-. ]?)?(?:\(?\d{2,4}\)?[-. ]?){2,4}\d{3,4}(?!\d)")
         ];
     }
 

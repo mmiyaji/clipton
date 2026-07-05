@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 
 namespace Clipton.Core;
 
@@ -124,6 +125,23 @@ public sealed class ClipboardSnapshot
         }
 
         var normalized = string.Join(" ", value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-        return normalized.Length <= 180 ? normalized : normalized[..180];
+        if (normalized.Length <= 180)
+        {
+            return normalized;
+        }
+
+        var indexes = StringInfo.ParseCombiningCharacters(normalized);
+        var boundary = 0;
+        foreach (var index in indexes)
+        {
+            if (index > 180)
+            {
+                break;
+            }
+
+            boundary = index;
+        }
+
+        return normalized[..boundary];
     }
 }

@@ -98,7 +98,11 @@ public sealed class SearchFilter
                 case "to":
                     // "before" is a user-facing inclusive upper bound. Most users enter
                     // dates, so keep the whole day instead of stopping at midnight.
-                    before = ParseDate(value)?.AddDays(1).AddTicks(-1);
+                    if (TryParseDate(value, out var parsedBefore, out var dateOnlyBefore))
+                    {
+                        before = dateOnlyBefore ? parsedBefore.AddDays(1).AddTicks(-1) : parsedBefore;
+                    }
+
                     break;
                 default:
                     terms.Add(token);
@@ -192,6 +196,12 @@ public sealed class SearchFilter
     private static DateTimeOffset? ParseDate(string value)
     {
         return DateTimeOffset.TryParse(value, out var parsed) ? parsed : null;
+    }
+
+    private static bool TryParseDate(string value, out DateTimeOffset parsed, out bool dateOnly)
+    {
+        dateOnly = !value.Any(char.IsWhiteSpace) && value.All(ch => ch != 'T' && ch != ':');
+        return DateTimeOffset.TryParse(value, out parsed);
     }
 
     private static string[] Tokenize(string query)

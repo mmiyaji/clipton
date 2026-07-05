@@ -31,6 +31,26 @@ public sealed class SensitiveContentDetectorTests
     }
 
     [Fact]
+    public void ShouldMask_PhoneNumberRequiresSeparator()
+    {
+        var phoneOnlyRules = new MaskRuleSettings
+        {
+            Email = false,
+            CreditCard = false,
+            SecretKeyword = false,
+            BearerToken = false,
+            LongToken = false,
+            ShortAlphanumericCode = false,
+            PhoneNumber = true,
+            CustomPattern = false
+        };
+
+        Assert.False(SensitiveContentDetector.ShouldMask("Order number 123456789012", rules: phoneOnlyRules));
+        Assert.Null(SensitiveContentDetector.CreateMaskedPreview("Order number 123456789012", rules: phoneOnlyRules));
+        Assert.True(SensitiveContentDetector.ShouldMask("Call 03-1234-5678", rules: phoneOnlyRules));
+    }
+
+    [Fact]
     public void ShouldMask_IgnoresInvalidDisabledAndBlankRules()
     {
         var rules = MaskRuleDefinitionDefaults.CreateDefaultRules();
@@ -114,6 +134,35 @@ public sealed class SensitiveContentDetectorTests
     }
 
     [Fact]
+    public void CreateMaskedPreview_IsIndependentOfRuleOrderForOverlappingMatches()
+    {
+        const string text = "api_key=abcdefghijklmnopqrstuvwxyz123456";
+        var defaultRules = MaskRuleDefinitionDefaults.CreateDefaultRules();
+        var reversedRules = MaskRuleDefinitionDefaults.CreateDefaultRules();
+        reversedRules.First(rule => rule.Id == MaskRuleIds.SecretKeyword).Order = 90;
+        reversedRules.First(rule => rule.Id == MaskRuleIds.LongToken).Order = 10;
+
+        var defaultPreview = SensitiveContentDetector.CreateMaskedPreview(text, 3, defaultRules);
+        var reversedPreview = SensitiveContentDetector.CreateMaskedPreview(text, 3, reversedRules);
+
+        Assert.Equal("api_key=abc\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022", defaultPreview);
+        Assert.Equal(defaultPreview, reversedPreview);
+    }
+
+    [Fact]
+    public void CreateMaskedPreview_DoesNotSplitTextElementsWhenMasking()
+    {
+        var preview = SensitiveContentDetector.CreateMaskedPreview(
+            "Code: \ud83d\ude00TOKEN123",
+            visiblePrefixLength: 1,
+            maskRuleDefinitions: [],
+            customPatterns: ["\ud83d\ude00TOKEN\\d+"],
+            customPatternsEnabled: true);
+
+        Assert.Equal("Code: \ud83d\ude00\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022", preview);
+    }
+
+    [Fact]
     public void CreateMaskedPreview_ReturnsNullForOrdinaryText()
     {
         Assert.Null(SensitiveContentDetector.CreateMaskedPreview("Hello, please review this message."));
@@ -194,6 +243,13 @@ public sealed class SensitiveContentDetectorTests
     {
         Assert.Equal("one two", SensitiveContentDetector.CreatePreviewScanText("  one\r\ntwo  ", maxLength: 20));
         Assert.Equal(new string('x', 10), SensitiveContentDetector.CreatePreviewScanText(new string('x', 20), maxLength: 10));
+    }
+
+    [Fact]
+    public void CreatePreviewScanText_DoesNotSplitSurrogatePairs()
+    {
+        Assert.Equal("\ud83d\ude00", SensitiveContentDetector.CreatePreviewScanText("\ud83d\ude00abc", maxLength: 2));
+        Assert.Equal(string.Empty, SensitiveContentDetector.CreatePreviewScanText("\ud83d\ude00abc", maxLength: 1));
     }
 
     [Theory]

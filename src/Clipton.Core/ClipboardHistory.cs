@@ -231,7 +231,6 @@ public sealed class ClipboardHistory
     /// </remarks>
     public static string CreateFingerprint(ClipboardSnapshot snapshot)
     {
-        using var sha = SHA256.Create();
         var builder = new StringBuilder();
         builder.AppendJoin(",", snapshot.Formats).Append('\n');
         builder.Append(snapshot.Text).Append('\n');
@@ -240,14 +239,14 @@ public sealed class ClipboardHistory
         builder.AppendJoin("|", snapshot.FilePaths).Append('\n');
 
         var textBytes = Encoding.UTF8.GetBytes(builder.ToString());
-        sha.TransformBlock(textBytes, 0, textBytes.Length, null, 0);
-
+        var hashInputLength = textBytes.Length + (snapshot.ImagePng?.Length ?? 0);
+        var hashInput = new byte[hashInputLength];
+        Buffer.BlockCopy(textBytes, 0, hashInput, 0, textBytes.Length);
         if (snapshot.ImagePng is { Length: > 0 })
         {
-            sha.TransformBlock(snapshot.ImagePng, 0, snapshot.ImagePng.Length, null, 0);
+            Buffer.BlockCopy(snapshot.ImagePng, 0, hashInput, textBytes.Length, snapshot.ImagePng.Length);
         }
 
-        sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
-        return Convert.ToHexString(sha.Hash!);
+        return Convert.ToHexString(SHA256.HashData(hashInput));
     }
 }

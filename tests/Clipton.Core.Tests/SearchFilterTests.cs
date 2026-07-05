@@ -143,6 +143,19 @@ public sealed class SearchFilterTests
         Assert.False(filter.MatchesDate(filter.Before.Value.AddTicks(1)));
     }
 
+    [Fact]
+    public void MatchesDate_DateOnlyBeforeIncludesWholeDayButTimeBeforeDoesNot()
+    {
+        var dateOnly = SearchFilter.Parse("before:2026-05-30");
+        var withTime = SearchFilter.Parse("before:2026-05-30T12:30:00");
+
+        Assert.True(dateOnly.Before.HasValue);
+        Assert.True(withTime.Before.HasValue);
+        Assert.Equal(TimeSpan.FromTicks(TimeSpan.TicksPerDay - 1), dateOnly.Before.Value.TimeOfDay);
+        Assert.True(dateOnly.MatchesDate(dateOnly.Before.Value));
+        Assert.False(withTime.MatchesDate(withTime.Before.Value.AddTicks(1)));
+    }
+
     [Theory]
     [InlineData("rich", ClipboardFormatKind.RichText, ClipboardFormatKind.Text)]
     [InlineData("rtf", ClipboardFormatKind.RichText, ClipboardFormatKind.Html)]

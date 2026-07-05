@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace Clipton.Core;
@@ -167,6 +168,7 @@ public static class SensitiveContentDetector
             splitAt = maxLength;
         }
 
+        splitAt = GetTextElementBoundaryAtOrBefore(normalized, splitAt);
         return normalized[..splitAt].TrimEnd();
     }
 
@@ -188,7 +190,7 @@ public static class SensitiveContentDetector
             return null;
         }
 
-        var result = text;
+        var replacements = new List<MaskReplacement>();
         foreach (var rule in MaskRuleDefinitionDefaults.Normalize(maskRuleDefinitions))
         {
             if (!rule.Enabled || !TryGetRegex(rule.Pattern, out var regex))
@@ -196,28 +198,15 @@ public static class SensitiveContentDetector
                 continue;
             }
 
-            result = rule.Id switch
-            {
-                MaskRuleIds.SecretKeyword => regex.Replace(
-                    result,
-                    match => match.Groups.Count >= 4
-                        ? $"{match.Groups[1].Value}{match.Groups[2].Value}{MaskValue(match.Groups[3].Value, visiblePrefixLength)}"
-                        : MaskValue(match.Value, visiblePrefixLength)),
-                MaskRuleIds.BearerToken => regex.Replace(
-                    result,
-                    match => match.Groups.Count >= 3
-                        ? $"bearer{match.Groups[1].Value}{MaskValue(match.Groups[2].Value, visiblePrefixLength)}"
-                        : MaskValue(match.Value, visiblePrefixLength)),
-                MaskRuleIds.CreditCard => ReplaceSensitiveMatches(result, regex, visiblePrefixLength, IsCreditCardMatch),
-                _ => ReplaceSensitiveMatches(result, regex, visiblePrefixLength, _ => true)
-            };
+            replacements.AddRange(CreateReplacements(text, rule.Id, regex, visiblePrefixLength));
         }
 
         if (customPatternsEnabled)
         {
-            result = ReplaceCustomMatches(result, customPatterns, visiblePrefixLength);
+            replacements.AddRange(CreateCustomReplacements(text, customPatterns, visiblePrefixLength));
         }
 
+        var result = ApplyReplacements(text, replacements);
         if (!string.Equals(result, text, StringComparison.Ordinal))
         {
             return result;
@@ -289,20 +278,39 @@ public static class SensitiveContentDetector
             .ToArray();
     }
 
-    private static string ReplaceSensitiveMatches(
+    private static IEnumerable<MaskReplacement> CreateReplacements(
         string text,
+        string ruleId,
         Regex pattern,
-        int visiblePrefixLength,
-        Func<Match, bool> shouldMask)
+        int visiblePrefixLength)
     {
-        return pattern.Replace(text, match => shouldMask(match)
-            ? MaskValue(match.Value, visiblePrefixLength)
-            : match.Value);
+        foreach (Match match in pattern.Matches(text))
+        {
+            if (ruleId == MaskRuleIds.CreditCard && !IsCreditCardMatch(match))
+            {
+                continue;
+            }
+
+            var masked = ruleId switch
+            {
+                MaskRuleIds.SecretKeyword when match.Groups.Count >= 4 =>
+                    $"{match.Groups[1].Value}{match.Groups[2].Value}{MaskValue(match.Groups[3].Value, visiblePrefixLength)}",
+                MaskRuleIds.BearerToken when match.Groups.Count >= 3 =>
+                    $"bearer{match.Groups[1].Value}{MaskValue(match.Groups[2].Value, visiblePrefixLength)}",
+                _ => MaskValue(match.Value, visiblePrefixLength)
+            };
+            yield return new MaskReplacement(match.Index, match.Length, masked);
+        }
     }
 
     private static string MaskValue(string value, int visiblePrefixLength)
     {
-        var visible = value[..Math.Min(Math.Max(visiblePrefixLength, 0), value.Length)];
+        var indexes = StringInfo.ParseCombiningCharacters(value);
+        var visibleTextElements = Math.Min(Math.Max(visiblePrefixLength, 0), indexes.Length);
+        var visibleEnd = visibleTextElements == 0
+            ? 0
+            : visibleTextElements >= indexes.Length ? value.Length : indexes[visibleTextElements];
+        var visible = value[..visibleEnd];
         return $"{visible}{new string('\u2022', MaskGlyphCount)}";
     }
 
@@ -319,20 +327,75 @@ public static class SensitiveContentDetector
         return false;
     }
 
-    private static string ReplaceCustomMatches(string text, IEnumerable<string>? customPatterns, int visiblePrefixLength)
+    private static int GetTextElementBoundaryAtOrBefore(string text, int maxLength)
     {
-        var result = text;
+        if (maxLength >= text.Length)
+        {
+            return text.Length;
+        }
+
+        if (maxLength <= 0)
+        {
+            return 0;
+        }
+
+        var indexes = StringInfo.ParseCombiningCharacters(text);
+        var boundary = 0;
+        foreach (var index in indexes)
+        {
+            if (index > maxLength)
+            {
+                break;
+            }
+
+            boundary = index;
+        }
+
+        return boundary == maxLength ? maxLength : boundary;
+    }
+
+    private static IEnumerable<MaskReplacement> CreateCustomReplacements(string text, IEnumerable<string>? customPatterns, int visiblePrefixLength)
+    {
         foreach (var pattern in ValidateCustomPatterns(customPatterns))
         {
             if (TryGetRegex(pattern, out var regex))
             {
-                result = regex.Replace(
-                    result,
-                    match => MaskValue(match.Value, visiblePrefixLength));
+                foreach (Match match in regex.Matches(text))
+                {
+                    yield return new MaskReplacement(match.Index, match.Length, MaskValue(match.Value, visiblePrefixLength));
+                }
             }
         }
+    }
 
-        return result;
+    private static string ApplyReplacements(string text, IEnumerable<MaskReplacement> replacements)
+    {
+        var ordered = replacements
+            .Where(replacement => replacement.Length > 0)
+            .OrderBy(replacement => replacement.Start)
+            .ThenByDescending(replacement => replacement.Length)
+            .ToArray();
+        if (ordered.Length == 0)
+        {
+            return text;
+        }
+
+        var result = new System.Text.StringBuilder(text.Length);
+        var cursor = 0;
+        foreach (var replacement in ordered)
+        {
+            if (replacement.Start < cursor)
+            {
+                continue;
+            }
+
+            result.Append(text, cursor, replacement.Start - cursor);
+            result.Append(replacement.Text);
+            cursor = replacement.Start + replacement.Length;
+        }
+
+        result.Append(text, cursor, text.Length - cursor);
+        return result.ToString();
     }
 
     private static bool IsCreditCardMatch(Match match)
@@ -411,3 +474,5 @@ public static class SensitiveContentDetector
 /// Describes one rule that matched sensitive-looking preview text.
 /// </summary>
 public sealed record MaskRuleMatch(string RuleId, string NameKey, string Pattern, bool IsCustomPattern);
+
+internal readonly record struct MaskReplacement(int Start, int Length, string Text);

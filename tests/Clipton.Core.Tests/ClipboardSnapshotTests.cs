@@ -80,6 +80,16 @@ public sealed class ClipboardSnapshotTests
     }
 
     [Fact]
+    public void Constructor_DoesNotSplitSourceMetadataSurrogatePairs()
+    {
+        var snapshot = Snapshot(
+            sourceApplicationName: $"{new string('a', 179)}\ud83d\ude00suffix");
+
+        Assert.Equal(new string('a', 179), snapshot.SourceApplicationName);
+        Assert.DoesNotContain(snapshot.SourceApplicationName!, char.IsSurrogate);
+    }
+
+    [Fact]
     public void Preview_PrefersTextAndNormalizesLineEndings()
     {
         var snapshot = Snapshot(
