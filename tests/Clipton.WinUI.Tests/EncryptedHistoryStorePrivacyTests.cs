@@ -1,4 +1,6 @@
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Clipton.Core;
 using Clipton.WinUI;
 
@@ -61,6 +63,29 @@ public sealed class EncryptedHistoryStorePrivacyTests
         {
             Assert.Equal(writeTime, File.GetLastWriteTimeUtc(file));
         }
+    }
+
+    [Fact]
+    public void Save_ProtectsManifestMetadata()
+    {
+        var root = CreateTestRoot();
+        var path = Path.Combine(root, "history.dat");
+        var store = new EncryptedHistoryStore(path);
+        store.Save([
+            new ClipboardSnapshot("manifest-private-1", DateTimeOffset.UtcNow, [ClipboardFormatKind.Text], text: "one"),
+            new ClipboardSnapshot("manifest-private-2", DateTimeOffset.UtcNow, [ClipboardFormatKind.Text], text: "two")
+        ]);
+        var manifestPath = Path.Combine(root, "history", "manifest.dat");
+
+        var bytes = File.ReadAllBytes(manifestPath);
+
+        Assert.False(ContainsBytes(bytes, Encoding.UTF8.GetBytes("manifest-private-1")));
+        Assert.ThrowsAny<JsonException>(() => JsonDocument.Parse(bytes));
+
+        var json = ProtectedData.Unprotect(bytes, optionalEntropy: null, DataProtectionScope.CurrentUser);
+        using var document = JsonDocument.Parse(json);
+        Assert.Equal(5, document.RootElement.GetProperty("Version").GetInt32());
+        Assert.Equal(["manifest-private-1", "manifest-private-2"], document.RootElement.GetProperty("OrderedIds").EnumerateArray().Select(item => item.GetString()));
     }
 
     [Fact]

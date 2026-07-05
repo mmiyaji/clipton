@@ -8,15 +8,15 @@ namespace Clipton.WinUI;
 /// Persists clipboard history using Windows user-scoped DPAPI.
 /// </summary>
 /// <remarks>
-/// Current history uses an itemized format: a plaintext manifest stores ordering and each
+/// Current history uses an itemized format: a protected manifest stores ordering and each
 /// payload is encrypted in its own file. Older single-file, segmented and chunked formats
 /// remain readable so users can upgrade without losing local history.
 /// </remarks>
 public sealed class EncryptedHistoryStore
 {
-    // Format 5 separates ordering from encrypted item payloads. Keeping items individual
-    // makes small saves cheaper and lets the runtime page older history without decrypting
-    // everything at startup.
+    // Format 5 separates ordering from item payloads. Both the manifest and item files are
+    // DPAPI-protected; keeping items individual makes small saves cheaper and lets the runtime
+    // page older history without decrypting everything at startup.
     private const int FormatVersion = 5;
     private const int ChunkedFormatVersion = 4;
     private const int LegacySegmentedFormatVersion = 3;
@@ -30,6 +30,7 @@ public sealed class EncryptedHistoryStore
     private readonly string _chunksDirectory;
     private readonly string _itemsDirectory;
     private readonly object _syncRoot = new();
+    private bool _suppressWritesAfterTransientReadFailure;
 
     /// <summary>
     /// Creates a store rooted next to the legacy encrypted history file path.
@@ -125,16 +126,14 @@ public sealed class EncryptedHistoryStore
                     .Select(item => item.ToSnapshot())
                     .ToArray();
             }
-            catch (CryptographicException)
+            catch (Exception exception) when (IsTransientReadException(exception))
             {
+                MarkTransientReadFailure(exception, "Load history range");
                 return [];
             }
-            catch (JsonException)
+            catch (Exception exception) when (IsPermanentReadException(exception))
             {
-                return [];
-            }
-            catch (IOException)
-            {
+                AppDiagnostics.Log(exception, "Load history range");
                 return [];
             }
         }
@@ -155,6 +154,7 @@ public sealed class EncryptedHistoryStore
     {
         lock (_syncRoot)
         {
+            ThrowIfWritesSuppressed();
             var items = snapshots.Select(ClipboardSnapshotDto.FromSnapshot).ToArray();
             var ids = items.Select(item => item.Id).ToArray();
             SaveItemized(items, ids);
@@ -173,6 +173,7 @@ public sealed class EncryptedHistoryStore
     {
         lock (_syncRoot)
         {
+            ThrowIfWritesSuppressed();
             var currentItems = snapshots.Select(ClipboardSnapshotDto.FromSnapshot).ToArray();
             var currentIds = currentItems.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
             var manifest = TryReadManifest();
@@ -252,16 +253,14 @@ public sealed class EncryptedHistoryStore
                 .Select(item => item.ToSnapshot())
                 .ToArray();
         }
-        catch (CryptographicException)
+        catch (Exception exception) when (IsTransientReadException(exception))
         {
+            MarkTransientReadFailure(exception, "Load history");
             return [];
         }
-        catch (JsonException)
+        catch (Exception exception) when (IsPermanentReadException(exception))
         {
-            return [];
-        }
-        catch (IOException)
-        {
+            AppDiagnostics.Log(exception, "Load history");
             return [];
         }
     }
@@ -643,22 +642,20 @@ public sealed class EncryptedHistoryStore
         }
     }
 
-    private static T? TryReadProtected<T>(string path)
+    private T? TryReadProtected<T>(string path)
     {
         try
         {
             return File.Exists(path) ? ReadProtected<T>(path) : default;
         }
-        catch (CryptographicException)
+        catch (Exception exception) when (IsTransientReadException(exception))
         {
+            MarkTransientReadFailure(exception, $"Read protected history item {Path.GetFileName(path)}");
             return default;
         }
-        catch (JsonException)
+        catch (Exception exception) when (IsPermanentReadException(exception))
         {
-            return default;
-        }
-        catch (IOException)
-        {
+            AppDiagnostics.Log(exception, $"Read protected history item {Path.GetFileName(path)}");
             return default;
         }
     }
@@ -669,16 +666,14 @@ public sealed class EncryptedHistoryStore
         {
             return File.Exists(_manifestPath) ? ReadManifest() : null;
         }
-        catch (CryptographicException)
+        catch (Exception exception) when (IsTransientReadException(exception))
         {
+            MarkTransientReadFailure(exception, "Read history manifest");
             return null;
         }
-        catch (JsonException)
+        catch (Exception exception) when (IsPermanentReadException(exception))
         {
-            return null;
-        }
-        catch (IOException)
-        {
+            AppDiagnostics.Log(exception, "Read history manifest");
             return null;
         }
     }
@@ -687,23 +682,19 @@ public sealed class EncryptedHistoryStore
     {
         try
         {
-            return JsonSerializer.Deserialize<HistoryManifestDto>(File.ReadAllBytes(_manifestPath))!;
-        }
-        catch (JsonException) when (File.Exists(_manifestPath))
-        {
-            // Compatibility with pre-release builds that protected the manifest.
             return ReadProtected<HistoryManifestDto>(_manifestPath);
+        }
+        catch (Exception exception) when (File.Exists(_manifestPath) && IsPermanentReadException(exception))
+        {
+            // Compatibility with older builds that wrote manifest.dat as plaintext JSON.
+            AppDiagnostics.Log(exception, "Read protected history manifest");
+            return JsonSerializer.Deserialize<HistoryManifestDto>(File.ReadAllBytes(_manifestPath))!;
         }
     }
 
     private void WriteManifest(HistoryManifestDto manifest)
     {
-        Directory.CreateDirectory(_directory);
-        var json = JsonSerializer.SerializeToUtf8Bytes(manifest, new JsonSerializerOptions { WriteIndented = true });
-        var tempPath = Path.Combine(_directory, $"manifest.dat.{Guid.NewGuid():N}.tmp");
-        File.WriteAllBytes(tempPath, json);
-        // Replace through a temp file so crashes never leave a partially written manifest.
-        File.Move(tempPath, _manifestPath, overwrite: true);
+        WriteProtected(_manifestPath, manifest);
     }
 
     private static T ReadProtected<T>(string path)
@@ -726,6 +717,30 @@ public sealed class EncryptedHistoryStore
         var tempPath = Path.Combine(directory ?? string.Empty, $"{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
         File.WriteAllBytes(tempPath, encrypted);
         File.Move(tempPath, path, overwrite: true);
+    }
+
+    private void ThrowIfWritesSuppressed()
+    {
+        if (_suppressWritesAfterTransientReadFailure)
+        {
+            throw new IOException("History store had a transient read failure; refusing to overwrite existing history in this session.");
+        }
+    }
+
+    private void MarkTransientReadFailure(Exception exception, string context)
+    {
+        _suppressWritesAfterTransientReadFailure = true;
+        AppDiagnostics.Log(exception, context);
+    }
+
+    private static bool IsTransientReadException(Exception exception)
+    {
+        return exception is IOException or UnauthorizedAccessException;
+    }
+
+    private static bool IsPermanentReadException(Exception exception)
+    {
+        return exception is CryptographicException or JsonException;
     }
 
     private sealed record HistoryManifestDto(

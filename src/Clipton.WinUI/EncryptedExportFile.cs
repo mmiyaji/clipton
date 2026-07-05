@@ -16,6 +16,7 @@ internal static class EncryptedExportFile
     private const int Iterations = 210_000;
     private const string Kdf = "PBKDF2-SHA256";
     private const string Cipher = "AES-256-GCM";
+    internal const long MaxImportFileBytes = 128L * 1024 * 1024;
 
     public static bool HasEncryptedExtension(string path)
     {
@@ -78,6 +79,7 @@ internal static class EncryptedExportFile
             throw new ArgumentException("Export password must be at least 8 characters.", nameof(passphrase));
         }
 
+        EnsureFileWithinImportLimit(path);
         var envelope = JsonSerializer.Deserialize<Envelope>(File.ReadAllBytes(path), options)
             ?? throw new InvalidOperationException("The selected file is not a supported encrypted Clipton export.");
         if (envelope.Version != Version
@@ -115,6 +117,15 @@ internal static class EncryptedExportFile
         {
             CryptographicOperations.ZeroMemory(key);
             CryptographicOperations.ZeroMemory(plaintext);
+        }
+    }
+
+    internal static void EnsureFileWithinImportLimit(string path)
+    {
+        var length = new FileInfo(path).Length;
+        if (length > MaxImportFileBytes)
+        {
+            throw new InvalidOperationException($"The selected file is too large to import. The maximum supported import size is {MaxImportFileBytes / 1024 / 1024} MB.");
         }
     }
 

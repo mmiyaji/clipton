@@ -140,7 +140,17 @@ public sealed class EncryptedHistoryStoreUpgradeTests
 
     private static JsonElement ReadManifest(string root)
     {
-        using var document = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(root, "history", "manifest.dat")));
+        var bytes = File.ReadAllBytes(Path.Combine(root, "history", "manifest.dat"));
+        try
+        {
+            bytes = ProtectedData.Unprotect(bytes, optionalEntropy: null, DataProtectionScope.CurrentUser);
+        }
+        catch (CryptographicException)
+        {
+            // Older manifests were stored as plaintext JSON.
+        }
+
+        using var document = JsonDocument.Parse(bytes);
         return document.RootElement.Clone();
     }
 

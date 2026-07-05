@@ -1,9 +1,10 @@
 using System.Text.Json;
 using System.Globalization;
 using System.Reflection;
-using System.Runtime;
 using System.Runtime.InteropServices;
+using System.Security.AccessControl;
 using System.Security.Cryptography;
+using System.Security.Principal;
 using System.Text;
 using System.Text.RegularExpressions;
 using Clipton.Core;
@@ -37,7 +38,6 @@ public sealed class CliptonRuntime : IDisposable
     private const int ResidentHistoryFlushOverflowCount = 2;
     private const int ImmediateHistorySaveMinIntervalMilliseconds = 1000;
     private const int MaxCachedHistoryImages = 64;
-    private const int ResidentHistoryGcMinIntervalMilliseconds = 5000;
     private const int QuickMenuHotkeyDebounceMilliseconds = 160;
     private const int TempPasteMaxFiles = 25;
     private const string HistoryExportKind = "history";
@@ -48,6 +48,7 @@ public sealed class CliptonRuntime : IDisposable
     private static readonly TimeSpan DispatcherMarshalTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan TempPasteMaxAge = TimeSpan.FromHours(1);
     private static readonly TimeSpan TempPasteDeleteDelay = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan TempPasteDeleteAfterPasteDelay = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan HistoryAccessUnlockBackoff = TimeSpan.FromSeconds(30);
     private static readonly Regex UrlRegex = new(@"\b(?:https?|ftp)://[^\s<>()""']+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private readonly DispatcherQueue? _dispatcherQueue;
@@ -61,14 +62,13 @@ public sealed class CliptonRuntime : IDisposable
     private readonly object _historySaveGate = new();
     private readonly object _historyPersistChainGate = new();
     private readonly ClipboardCaptureWorker _captureWorker = new();
-    private Task _historyPersistChain = Task.CompletedTask;
+    private Task<bool> _historyPersistChain = Task.FromResult(true);
     private readonly object _historyImageCacheGate = new();
     private readonly Dictionary<string, byte[]> _historyImageBytesByKey = new(StringComparer.Ordinal);
     private readonly Queue<string> _historyImageCacheKeys = new();
     private CancellationTokenSource? _historySaveDebounce;
     private long _historySaveVersion;
     private long _lastImmediateHistorySaveTick;
-    private long _lastResidentHistoryGcTick;
     private int _persistedHistoryCount;
     private int _loadedPersistedHistoryCount;
     private HotkeyMessageWindow? _messageWindow;
@@ -417,13 +417,18 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
+        string? tempPasteFilePath = null;
         Action? writeClipboard = mode switch
         {
             ImagePasteMode.Original => () => ClipboardBridge.Put(item, asPlainText: false),
             ImagePasteMode.Png => () => ClipboardBridge.PutImagePng(imagePng),
             ImagePasteMode.Jpeg => () => ClipboardBridge.PutImageJpeg(imagePng),
             ImagePasteMode.ResizedHalf => () => ClipboardBridge.PutImagePng(ResizeImagePng(imagePng, 0.5)),
-            ImagePasteMode.File => () => ClipboardBridge.PutFileDrop(CreateTempImageFile(item)),
+            ImagePasteMode.File => () =>
+            {
+                tempPasteFilePath = CreateTempImageFile(item);
+                ClipboardBridge.PutFileDrop(tempPasteFilePath);
+            },
             _ => null
         };
         if (writeClipboard is null)
@@ -431,18 +436,28 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        QueueClipboardPaste(writeClipboard, sendPaste);
+        QueueClipboardPaste(writeClipboard, sendPaste, () => tempPasteFilePath);
     }
 
-    private void QueueClipboardPaste(Action writeClipboard, bool sendPaste)
+    private void QueueClipboardPaste(Action writeClipboard, bool sendPaste, Func<string?>? tempPasteFilePath = null)
     {
         var pasteTargetWindow = _pasteTargetWindow;
         _captureWorker.Post(() =>
         {
-            writeClipboard();
-            if (sendPaste)
+            try
             {
-                SendPaste(pasteTargetWindow);
+                writeClipboard();
+                if (sendPaste)
+                {
+                    SendPaste(pasteTargetWindow);
+                }
+            }
+            finally
+            {
+                if (tempPasteFilePath?.Invoke() is { } path)
+                {
+                    ScheduleTempPasteFileDeletion(path, TempPasteDeleteAfterPasteDelay);
+                }
             }
         });
     }
@@ -1289,7 +1304,7 @@ public sealed class CliptonRuntime : IDisposable
         _clipboardCaptureDelay?.Cancel();
         _clipboardCaptureDelay?.Dispose();
         _captureWorker.Dispose();
-        SaveHistory();
+        SaveHistory(waitForCompletion: true);
         _messageWindow?.Dispose();
         _notifyIcon?.Dispose();
         _defaultQuickMenu?.Dismiss();
@@ -1378,9 +1393,24 @@ public sealed class CliptonRuntime : IDisposable
         var token = captureDelay.Token;
         _ = Task.Delay(delay, token).ContinueWith(task =>
         {
-            if (!task.IsCanceled)
+            if (task.IsCanceled)
+            {
+                return;
+            }
+
+            if (task.Exception is not null)
+            {
+                AppDiagnostics.Log(task.Exception, "Clipboard capture delay");
+                return;
+            }
+
+            try
             {
                 ScheduleClipboardCapture(sourceWindow);
+            }
+            catch (Exception exception)
+            {
+                AppDiagnostics.Log(exception, "Clipboard capture delay");
             }
         }, TaskScheduler.Default);
     }
@@ -2379,21 +2409,42 @@ public sealed class CliptonRuntime : IDisposable
         return $"{version.Major}.{version.Minor}.{version.Build}.{version.Revision}";
     }
 
-    private void SaveHistory()
+    private bool SaveHistory(bool waitForCompletion = false)
     {
         Interlocked.Increment(ref _historySaveVersion);
         CancelPendingHistorySaveDebounce();
         var plan = CreateHistoryPersistPlan();
+        var task = EnqueueHistoryPersist(plan);
         try
         {
-            EnqueueHistoryPersist(plan).Wait(TimeSpan.FromSeconds(10));
+            var completed = true;
+            if (waitForCompletion)
+            {
+                task.Wait();
+            }
+            else
+            {
+                completed = task.Wait(TimeSpan.FromSeconds(10));
+            }
+            if (!completed)
+            {
+                AppDiagnostics.Info("History", "History save did not complete before timeout; state counters will update after persistence completes.");
+                ContinueFinishHistoryPersist(task, plan);
+                return false;
+            }
+
+            if (task.Result)
+            {
+                FinishHistoryPersist(plan);
+                return true;
+            }
         }
         catch (AggregateException exception)
         {
             AppDiagnostics.Log(exception, "History save");
         }
 
-        FinishHistoryPersist(plan);
+        return false;
     }
 
     // Background saves are chained through _historyPersistChain so slow disk or DPAPI work
@@ -2403,9 +2454,24 @@ public sealed class CliptonRuntime : IDisposable
         Interlocked.Increment(ref _historySaveVersion);
         CancelPendingHistorySaveDebounce();
         var plan = CreateHistoryPersistPlan();
-        _ = EnqueueHistoryPersist(plan).ContinueWith(
-            _ =>
+        ContinueFinishHistoryPersist(EnqueueHistoryPersist(plan), plan);
+    }
+
+    private void ContinueFinishHistoryPersist(Task<bool> task, HistoryPersistPlan plan)
+    {
+        _ = task.ContinueWith(
+            completed =>
             {
+                if (completed.Status != TaskStatus.RanToCompletion || !completed.Result)
+                {
+                    if (completed.Exception is not null)
+                    {
+                        AppDiagnostics.Log(completed.Exception, "History save continuation");
+                    }
+
+                    return;
+                }
+
                 if (_dispatcherQueue is { } dispatcherQueue)
                 {
                     dispatcherQueue.TryEnqueue(() => FinishHistoryPersist(plan));
@@ -2416,7 +2482,7 @@ public sealed class CliptonRuntime : IDisposable
                 }
             },
             CancellationToken.None,
-            TaskContinuationOptions.OnlyOnRanToCompletion,
+            TaskContinuationOptions.None,
             TaskScheduler.Default);
     }
 
@@ -2441,7 +2507,7 @@ public sealed class CliptonRuntime : IDisposable
             Settings.MaxHistoryItems);
     }
 
-    private Task EnqueueHistoryPersist(HistoryPersistPlan plan)
+    private Task<bool> EnqueueHistoryPersist(HistoryPersistPlan plan)
     {
         lock (_historyPersistChainGate)
         {
@@ -2457,14 +2523,14 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
-    private void PersistHistory(HistoryPersistPlan plan)
+    private bool PersistHistory(HistoryPersistPlan plan)
     {
         try
         {
             if (!plan.Persist)
             {
                 _historyStore.Delete();
-                return;
+                return true;
             }
 
             // If older items are still only on disk, merge by id order in the store instead
@@ -2479,10 +2545,12 @@ public sealed class CliptonRuntime : IDisposable
             }
 
             PruneHistoryImageFiles(plan.Snapshots.Select(item => item.Id).ToHashSet(StringComparer.Ordinal));
+            return true;
         }
         catch (Exception exception)
         {
             AppDiagnostics.Log(exception, "History persist");
+            return false;
         }
     }
 
@@ -2570,7 +2638,6 @@ public sealed class CliptonRuntime : IDisposable
         _persistedHistoryCount = Math.Max(_persistedHistoryCount, _historyStore.Count());
         _loadedPersistedHistoryCount = Math.Min(History.Items.Count, _persistedHistoryCount);
         PruneHistoryImageFiles(History.Items.Select(item => item.Id).ToHashSet(StringComparer.Ordinal));
-        RequestResidentHistoryCollection();
         _mainWindow?.RefreshItems();
     }
 
@@ -2591,20 +2658,6 @@ public sealed class CliptonRuntime : IDisposable
 
         Interlocked.Exchange(ref _lastImmediateHistorySaveTick, now);
         return true;
-    }
-
-    private void RequestResidentHistoryCollection()
-    {
-        var now = Environment.TickCount64;
-        var last = Volatile.Read(ref _lastResidentHistoryGcTick);
-        if (now - last < ResidentHistoryGcMinIntervalMilliseconds)
-        {
-            return;
-        }
-
-        Interlocked.Exchange(ref _lastResidentHistoryGcTick, now);
-        GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
-        GC.Collect(GC.MaxGeneration, GCCollectionMode.Optimized, blocking: false, compacting: false);
     }
 
     private void EnsureDefaultSnippets()
@@ -2702,6 +2755,7 @@ public sealed class CliptonRuntime : IDisposable
 
     private static T ReadExportFile<T>(string path)
     {
+        EncryptedExportFile.EnsureFileWithinImportLimit(path);
         using var stream = File.OpenRead(path);
         return JsonSerializer.Deserialize<T>(stream, ExportJsonOptions)
             ?? throw new InvalidOperationException("The selected file is not a supported Clipton export.");
@@ -3637,17 +3691,67 @@ public sealed class CliptonRuntime : IDisposable
     private string CreateTempImageFile(ClipboardSnapshot item)
     {
         CleanupTempPasteFiles();
+        EnsurePrivateTempPasteDirectory();
+        var path = Path.Combine(_tempPastePath, $"paste-{Guid.NewGuid():N}.png");
+        File.WriteAllBytes(path, item.ImagePng!);
+        RestrictPathToCurrentUser(path, isDirectory: false);
+        return path;
+    }
+
+    private void EnsurePrivateTempPasteDirectory()
+    {
         Directory.CreateDirectory(_tempPastePath);
-        var id = string.Concat(item.Id.Where(char.IsLetterOrDigit));
-        if (string.IsNullOrEmpty(id))
+        RestrictPathToCurrentUser(_tempPastePath, isDirectory: true);
+    }
+
+    private static void RestrictPathToCurrentUser(string path, bool isDirectory)
+    {
+        if (!OperatingSystem.IsWindows())
         {
-            id = "image";
+            return;
         }
 
-        var path = Path.Combine(_tempPastePath, $"paste-{id}-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}.png");
-        File.WriteAllBytes(path, item.ImagePng!);
-        ScheduleTempPasteFileDeletion(path);
-        return path;
+        try
+        {
+            var currentUser = WindowsIdentity.GetCurrent().User;
+            if (currentUser is null)
+            {
+                return;
+            }
+
+            if (isDirectory)
+            {
+                var security = new DirectorySecurity();
+                security.SetOwner(currentUser);
+                security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+                security.AddAccessRule(new FileSystemAccessRule(
+                    currentUser,
+                    FileSystemRights.FullControl,
+                    InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                    PropagationFlags.None,
+                    AccessControlType.Allow));
+                new DirectoryInfo(path).SetAccessControl(security);
+                return;
+            }
+
+            var fileSecurity = new FileSecurity();
+            fileSecurity.SetOwner(currentUser);
+            fileSecurity.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+            fileSecurity.AddAccessRule(new FileSystemAccessRule(
+                currentUser,
+                FileSystemRights.FullControl,
+                AccessControlType.Allow));
+            new FileInfo(path).SetAccessControl(fileSecurity);
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or PlatformNotSupportedException
+            or ArgumentException
+            or InvalidOperationException
+            or System.Security.SecurityException)
+        {
+            AppDiagnostics.Log(exception, "Restrict temporary paste file ACL");
+        }
     }
 
     private static byte[] ResizeImagePng(byte[] imagePng, double scale)
@@ -3719,13 +3823,15 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
-    private void ScheduleTempPasteFileDeletion(string path)
+    private void ScheduleTempPasteFileDeletion(string path) => ScheduleTempPasteFileDeletion(path, TempPasteDeleteDelay);
+
+    private void ScheduleTempPasteFileDeletion(string path, TimeSpan delay)
     {
         _ = Task.Run(async () =>
         {
             try
             {
-                await Task.Delay(TempPasteDeleteDelay);
+                await Task.Delay(delay);
                 TryDeleteFile(path);
             }
             catch

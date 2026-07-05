@@ -197,6 +197,11 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _feedbackText.Foreground = Brush(_palette.FeedbackForeground);
         _loadingText = Text(string.Empty, 13, 0.92, Microsoft.UI.Text.FontWeights.SemiBold);
 
+        Closed += (_, _) =>
+        {
+            UninstallKeyboardHook();
+            ClosePreviewWindow();
+        };
         InitializeWindow();
         BuildContent();
         RebuildItems();
@@ -312,7 +317,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
                 return;
             }
 
-            _previewAppWindow?.Hide();
+            ClosePreviewWindow();
             _appWindow?.Hide();
             Dismissed?.Invoke(this, EventArgs.Empty);
         });
@@ -416,6 +421,12 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         _previewWindow = new Window { ExtendsContentIntoTitleBar = true };
+        _previewWindow.Closed += (_, _) =>
+        {
+            _previewWindow = null;
+            _previewAppWindow = null;
+            _previewHwnd = IntPtr.Zero;
+        };
         _previewCard.Width = PreviewWidth;
         _previewCard.Height = 338;
         _previewCard.CornerRadius = new CornerRadius(9);
@@ -453,6 +464,22 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             Dismiss();
         };
         _previewCard.KeyboardAccelerators.Add(escapeAccelerator);
+    }
+
+    private void ClosePreviewWindow()
+    {
+        if (_previewWindow is not { } window)
+        {
+            _previewAppWindow = null;
+            _previewHwnd = IntPtr.Zero;
+            return;
+        }
+
+        _previewWindow = null;
+        _previewAppWindow = null;
+        _previewHwnd = IntPtr.Zero;
+        window.Content = null;
+        window.Close();
     }
 
     private UIElement BuildMenuPanel()
@@ -1222,11 +1249,11 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 
         var ctrl = IsDown(VirtualKey.Control);
-        var hasShortcutModifier = ctrl
-            || IsDown(VirtualKey.Shift)
+        var hasNonCtrlShortcutModifier = IsDown(VirtualKey.Shift)
             || IsDown(VirtualKey.Menu)
             || IsDown(VirtualKey.LeftWindows)
             || IsDown(VirtualKey.RightWindows);
+        var hasShortcutModifier = ctrl || hasNonCtrlShortcutModifier;
         if (_folderLoading)
         {
             args.Handled = true;
@@ -1318,12 +1345,12 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
                 CutSelectedImage();
                 break;
             default:
-                if (MatchesShortcut(_shortcuts.PastePlainText, key, ctrl))
+                if (MatchesShortcut(_shortcuts.PastePlainText, key, ctrl, hasNonCtrlShortcutModifier))
                 {
                     args.Handled = true;
                     InvokeSelectedPlainText();
                 }
-                else if (MatchesShortcut(_shortcuts.Search, key, ctrl))
+                else if (MatchesShortcut(_shortcuts.Search, key, ctrl, hasNonCtrlShortcutModifier))
                 {
                     args.Handled = true;
                     ToggleSearch();
@@ -1415,11 +1442,11 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         static bool IsDown(int virtualKey) => (NativeMethods.GetAsyncKeyState(virtualKey) & 0x8000) != 0;
 
         var ctrl = IsDown(NativeMethods.VkControl);
-        var hasShortcutModifier = ctrl
-            || IsDown(NativeMethods.VkShift)
+        var hasNonCtrlShortcutModifier = IsDown(NativeMethods.VkShift)
             || IsDown(NativeMethods.VkMenu)
             || IsDown(NativeMethods.VkLWin)
             || IsDown(NativeMethods.VkRWin);
+        var hasShortcutModifier = ctrl || hasNonCtrlShortcutModifier;
         if (_folderLoading)
         {
             if (key == NativeMethods.VkEscape)
@@ -1473,7 +1500,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
                     DispatcherQueue.TryEnqueue(HandleSearchEscape);
                     return 1;
                 default:
-                    if (MatchesShortcut(key, ctrl, _shortcuts.Search))
+                    if (MatchesShortcut(key, ctrl, hasNonCtrlShortcutModifier, _shortcuts.Search))
                     {
                         DispatcherQueue.TryEnqueue(HideSearch);
                         return 1;
@@ -1532,13 +1559,13 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
                 DispatcherQueue.TryEnqueue(CutSelectedImage);
                 return 1;
             default:
-                if (MatchesShortcut(key, ctrl, _shortcuts.PastePlainText))
+                if (MatchesShortcut(key, ctrl, hasNonCtrlShortcutModifier, _shortcuts.PastePlainText))
                 {
                     DispatcherQueue.TryEnqueue(InvokeSelectedPlainText);
                     return 1;
                 }
 
-                if (MatchesShortcut(key, ctrl, _shortcuts.Search))
+                if (MatchesShortcut(key, ctrl, hasNonCtrlShortcutModifier, _shortcuts.Search))
                 {
                     DispatcherQueue.TryEnqueue(ToggleSearch);
                     return 1;
@@ -2248,7 +2275,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             || item.IconImageBytes is { Length: > 0 };
     }
 
-    private static bool MatchesShortcut(string shortcut, VirtualKey key, bool ctrl)
+    private static bool MatchesShortcut(string shortcut, VirtualKey key, bool ctrl, bool hasNonCtrlShortcutModifier)
     {
         if (string.IsNullOrWhiteSpace(shortcut))
         {
@@ -2258,12 +2285,13 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         var normalized = shortcut.Trim();
         var requiresCtrl = normalized.StartsWith("Ctrl+", StringComparison.OrdinalIgnoreCase);
         var keyText = requiresCtrl ? normalized[5..] : normalized;
-        return ctrl == requiresCtrl
+        return !hasNonCtrlShortcutModifier
+            && ctrl == requiresCtrl
             && Enum.TryParse<VirtualKey>(keyText, ignoreCase: true, out var parsedKey)
             && parsedKey == key;
     }
 
-    private static bool MatchesShortcut(int key, bool ctrl, string shortcut)
+    private static bool MatchesShortcut(int key, bool ctrl, bool hasNonCtrlShortcutModifier, string shortcut)
     {
         if (string.IsNullOrWhiteSpace(shortcut))
         {
@@ -2273,7 +2301,8 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         var normalized = shortcut.Trim();
         var requiresCtrl = normalized.StartsWith("Ctrl+", StringComparison.OrdinalIgnoreCase);
         var keyText = requiresCtrl ? normalized[5..] : normalized;
-        return ctrl == requiresCtrl
+        return !hasNonCtrlShortcutModifier
+            && ctrl == requiresCtrl
             && Enum.TryParse<VirtualKey>(keyText, ignoreCase: true, out var parsedKey)
             && (int)parsedKey == key;
     }

@@ -136,6 +136,12 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         _previewStrings = previewStrings;
         _culture = culture;
         Title = "Clipton";
+        Closed += (_, _) =>
+        {
+            UninstallKeyboardHook();
+            UninstallMouseHook();
+            HideImagePreview();
+        };
         BuildHost();
         BuildFlyout();
         PositionNearCursor();

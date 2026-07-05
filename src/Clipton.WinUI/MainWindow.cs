@@ -278,7 +278,11 @@ public sealed class MainWindow : Window
         SizeWindow();
         RefreshTexts();
         RefreshItems();
-        Closed += (_, _) => _runtime.OnMainWindowClosed(this);
+        Closed += (_, _) =>
+        {
+            RestoreWindowProc();
+            _runtime.OnMainWindowClosed(this);
+        };
     }
 
     public void ShowSettingsWindow()
@@ -2433,13 +2437,28 @@ public sealed class MainWindow : Window
         {
             if (!await ExternalLauncher.OpenUriAsync(url))
             {
-                ClipboardBridge.PutText(url);
+                QueueUrlClipboardFallback(url);
             }
         }
         catch
         {
-            ClipboardBridge.PutText(url);
+            QueueUrlClipboardFallback(url);
         }
+    }
+
+    private static void QueueUrlClipboardFallback(string url)
+    {
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                ClipboardBridge.PutText(url);
+            }
+            catch (Exception exception)
+            {
+                AppDiagnostics.Log(exception, "Open URL fallback");
+            }
+        });
     }
 
     private async Task EnsureStoreUpdateCheckStartedAsync()
@@ -5642,6 +5661,17 @@ public sealed class MainWindow : Window
             _hwnd,
             NativeMethods.GwlWndproc,
             Marshal.GetFunctionPointerForDelegate(_windowProc));
+    }
+
+    private void RestoreWindowProc()
+    {
+        if (_hwnd == IntPtr.Zero || _originalWndProc == IntPtr.Zero)
+        {
+            return;
+        }
+
+        NativeMethods.SetWindowLongPtr(_hwnd, NativeMethods.GwlWndproc, _originalWndProc);
+        _originalWndProc = IntPtr.Zero;
     }
 
     private SizeInt32 ScaleToPhysicalPixels(int width, int height)
