@@ -40,7 +40,7 @@ WinUI is the active release target. The intended release shape is:
 Use Visual Studio 2022 or MSBuild with DesktopBridge targets installed:
 
 ```powershell
-msbuild packaging\Clipton.Package\Clipton.Package.wapproj /p:Configuration=Release /p:Platform=x64
+msbuild packaging\Clipton.Package\Clipton.Package.wapproj /p:Configuration=Release /p:Platform=x64 /p:UapAppxPackageBuildMode=StoreUpload
 ```
 
 Production Store submission still requires Partner Center identity association and signing.
