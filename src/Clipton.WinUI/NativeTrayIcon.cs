@@ -7,25 +7,39 @@ internal sealed class NativeTrayIcon : IDisposable
 {
     private const uint IconId = 1;
     private const uint CommandHistory = 1001;
-    private const uint CommandSettings = 1002;
-    private const uint CommandExit = 1003;
+    private const uint CommandNewSnippet = 1002;
+    private const uint CommandSettings = 1003;
+    private const uint CommandExit = 1004;
     private readonly Win32MessageWindow _window;
     private readonly Action _showHistory;
+    private readonly Action _showNewSnippet;
     private readonly Action _showSettings;
     private readonly Action _exit;
     private Drawing.Icon? _icon;
     private bool _added;
     private bool _disposed;
     private string _historyText;
+    private string _newSnippetText;
     private string _settingsText;
     private string _exitText;
 
-    public NativeTrayIcon(Drawing.Icon icon, string historyText, string settingsText, string exitText, Action showHistory, Action showSettings, Action exit)
+    public NativeTrayIcon(
+        Drawing.Icon icon,
+        string historyText,
+        string newSnippetText,
+        string settingsText,
+        string exitText,
+        Action showHistory,
+        Action showNewSnippet,
+        Action showSettings,
+        Action exit)
     {
         _showHistory = showHistory;
+        _showNewSnippet = showNewSnippet;
         _showSettings = showSettings;
         _exit = exit;
         _historyText = historyText;
+        _newSnippetText = newSnippetText;
         _settingsText = settingsText;
         _exitText = exitText;
         _window = new Win32MessageWindow("CliptonTrayWindow", WndProc);
@@ -46,9 +60,10 @@ internal sealed class NativeTrayIcon : IDisposable
         previous?.Dispose();
     }
 
-    public void UpdateMenuText(string historyText, string settingsText, string exitText)
+    public void UpdateMenuText(string historyText, string newSnippetText, string settingsText, string exitText)
     {
         _historyText = historyText;
+        _newSnippetText = newSnippetText;
         _settingsText = settingsText;
         _exitText = exitText;
     }
@@ -120,6 +135,7 @@ internal sealed class NativeTrayIcon : IDisposable
         try
         {
             NativeMethods.AppendMenu(menu, NativeMethods.MfString, CommandHistory, _historyText);
+            NativeMethods.AppendMenu(menu, NativeMethods.MfString, CommandNewSnippet, _newSnippetText);
             NativeMethods.AppendMenu(menu, NativeMethods.MfString, CommandSettings, _settingsText);
             NativeMethods.AppendMenu(menu, NativeMethods.MfSeparator, 0, null);
             NativeMethods.AppendMenu(menu, NativeMethods.MfString, CommandExit, _exitText);
@@ -136,6 +152,9 @@ internal sealed class NativeTrayIcon : IDisposable
             {
                 case CommandHistory:
                     _showHistory();
+                    break;
+                case CommandNewSnippet:
+                    _showNewSnippet();
                     break;
                 case CommandSettings:
                     _showSettings();

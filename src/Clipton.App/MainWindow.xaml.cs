@@ -105,6 +105,15 @@ public sealed partial class MainWindow : Window
         _loading = false;
     }
 
+    public void OpenNewSnippetEditor()
+    {
+        SnippetFolderBox.Clear();
+        SnippetNameBox.Clear();
+        SnippetTextBox.Clear();
+        NavList.SelectedItem = SnippetNavItem;
+        SnippetNameBox.Focus();
+    }
+
     protected override void OnClosing(CancelEventArgs e)
     {
         e.Cancel = true;

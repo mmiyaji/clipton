@@ -49,6 +49,19 @@ public sealed class QuickMenuPasteOptionSettingsTests
     }
 
     [Fact]
+    public void BuildQuickMenuItems_IncludesNewSnippetCommandWhenEmpty()
+    {
+        using var runtime = new CliptonRuntime(CreateTestRoot(), isSafeMode: true);
+
+        var items = BuildQuickMenuItems(runtime);
+
+        Assert.Contains(items, item =>
+            item.Title == runtime.Translate("NewSnippet")
+            && item.Subtitle == runtime.Translate("Snippets")
+            && item.KindLabel == "+");
+    }
+
+    [Fact]
     public void QuickMenuItem_CachesLazyPasteOptions()
     {
         var factoryCalls = 0;

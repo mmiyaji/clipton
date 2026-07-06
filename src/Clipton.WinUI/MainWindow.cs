@@ -315,6 +315,18 @@ public sealed class MainWindow : Window
         ShowSettingsWindow();
     }
 
+    public async Task ShowNewSnippetEditorAsync()
+    {
+        if (!await EnsureHistoryAccessUnlockedAsync(showWindow: true))
+        {
+            return;
+        }
+
+        SelectPage(4);
+        ShowSettingsWindow();
+        await OpenSnippetEditorAsync(null, _selectedSnippetFolder, string.Empty, string.Empty);
+    }
+
     public async Task<bool> RequestHistoryAccessUnlockAsync(bool showWindow)
     {
         return await EnsureHistoryAccessUnlockedAsync(showWindow);

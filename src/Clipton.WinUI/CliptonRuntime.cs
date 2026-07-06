@@ -1348,6 +1348,20 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
+    public async void ShowNewSnippetEditorWindow()
+    {
+        if (!await EnsureHistoryAccessUnlockedAsync(keepUnlockWindowVisible: true))
+        {
+            return;
+        }
+
+        ShowMainWindow();
+        if (_mainWindow is not null)
+        {
+            await _mainWindow.ShowNewSnippetEditorAsync();
+        }
+    }
+
     private async Task<bool> EnsureHistoryAccessUnlockedAsync(bool keepUnlockWindowVisible)
     {
         if (!IsHistoryAccessLockEnabled)
@@ -1759,6 +1773,7 @@ public sealed class CliptonRuntime : IDisposable
         _notifyIcon = new NativeTrayIcon(
             AppAssets.LoadTrayIcon(EffectiveTheme),
             Translate("History"),
+            Translate("NewSnippet"),
             Translate("Settings"),
             Translate("Exit"),
             () => _dispatcherQueue?.TryEnqueue(async () =>
@@ -1768,6 +1783,7 @@ public sealed class CliptonRuntime : IDisposable
                     ShowQuickMenu();
                 }
             }),
+            () => _dispatcherQueue?.TryEnqueue(ShowNewSnippetEditorWindow),
             () => _dispatcherQueue?.TryEnqueue(ShowMainWindow),
             () => _dispatcherQueue?.TryEnqueue(ExitApplication));
         RefreshTrayText();
@@ -1810,7 +1826,7 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        _notifyIcon.UpdateMenuText(Translate("History"), Translate("Settings"), Translate("Exit"));
+        _notifyIcon.UpdateMenuText(Translate("History"), Translate("NewSnippet"), Translate("Settings"), Translate("Exit"));
     }
 
     private void ShowQuickMenu()
@@ -2029,6 +2045,7 @@ public sealed class CliptonRuntime : IDisposable
         if (menuItems.Count > 0)
         {
             menuItems.Add(QuickMenuItem.Separator());
+            menuItems.Add(CreateNewSnippetQuickMenuItem());
             menuItems.Add(new QuickMenuItem(
                 Translate("Settings"),
                 "Clipton",
@@ -2051,7 +2068,25 @@ public sealed class CliptonRuntime : IDisposable
                 IconFontFamily: "Segoe Fluent Icons"));
         }
 
+        if (menuItems.Count == 1 && string.Equals(menuItems[0].Title, Translate("HistoryEmpty"), StringComparison.Ordinal))
+        {
+            menuItems.Add(QuickMenuItem.Separator());
+            menuItems.Add(CreateNewSnippetQuickMenuItem());
+        }
+
         return menuItems;
+    }
+
+    private QuickMenuItem CreateNewSnippetQuickMenuItem()
+    {
+        return new QuickMenuItem(
+            Translate("NewSnippet"),
+            Translate("Snippets"),
+            "+",
+            "Enter",
+            ShowNewSnippetEditorWindow,
+            IconGlyph: "\uE710",
+            IconFontFamily: "Segoe Fluent Icons");
     }
 
     private void SaveSettings()

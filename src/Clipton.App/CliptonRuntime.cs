@@ -88,6 +88,12 @@ public sealed class CliptonRuntime : IDisposable
         _mainWindow.Activate();
     }
 
+    public void ShowNewSnippetEditor()
+    {
+        ShowMainWindow();
+        _mainWindow?.OpenNewSnippetEditor();
+    }
+
     public void PasteHistoryItem(string id, bool asPlainText)
     {
         var item = History.Find(id);
@@ -298,6 +304,7 @@ public sealed class CliptonRuntime : IDisposable
 
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add(Translate("History"), null, (_, _) => Application.Current.Dispatcher.Invoke(ShowQuickMenu));
+        menu.Items.Add(Translate("NewSnippet"), null, (_, _) => Application.Current.Dispatcher.Invoke(ShowNewSnippetEditor));
         menu.Items.Add(Translate("Settings"), null, (_, _) => Application.Current.Dispatcher.Invoke(ShowMainWindow));
         menu.Items.Add(Translate("Exit"), null, (_, _) => Application.Current.Dispatcher.Invoke(Application.Current.Shutdown));
         var previousMenu = _notifyIcon.ContextMenuStrip;
@@ -352,17 +359,6 @@ public sealed class CliptonRuntime : IDisposable
 
         menuItems.AddRange(CreateSnippetMenuItems(Snippets.Snippets));
 
-        if (menuItems.Count > 0)
-        {
-            menuItems.Add(new QuickMenuItem(
-                Translate("Settings"),
-                "Clipton",
-                "*",
-                "Enter",
-                Brushes.DimGray,
-                ShowMainWindow));
-        }
-
         if (menuItems.Count == 0)
         {
             menuItems.Add(new QuickMenuItem(
@@ -375,6 +371,21 @@ public sealed class CliptonRuntime : IDisposable
                 PlainTextInvoke: null,
                 IsEnabled: true));
         }
+
+        menuItems.Add(new QuickMenuItem(
+            Translate("NewSnippet"),
+            Translate("Snippets"),
+            "+",
+            "Enter",
+            Brushes.DarkOrange,
+            ShowNewSnippetEditor));
+        menuItems.Add(new QuickMenuItem(
+            Translate("Settings"),
+            "Clipton",
+            "*",
+            "Enter",
+            Brushes.DimGray,
+            ShowMainWindow));
 
         var quickMenuWindow = new QuickMenuWindow(
             Translate("History"),
