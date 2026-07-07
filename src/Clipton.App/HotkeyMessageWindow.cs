@@ -31,7 +31,7 @@ public sealed class HotkeyMessageWindow : IDisposable
 
     private Action OnClipboardChanged { get; }
 
-    public void Register(HotkeyGesture gesture)
+    public bool Register(HotkeyGesture gesture)
     {
         if (_registered)
         {
@@ -41,6 +41,7 @@ public sealed class HotkeyMessageWindow : IDisposable
 
         _gesture = gesture;
         _registered = NativeMethods.RegisterHotKey(_source.Handle, HotkeyId, ToNativeModifiers(gesture.Modifiers), ToVirtualKey(gesture.Key));
+        return _registered;
     }
 
     public void Dispose()

@@ -98,6 +98,7 @@ public sealed class SearchFilterTests
 
         Assert.False(filter.IsEmpty);
         Assert.True(filter.MatchesText(() => "release notes for project:clipton"));
+        Assert.True(filter.MatchesText(() => "release notes for project clipton"));
         Assert.False(filter.MatchesText(() => "release notes for clipton"));
         Assert.False(filter.MatchesText(() => null));
     }

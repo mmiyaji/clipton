@@ -93,7 +93,10 @@ public sealed class JsonSettingsStore
             Directory.CreateDirectory(directory);
         }
 
-        File.WriteAllText(_path, JsonSerializer.Serialize(settings, Options));
+        var tempDirectory = string.IsNullOrWhiteSpace(directory) ? "." : directory;
+        var tempPath = Path.Combine(tempDirectory, $"{Path.GetFileName(_path)}.{Guid.NewGuid():N}.tmp");
+        File.WriteAllText(tempPath, JsonSerializer.Serialize(settings, Options));
+        File.Move(tempPath, _path, overwrite: true);
     }
 
     private static void NormalizeMaskRuleSettings(CliptonSettings settings, bool preferConfiguredDefinitions)

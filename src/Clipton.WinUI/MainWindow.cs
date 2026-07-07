@@ -4,6 +4,7 @@ using Clipton.Core;
 using Microsoft.UI;
 using Microsoft.UI.Input;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
@@ -36,6 +37,7 @@ public sealed class MainWindow : Window
     private const double SidebarAutoExpandWidth = 1120;
     private const double SettingControlHeight = 36;
     private const double SearchControlHeight = 32;
+    private const int HistorySearchDebounceMilliseconds = 150;
     private const int StoreUpdateManualCheckMinimumBusyMilliseconds = 700;
     private const int DefaultDpi = 96;
     private const int InitialWindowWidth = 1120;
@@ -213,6 +215,7 @@ public sealed class MainWindow : Window
     private string _selectedSnippetFolder = string.Empty;
     private bool _updatingSnippetTreeSelection;
     private string _historySearchQuery = string.Empty;
+    private string _pendingHistorySearchQuery = string.Empty;
     private string _snippetSearchQuery = string.Empty;
     private int _historyVisibleLimit = HistoryDisplayBatchSize;
     private readonly Dictionary<string, ListViewItem> _historyRowCache = new(StringComparer.Ordinal);
@@ -236,6 +239,7 @@ public sealed class MainWindow : Window
     private bool _excludedCaptureAppsEditorExpanded;
     private bool _onboardingDialogOpen;
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _onboardingTimer;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _historySearchDebounceTimer;
     private Border? _maskDefinitionsCard;
     private IReadOnlyList<StorePackageUpdate> _storePackageUpdates = [];
     private string _storeUpdateStatusKey = "StoreUpdateStatusIdle";
@@ -1321,7 +1325,7 @@ public sealed class MainWindow : Window
                 return;
             }
 
-            ApplyHistorySearch(BuildHistorySearchQueryFromFilters(_historySearchBox.Text));
+            ScheduleHistorySearch(BuildHistorySearchQueryFromFilters(_historySearchBox.Text));
         };
         _historySearchIcon.Glyph = "\uE721";
         _historySearchIcon.FontFamily = new FontFamily("Segoe Fluent Icons");
@@ -1852,16 +1856,69 @@ public sealed class MainWindow : Window
         return filter.MatchesText(() =>
         {
             var text = GetPlainText();
-            var formats = string.Join(" ", item.Formats);
-            var snippet = _runtime.Snippets.FindByText(text);
-            var preview = _runtime.CreateHistoryItemViewModel(item, includeThumbnail: false).Preview;
-            return $"{formats} {snippet?.DisplayName} {preview} {text} {string.Join(" ", item.FilePaths)}";
+            return CreateHistorySearchText(item, text);
         });
+    }
+
+    private string CreateHistorySearchText(ClipboardSnapshot item, string plainText)
+    {
+        var formats = string.Join(" ", item.Formats);
+        var formatLabels = string.Join(" ", item.Formats.Select(TranslateHistoryFormatForSearch));
+        var snippet = string.IsNullOrEmpty(plainText) ? null : _runtime.Snippets.FindByText(plainText);
+        var fileNames = item.FilePaths.Count == 0
+            ? string.Empty
+            : string.Join(" ", item.FilePaths.Select(path => Path.GetFileName(path)));
+        return string.Join(
+            " ",
+            formats,
+            formatLabels,
+            snippet?.DisplayName,
+            plainText,
+            string.Join(" ", item.FilePaths),
+            fileNames,
+            item.SourceApplicationName,
+            item.SourceWindowTitle,
+            item.Preview);
+    }
+
+    private string TranslateHistoryFormatForSearch(ClipboardFormatKind format)
+    {
+        return format switch
+        {
+            ClipboardFormatKind.Text => _runtime.Translate("FormatText"),
+            ClipboardFormatKind.RichText => _runtime.Translate("FormatRichText"),
+            ClipboardFormatKind.Html => _runtime.Translate("FormatHtml"),
+            ClipboardFormatKind.Image => _runtime.Translate("Image"),
+            ClipboardFormatKind.FileDrop => _runtime.Translate("FormatFileDrop"),
+            _ => format.ToString()
+        };
+    }
+
+    private void ScheduleHistorySearch(string query)
+    {
+        _pendingHistorySearchQuery = query;
+        _historySearchDebounceTimer ??= CreateHistorySearchDebounceTimer();
+        _historySearchDebounceTimer.Stop();
+        _historySearchDebounceTimer.Start();
+    }
+
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer CreateHistorySearchDebounceTimer()
+    {
+        var timer = DispatcherQueue.CreateTimer();
+        timer.Interval = TimeSpan.FromMilliseconds(HistorySearchDebounceMilliseconds);
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            ApplyHistorySearch(_pendingHistorySearchQuery);
+        };
+        return timer;
     }
 
     private void ApplyHistorySearch(string query)
     {
         var normalized = query.Trim();
+        _historySearchDebounceTimer?.Stop();
+        _pendingHistorySearchQuery = normalized;
         if (string.Equals(_historySearchQuery, normalized, StringComparison.Ordinal))
         {
             return;

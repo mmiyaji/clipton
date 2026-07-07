@@ -105,12 +105,25 @@ public sealed class SearchFilter
 
                     break;
                 default:
-                    terms.Add(token);
+                    AddUnknownOperatorTerms(terms, key, value);
                     break;
             }
         }
 
         return new SearchFilter(query?.Trim() ?? string.Empty, terms.ToArray(), type, pinned, hasUrl, after, before);
+    }
+
+    private static void AddUnknownOperatorTerms(List<string> terms, string key, string value)
+    {
+        if (!string.IsNullOrWhiteSpace(key))
+        {
+            terms.Add(key);
+        }
+
+        foreach (var term in value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+        {
+            terms.Add(term);
+        }
     }
 
     /// <summary>

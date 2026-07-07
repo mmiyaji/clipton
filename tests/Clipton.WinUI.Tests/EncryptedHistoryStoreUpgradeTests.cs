@@ -96,6 +96,32 @@ public sealed class EncryptedHistoryStoreUpgradeTests
         Assert.Equal(["new-1", "old-1"], store.LoadRecent(10).Select(item => item.Id));
     }
 
+    [Fact]
+    public void CountAndLoadRange_RepairItemizedManifestWhenItemFileIsMissing()
+    {
+        var root = CreateTestRoot();
+        var path = Path.Combine(root, "history.dat");
+        var store = new EncryptedHistoryStore(path);
+        var historyRoot = Path.Combine(root, "history");
+        var itemRoot = Path.Combine(historyRoot, "items");
+        Directory.CreateDirectory(itemRoot);
+        WriteManifest(
+            root,
+            version: 5,
+            orderedIds: ["present-1", "missing-1"],
+            baseIds: ["present-1", "missing-1"],
+            deltaIds: []);
+        WriteProtected(Path.Combine(itemRoot, "present-1.dat"), Dto("present-1", "present"));
+
+        Assert.Equal(1, store.Count());
+        var loaded = store.LoadRange(0, 10);
+
+        var item = Assert.Single(loaded);
+        Assert.Equal("present-1", item.Id);
+        var manifest = ReadManifest(root);
+        Assert.Equal(["present-1"], manifest.GetProperty("OrderedIds").EnumerateArray().Select(entry => entry.GetString()));
+    }
+
     private static string CreateTestRoot()
     {
         return Path.Combine(Path.GetTempPath(), "clipton-winui-upgrade-tests", Guid.NewGuid().ToString("N"));

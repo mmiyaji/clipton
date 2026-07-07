@@ -6,7 +6,8 @@ namespace Clipton.Core;
 /// <remarks>
 /// Folder/name lookups are case-insensitive for user convenience, while text lookups are
 /// ordinal so registered snippets can mask matching history items only when the stored
-/// text is exactly the same.
+/// text is exactly the same. The catalog is not internally synchronized; the runtime owns
+/// it from the UI thread and rebuilds all indexes together when mutations occur.
 /// </remarks>
 public sealed class SnippetCatalog
 {

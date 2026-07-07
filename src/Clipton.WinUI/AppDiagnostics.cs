@@ -35,6 +35,11 @@ internal static class AppDiagnostics
         Write($"{DateTimeOffset.Now:O} [Info:{context}] {message}{Environment.NewLine}");
     }
 
+    public static void Warning(string context, string message)
+    {
+        Write($"{DateTimeOffset.Now:O} [Warning:{context}] {message}{Environment.NewLine}");
+    }
+
     public static void OpenLogDirectory()
     {
         Directory.CreateDirectory(LogDirectory);

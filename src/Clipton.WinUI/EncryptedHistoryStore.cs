@@ -81,6 +81,11 @@ public sealed class EncryptedHistoryStore
         {
             if (File.Exists(_manifestPath) && TryReadManifest() is { } manifest && IsSupportedManifestVersion(manifest.Version))
             {
+                if (manifest.Version == FormatVersion)
+                {
+                    return GetExistingItemIds(manifest, repairManifest: true).Length;
+                }
+
                 return manifest.OrderedIds.Length;
             }
 
@@ -179,9 +184,10 @@ public sealed class EncryptedHistoryStore
             var manifest = TryReadManifest();
             if (manifest is { Version: FormatVersion })
             {
+                var persistedIds = GetExistingItemIds(manifest, repairManifest: true);
                 var ids = currentItems
                     .Select(item => item.Id)
-                    .Concat(manifest.OrderedIds.Where(id => !currentIds.Contains(id)))
+                    .Concat(persistedIds.Where(id => !currentIds.Contains(id)))
                     .Take(capacity)
                     .ToArray();
                 SaveItemized(currentItems, ids);
@@ -416,18 +422,58 @@ public sealed class EncryptedHistoryStore
 
     private IReadOnlyList<ClipboardSnapshotDto> LoadDtosFromItems(HistoryManifestDto manifest, int offset, int count)
     {
-        if (manifest.OrderedIds.Length == 0 || offset >= manifest.OrderedIds.Length)
+        var existingIds = GetExistingItemIds(manifest, repairManifest: true);
+        if (existingIds.Length == 0 || offset >= existingIds.Length)
         {
             return [];
         }
 
-        return manifest.OrderedIds
+        return existingIds
             .Skip(offset)
             .Take(count)
             .Select(id => TryReadProtected<ClipboardSnapshotDto>(ItemPath(id)))
             .Where(item => item is not null)
             .Select(item => item!)
             .ToArray();
+    }
+
+    private string[] GetExistingItemIds(HistoryManifestDto manifest, bool repairManifest)
+    {
+        if (manifest.OrderedIds.Length == 0)
+        {
+            return [];
+        }
+
+        var existingIds = new List<string>(manifest.OrderedIds.Length);
+        var missingCount = 0;
+        foreach (var id in manifest.OrderedIds)
+        {
+            if (File.Exists(ItemPath(id)))
+            {
+                existingIds.Add(id);
+            }
+            else
+            {
+                missingCount++;
+            }
+        }
+
+        if (missingCount == 0)
+        {
+            return existingIds.ToArray();
+        }
+
+        AppDiagnostics.Warning(
+            "History manifest",
+            $"Manifest referenced {missingCount} missing item file(s); repairing itemized history order.");
+        if (repairManifest)
+        {
+            var ids = existingIds.ToArray();
+            WriteManifest(new HistoryManifestDto(FormatVersion, ids, ids, []));
+            return ids;
+        }
+
+        return existingIds.ToArray();
     }
 
     private IReadOnlyList<ClipboardSnapshot> LoadRangeFromChunks(HistoryManifestDto manifest, int offset, int count)

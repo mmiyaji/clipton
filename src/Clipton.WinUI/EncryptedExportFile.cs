@@ -85,7 +85,7 @@ internal static class EncryptedExportFile
         if (envelope.Version != Version
             || !string.Equals(envelope.Kind, expectedKind, StringComparison.Ordinal)
             || !string.Equals(envelope.Kdf, Kdf, StringComparison.Ordinal)
-            || envelope.Iterations != Iterations
+            || envelope.Iterations <= 0
             || !string.Equals(envelope.Cipher, Cipher, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("The selected file is not a supported encrypted Clipton export.");
@@ -101,7 +101,7 @@ internal static class EncryptedExportFile
         }
 
         var plaintext = new byte[ciphertext.Length];
-        var key = DeriveKey(passphrase, salt);
+        var key = DeriveKey(passphrase, salt, envelope.Iterations);
         try
         {
             using var aes = new AesGcm(key, TagSize);
@@ -129,12 +129,12 @@ internal static class EncryptedExportFile
         }
     }
 
-    private static byte[] DeriveKey(string passphrase, byte[] salt)
+    private static byte[] DeriveKey(string passphrase, byte[] salt, int iterations = Iterations)
     {
         return Rfc2898DeriveBytes.Pbkdf2(
             passphrase,
             salt,
-            Iterations,
+            iterations,
             HashAlgorithmName.SHA256,
             KeySize);
     }

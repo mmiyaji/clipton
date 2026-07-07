@@ -177,6 +177,8 @@ public sealed class SettingsStoreTests
             Theme = "dark"
         });
 
+        Assert.True(File.Exists(path));
+        Assert.Empty(Directory.EnumerateFiles(Path.GetDirectoryName(path)!, "*.tmp"));
         var loaded = store.Load();
 
         Assert.Equal("Ctrl+Alt+V", loaded.Hotkey);

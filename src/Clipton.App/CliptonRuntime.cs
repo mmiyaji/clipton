@@ -74,8 +74,8 @@ public sealed class CliptonRuntime : IDisposable
     {
         EnsureDefaultSnippets();
         _messageWindow = new HotkeyMessageWindow(ShowQuickMenu, CaptureClipboard);
-        RegisterHotkey();
         CreateTrayIcon();
+        RegisterHotkey();
         CaptureClipboard();
     }
 
@@ -280,7 +280,19 @@ public sealed class CliptonRuntime : IDisposable
             gesture = HotkeyGesture.Default;
         }
 
-        _messageWindow.Register(gesture);
+        if (!_messageWindow.Register(gesture))
+        {
+            ShowHotkeyRegistrationFailed();
+        }
+    }
+
+    private void ShowHotkeyRegistrationFailed()
+    {
+        _notifyIcon?.ShowBalloonTip(
+            5000,
+            Translate("AppName"),
+            Translate("HotkeyUnavailable"),
+            Forms.ToolTipIcon.Warning);
     }
 
     private void CreateTrayIcon()

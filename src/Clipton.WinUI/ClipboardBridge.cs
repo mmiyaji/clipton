@@ -247,7 +247,13 @@ public static class ClipboardBridge
             .ToArray();
         if (files.Length == 0)
         {
+            AppDiagnostics.Warning("Clipboard file paste", $"No existing files were available for {paths.Count} requested path(s).");
             return;
+        }
+
+        if (files.Length != paths.Count)
+        {
+            AppDiagnostics.Warning("Clipboard file paste", $"Skipped {paths.Count - files.Length} missing file path(s).");
         }
 
         var data = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
