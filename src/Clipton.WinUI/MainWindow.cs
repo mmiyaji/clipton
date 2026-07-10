@@ -22,6 +22,7 @@ using Windows.Storage.Pickers;
 using Windows.Storage.Streams;
 using Windows.System;
 using Windows.UI.Core;
+using Windows.UI.ViewManagement;
 using WinRT.Interop;
 
 namespace Clipton.WinUI;
@@ -51,6 +52,7 @@ public sealed class MainWindow : Window
     private const string DonationBannerUrl = "https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png";
     private const string SnippetVariablesUrl = "https://mmiyaji.github.io/clipton/snippet-variables/";
     private readonly CliptonRuntime _runtime;
+    private readonly AccessibilitySettings _accessibilitySettings = new();
     private readonly Grid _root = new();
     private readonly SemaphoreSlim _dialogGate = new(1, 1);
     private readonly NavigationView _navigationView = new();
@@ -256,6 +258,7 @@ public sealed class MainWindow : Window
         _brandHeader = BuildBrandHeader();
         _hotkeyPill = Pill(_hotkeyText);
         _windowProc = WindowProc;
+        _accessibilitySettings.HighContrastChanged += OnHighContrastChanged;
         TrackDescriptionText(
             _hotkeyText,
             _generalDescriptionText,
@@ -284,6 +287,7 @@ public sealed class MainWindow : Window
         RefreshItems();
         Closed += (_, _) =>
         {
+            _accessibilitySettings.HighContrastChanged -= OnHighContrastChanged;
             RestoreWindowProc();
             _runtime.OnMainWindowClosed(this);
         };
@@ -1787,7 +1791,7 @@ public sealed class MainWindow : Window
                 _runtime.Translate("MaskRuleDefinitionInvalid"),
                 _runtime.Translate(invalidRule.NameKey),
                 invalidRule.Pattern);
-            _maskTestResultText.Foreground = Brush(IsDark ? "#FFB4AB" : "#B42318");
+            _maskTestResultText.Foreground = ErrorBrush();
             return;
         }
 
@@ -1798,7 +1802,7 @@ public sealed class MainWindow : Window
         if (invalidPatterns.Length > 0)
         {
             _maskTestResultText.Text = string.Format(_runtime.Translate("MaskDefinitionInvalid"), invalidPatterns[0]);
-            _maskTestResultText.Foreground = Brush(IsDark ? "#FFB4AB" : "#B42318");
+            _maskTestResultText.Foreground = ErrorBrush();
             return;
         }
 
@@ -1827,7 +1831,7 @@ public sealed class MainWindow : Window
         catch (RegexMatchTimeoutException)
         {
             _maskTestResultText.Text = _runtime.Translate("MaskTestTimeout");
-            _maskTestResultText.Foreground = Brush(IsDark ? "#FFD86B" : "#9A6700");
+            _maskTestResultText.Foreground = WarningBrush();
         }
     }
 
@@ -3620,7 +3624,7 @@ public sealed class MainWindow : Window
             PlaceholderText = _runtime.Translate("HistoryAccessPinPlaceholder")
         };
         var errorText = Description();
-        errorText.Foreground = new SolidColorBrush(Colors.IndianRed);
+        errorText.Foreground = ErrorBrush();
         errorText.TextWrapping = TextWrapping.Wrap;
         var content = new StackPanel
         {
@@ -3653,7 +3657,7 @@ public sealed class MainWindow : Window
             CloseButtonText = _runtime.Translate("Cancel"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = _root.XamlRoot,
-            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+            RequestedTheme = DialogTheme
         };
         dialog.PrimaryButtonClick += (_, args) =>
         {
@@ -3698,7 +3702,7 @@ public sealed class MainWindow : Window
             PlaceholderText = _runtime.Translate("ExportPasswordConfirmPlaceholder")
         };
         var errorText = Description();
-        errorText.Foreground = new SolidColorBrush(Colors.IndianRed);
+        errorText.Foreground = ErrorBrush();
         errorText.TextWrapping = TextWrapping.Wrap;
         var content = new StackPanel
         {
@@ -3726,7 +3730,7 @@ public sealed class MainWindow : Window
             CloseButtonText = _runtime.Translate("Cancel"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = _root.XamlRoot,
-            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+            RequestedTheme = DialogTheme
         };
         dialog.PrimaryButtonClick += (_, args) =>
         {
@@ -3771,7 +3775,7 @@ public sealed class MainWindow : Window
             PlaceholderText = _runtime.Translate("ExportPasswordPlaceholder")
         };
         var errorText = Description();
-        errorText.Foreground = new SolidColorBrush(Colors.IndianRed);
+        errorText.Foreground = ErrorBrush();
         errorText.TextWrapping = TextWrapping.Wrap;
         var content = new StackPanel
         {
@@ -3798,7 +3802,7 @@ public sealed class MainWindow : Window
             CloseButtonText = _runtime.Translate("Cancel"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = _root.XamlRoot,
-            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+            RequestedTheme = DialogTheme
         };
         dialog.PrimaryButtonClick += (_, args) =>
         {
@@ -3966,7 +3970,7 @@ public sealed class MainWindow : Window
             CloseButtonText = closeText,
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = _root.XamlRoot,
-            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+            RequestedTheme = DialogTheme
         };
         await ShowContentDialogAsync(dialog);
     }
@@ -3989,7 +3993,7 @@ public sealed class MainWindow : Window
             PlaceholderText = _runtime.Translate("HistoryAccessPinPlaceholder")
         };
         var errorText = Description();
-        errorText.Foreground = new SolidColorBrush(Colors.IndianRed);
+        errorText.Foreground = ErrorBrush();
         errorText.TextWrapping = TextWrapping.Wrap;
         var content = new StackPanel
         {
@@ -4016,7 +4020,7 @@ public sealed class MainWindow : Window
             CloseButtonText = _runtime.Translate("Cancel"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = _root.XamlRoot,
-            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+            RequestedTheme = DialogTheme
         };
         dialog.PrimaryButtonClick += (_, args) =>
         {
@@ -4061,7 +4065,7 @@ public sealed class MainWindow : Window
             PlaceholderText = _runtime.Translate("HistoryAccessPinConfirmPlaceholder")
         };
         var errorText = Description();
-        errorText.Foreground = new SolidColorBrush(Colors.IndianRed);
+        errorText.Foreground = ErrorBrush();
         errorText.TextWrapping = TextWrapping.Wrap;
         var content = new StackPanel
         {
@@ -4089,7 +4093,7 @@ public sealed class MainWindow : Window
             CloseButtonText = _runtime.Translate("Cancel"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = _root.XamlRoot,
-            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+            RequestedTheme = DialogTheme
         };
         dialog.PrimaryButtonClick += (_, args) =>
         {
@@ -4171,7 +4175,7 @@ public sealed class MainWindow : Window
             CloseButtonText = _runtime.Translate("Exit"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = _root.XamlRoot,
-            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+            RequestedTheme = DialogTheme
         };
 
         var result = await ShowContentDialogAsync(dialog);
@@ -4203,7 +4207,7 @@ public sealed class MainWindow : Window
             CloseButtonText = closeText,
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = _root.XamlRoot,
-            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+            RequestedTheme = DialogTheme
         };
         return await ShowContentDialogAsync(dialog) == ContentDialogResult.Primary;
     }
@@ -4237,7 +4241,7 @@ public sealed class MainWindow : Window
             CornerRadius = new CornerRadius(6),
             BorderThickness = new Thickness(1),
             BorderBrush = CardBorderBrush(),
-            Background = Brush(IsDark ? "#111111" : "#F7F7F7"),
+            Background = CardBackground(),
             Child = image
         };
 
@@ -4248,7 +4252,7 @@ public sealed class MainWindow : Window
             CloseButtonText = _runtime.Translate("Close"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = _root.XamlRoot,
-            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+            RequestedTheme = DialogTheme
         };
 
         await ShowContentDialogAsync(dialog);
@@ -4517,7 +4521,9 @@ public sealed class MainWindow : Window
             Glyph = glyph,
             FontFamily = new FontFamily("Segoe Fluent Icons"),
             FontSize = item is null ? 15 : 16,
-            Foreground = item is null ? DescriptionBrush() : Brush(IsDark ? "#DADADA" : "#4A4A4A"),
+            Foreground = item is null
+                ? DescriptionBrush()
+                : HighContrastForegroundOr(IsDark ? "#DADADA" : "#4A4A4A"),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         });
@@ -4642,7 +4648,7 @@ public sealed class MainWindow : Window
             CloseButtonText = _runtime.Translate("Cancel"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = _root.XamlRoot,
-            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+            RequestedTheme = DialogTheme
         };
         void UpdateSaveState()
         {
@@ -4874,7 +4880,7 @@ public sealed class MainWindow : Window
             DefaultButton = ContentDialogButton.Primary,
             IsPrimaryButtonEnabled = false,
             XamlRoot = _root.XamlRoot,
-            RequestedTheme = IsDark ? ElementTheme.Dark : ElementTheme.Light
+            RequestedTheme = DialogTheme
         };
 
         void CaptureKey(KeyRoutedEventArgs e)
@@ -5117,9 +5123,21 @@ public sealed class MainWindow : Window
 
     private void ApplyTheme()
     {
-        var dark = IsDark;
-        _root.RequestedTheme = dark ? ElementTheme.Dark : ElementTheme.Light;
-        _root.Background = Brush(dark ? "#202020" : "#F5F5F5");
+        if (_accessibilitySettings.HighContrast)
+        {
+            _root.RequestedTheme = ElementTheme.Default;
+            _root.Background = SystemThemeColors.Resolve(
+                "SystemColorWindowColorBrush",
+                UIColorType.Background,
+                ThemeColor.Opaque(0, 0, 0)).ToBrush();
+        }
+        else
+        {
+            var dark = IsDark;
+            _root.RequestedTheme = dark ? ElementTheme.Dark : ElementTheme.Light;
+            _root.Background = Brush(dark ? "#202020" : "#F5F5F5");
+        }
+
         ApplyTitleBarTheme();
         ApplyWindowIcon();
         RefreshAppLogoImage();
@@ -5140,6 +5158,11 @@ public sealed class MainWindow : Window
         SelectPage(_selectedPageIndex);
     }
 
+    private void OnHighContrastChanged(AccessibilitySettings sender, object args)
+    {
+        _ = DispatcherQueue.TryEnqueue(ApplyTheme);
+    }
+
     private void RefreshThemeTextBrushes()
     {
         var brush = DescriptionBrush();
@@ -5157,6 +5180,10 @@ public sealed class MainWindow : Window
     }
 
     private bool IsDark => string.Equals(_runtime.EffectiveTheme, "dark", StringComparison.OrdinalIgnoreCase);
+
+    private ElementTheme DialogTheme => _accessibilitySettings.HighContrast
+        ? ElementTheme.Default
+        : IsDark ? ElementTheme.Dark : ElementTheme.Light;
 
     private Border Card(UIElement child)
     {
@@ -5547,7 +5574,7 @@ public sealed class MainWindow : Window
             Width = width,
             Height = height,
             CornerRadius = new CornerRadius(4),
-            Background = Brush(IsDark ? "#202020" : "#F7F7F7"),
+            Background = CardBackground(),
             VerticalAlignment = VerticalAlignment.Center
         };
         host.Children.Add(border);
@@ -5781,6 +5808,14 @@ public sealed class MainWindow : Window
             return;
         }
 
+        if (_accessibilitySettings.HighContrast)
+        {
+            var defaultColor = unchecked((int)0xFFFFFFFF);
+            _ = DwmSetWindowAttribute(hwnd, 35, ref defaultColor, sizeof(int));
+            _ = DwmSetWindowAttribute(hwnd, 36, ref defaultColor, sizeof(int));
+            return;
+        }
+
         var dark = IsDark;
         var darkMode = dark ? 1 : 0;
         _ = DwmSetWindowAttribute(hwnd, 20, ref darkMode, sizeof(int));
@@ -5791,15 +5826,50 @@ public sealed class MainWindow : Window
         _ = DwmSetWindowAttribute(hwnd, 36, ref textColor, sizeof(int));
     }
 
-    private Brush CardBackground() => Brush(IsDark ? "#2B2B2B" : "#FFFFFF");
+    private Brush CardBackground() => _accessibilitySettings.HighContrast
+        ? SystemThemeColors.Resolve(
+            "SystemColorWindowColorBrush",
+            UIColorType.Background,
+            ThemeColor.Opaque(0, 0, 0)).ToBrush()
+        : Brush(IsDark ? "#2B2B2B" : "#FFFFFF");
 
-    private Brush CardBorderBrush() => Brush(IsDark ? "#3F3F3F" : "#E5E5E5");
+    private Brush CardBorderBrush() => HighContrastForegroundOr(
+        IsDark ? "#3F3F3F" : "#E5E5E5");
 
-    private Brush RowSeparatorBrush() => Brush(IsDark ? "#3F3F3F" : "#EAECF0");
+    private Brush RowSeparatorBrush() => HighContrastForegroundOr(
+        IsDark ? "#3F3F3F" : "#EAECF0");
 
-    private Brush DescriptionBrush() => Brush(IsDark ? "#D0D5DD" : "#344054");
+    private Brush DescriptionBrush() => HighContrastForegroundOr(
+        IsDark ? "#D0D5DD" : "#344054");
 
-    private static SolidColorBrush AccentBrush(byte alpha) => new(ColorHelper.FromArgb(alpha, 0, 120, 212));
+    private Brush ErrorBrush() => HighContrastForegroundOr("#CD3131");
+
+    private Brush WarningBrush() => HighContrastForegroundOr(IsDark ? "#FFD86B" : "#9A6700");
+
+    private Brush HighContrastForegroundOr(string fallback) => _accessibilitySettings.HighContrast
+        ? SystemThemeColors.Resolve(
+            "SystemColorWindowTextColorBrush",
+            UIColorType.Foreground,
+            ThemeColor.Opaque(255, 255, 255)).ToBrush()
+        : Brush(fallback);
+
+    private static SolidColorBrush AccentBrush(byte alpha)
+    {
+        if (!SystemThemeColors.IsHighContrast)
+        {
+            return new SolidColorBrush(ColorHelper.FromArgb(alpha, 0, 120, 212));
+        }
+
+        return alpha < 128
+            ? SystemThemeColors.Resolve(
+                "SystemColorHighlightColorBrush",
+                UIColorType.Accent,
+                ThemeColor.Opaque(0, 120, 215)).ToBrush()
+            : SystemThemeColors.Resolve(
+                "SystemColorHighlightTextColorBrush",
+                UIColorType.Foreground,
+                ThemeColor.Opaque(255, 255, 255)).ToBrush();
+    }
 
     private static SolidColorBrush Brush(string color)
     {

@@ -1339,13 +1339,15 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         _imagePreviewImage.MaxHeight = ImagePreviewBaseImageHeight * _imagePreviewZoom;
         _imagePreviewFrame.MaxWidth = ImagePreviewBaseWindowWidth * _imagePreviewZoom;
         _imagePreviewFrame.MaxHeight = ImagePreviewBaseWindowHeight * _imagePreviewZoom;
-        var requestedWidth = (int)Math.Round(ImagePreviewBaseWindowWidth * _imagePreviewZoom);
-        var requestedHeight = (int)Math.Round(ImagePreviewBaseWindowHeight * _imagePreviewZoom);
+        var scale = WindowDpi.GetScale(_imagePreviewHwnd);
+        var requestedWidth = Math.Max(HostWindowSize, (int)Math.Round(ImagePreviewBaseWindowWidth * _imagePreviewZoom * scale));
+        var requestedHeight = Math.Max(HostWindowSize, (int)Math.Round(ImagePreviewBaseWindowHeight * _imagePreviewZoom * scale));
         var workingArea = GetWorkingArea(new System.Drawing.Point(
             _imagePreviewAppWindow.Position.X,
             _imagePreviewAppWindow.Position.Y));
-        var maxWidth = Math.Max(HostWindowSize, workingArea.Width - ScreenEdgePadding * 2);
-        var maxHeight = Math.Max(HostWindowSize, workingArea.Height - ScreenEdgePadding * 2);
+        var padding = WindowDpi.ToPhysicalPixels(_imagePreviewHwnd, ScreenEdgePadding);
+        var maxWidth = Math.Max(HostWindowSize, workingArea.Width - padding * 2);
+        var maxHeight = Math.Max(HostWindowSize, workingArea.Height - padding * 2);
         var width = Math.Min(requestedWidth, maxWidth);
         var height = Math.Min(requestedHeight, maxHeight);
         _imagePreviewAppWindow.Resize(new SizeInt32(width, height));
@@ -1363,10 +1365,11 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         var workingArea = GetWorkingArea(new System.Drawing.Point(
             _imagePreviewAppWindow.Position.X,
             _imagePreviewAppWindow.Position.Y));
-        var minX = workingArea.Left + ScreenEdgePadding;
-        var minY = workingArea.Top + ScreenEdgePadding;
-        var maxX = Math.Max(minX, workingArea.Right - width - ScreenEdgePadding);
-        var maxY = Math.Max(minY, workingArea.Bottom - height - ScreenEdgePadding);
+        var padding = WindowDpi.ToPhysicalPixels(_imagePreviewHwnd, ScreenEdgePadding);
+        var minX = workingArea.Left + padding;
+        var minY = workingArea.Top + padding;
+        var maxX = Math.Max(minX, workingArea.Right - width - padding);
+        var maxY = Math.Max(minY, workingArea.Bottom - height - padding);
         _imagePreviewAppWindow.Move(new PointInt32(
             Math.Clamp(_imagePreviewAppWindow.Position.X, minX, maxX),
             Math.Clamp(_imagePreviewAppWindow.Position.Y, minY, maxY)));
@@ -1417,13 +1420,17 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             return null;
         }
 
-        const int previewWidth = 560;
-        const int previewHeight = 420;
         var point = GetCursorPoint();
+        appWindow.Move(new PointInt32(point.X, point.Y));
         var workingArea = GetWorkingArea(point);
-        var x = Math.Clamp(point.X + 18, workingArea.Left + ScreenEdgePadding, workingArea.Right - previewWidth - ScreenEdgePadding);
-        var y = Math.Clamp(point.Y + 18, workingArea.Top + ScreenEdgePadding, workingArea.Bottom - previewHeight - ScreenEdgePadding);
-        appWindow.Resize(new SizeInt32(previewWidth, previewHeight));
+        var previewSize = WindowDpi.ToPhysicalSize(hwnd, ImagePreviewBaseWindowWidth, ImagePreviewBaseWindowHeight);
+        var padding = WindowDpi.ToPhysicalPixels(hwnd, ScreenEdgePadding);
+        var offset = WindowDpi.ToPhysicalPixels(hwnd, 18);
+        var maxX = Math.Max(workingArea.Left + padding, workingArea.Right - previewSize.Width - padding);
+        var maxY = Math.Max(workingArea.Top + padding, workingArea.Bottom - previewSize.Height - padding);
+        var x = Math.Clamp(point.X + offset, workingArea.Left + padding, maxX);
+        var y = Math.Clamp(point.Y + offset, workingArea.Top + padding, maxY);
+        appWindow.Resize(previewSize);
         appWindow.Move(new PointInt32(x, y));
         if (appWindow.Presenter is OverlappedPresenter presenter)
         {

@@ -170,7 +170,6 @@ internal sealed class QuickTextWindow : Window
         var hwnd = WindowNative.GetWindowHandle(this);
         var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
         var appWindow = AppWindow.GetFromWindowId(windowId);
-        appWindow.Resize(new SizeInt32(WindowWidth, WindowHeight));
         if (appWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.IsResizable = true;
@@ -180,8 +179,18 @@ internal sealed class QuickTextWindow : Window
 
         var point = QuickMenuWindow.GetCursorPoint();
         var workingArea = QuickMenuWindow.GetWorkingArea(point);
-        var x = Math.Clamp(point.X - WindowWidth / 2, workingArea.Left + ScreenEdgePadding, workingArea.Right - WindowWidth - ScreenEdgePadding);
-        var y = Math.Clamp(point.Y - 80, workingArea.Top + ScreenEdgePadding, workingArea.Bottom - WindowHeight - ScreenEdgePadding);
+        // Establish the target monitor before asking Windows for this HWND's DPI.
+        appWindow.Move(new PointInt32(point.X, point.Y));
+        var size = WindowDpi.ToPhysicalSize(hwnd, WindowWidth, WindowHeight);
+        var padding = WindowDpi.ToPhysicalPixels(hwnd, ScreenEdgePadding);
+        var verticalOffset = WindowDpi.ToPhysicalPixels(hwnd, 80);
+        var minX = workingArea.Left + padding;
+        var minY = workingArea.Top + padding;
+        var maxX = Math.Max(minX, workingArea.Right - size.Width - padding);
+        var maxY = Math.Max(minY, workingArea.Bottom - size.Height - padding);
+        var x = Math.Clamp(point.X - size.Width / 2, minX, maxX);
+        var y = Math.Clamp(point.Y - verticalOffset, minY, maxY);
+        appWindow.Resize(size);
         appWindow.Move(new PointInt32(x, y));
     }
 }

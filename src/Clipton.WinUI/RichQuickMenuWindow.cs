@@ -32,6 +32,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private const int ScreenEdgePadding = 8;
     private const int MenuWidth = 392;
     private const int PreviewWidth = 320;
+    private const int PreviewHeight = 338;
     private const int WindowHeight = 526;
     private const int WindowGap = 10;
     private const int DwmwaNcRenderingPolicy = 2;
@@ -52,7 +53,6 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpFrameChanged = 0x0020;
-    private const string PasteOptionsButtonTag = "RichPasteOptionsButton";
     private static readonly NativeMethods.LowLevelKeyboardProc s_keyboardProc = OnStaticKeyboardHook;
     private static IntPtr s_keyboardHook;
     private static RichQuickMenuWindow? s_activeWindow;
@@ -85,7 +85,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private readonly Border _menuCard = new();
     private readonly StackPanel _itemHost = new() { Spacing = 6 };
     private readonly TextBox _searchBox = new();
-    private readonly Dictionary<HeaderFilter, Button> _filterButtons = [];
+    private readonly Dictionary<HeaderFilter, ToggleButton> _filterButtons = [];
     private readonly Border _previewCard = new();
     private readonly Image _previewImage = new() { Stretch = Stretch.UniformToFill };
     private readonly TextBlock _previewMetaText;
@@ -98,7 +98,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private readonly Stack<(IReadOnlyList<QuickMenuItem> Items, int SelectedIndex, HeaderFilter Filter)> _navigationStack = new();
     private IReadOnlyList<QuickMenuItem> _items = [];
     private readonly List<QuickMenuItem> _visibleItems = [];
-    private readonly List<Border> _itemCards = [];
+    private readonly List<Button> _itemCards = [];
     private ScrollViewer? _scrollViewer;
     private Button? _backButton;
     private Button? _searchButton;
@@ -355,8 +355,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             presenter.SetBorderAndTitleBar(false, false);
         }
 
-        _appWindow.Resize(new SizeInt32(MenuWidth, WindowHeight));
-        ApplyWindowRegion(_hwnd, MenuWidth, WindowHeight);
+        var menuSize = WindowDpi.ToPhysicalSize(_hwnd, MenuWidth, WindowHeight);
+        _appWindow.Resize(menuSize);
+        ApplyWindowRegion(_hwnd, menuSize.Width, menuSize.Height);
         DisableDwmBorder(_hwnd);
     }
 
@@ -428,7 +429,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             _previewHwnd = IntPtr.Zero;
         };
         _previewCard.Width = PreviewWidth;
-        _previewCard.Height = 338;
+        _previewCard.Height = PreviewHeight;
         _previewCard.CornerRadius = new CornerRadius(9);
         _previewCard.BorderThickness = new Thickness(0);
         _previewCard.Background = Brush(_palette.PreviewCardBackground);
@@ -453,8 +454,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             presenter.SetBorderAndTitleBar(false, false);
         }
 
-        _previewAppWindow.Resize(new SizeInt32(PreviewWidth, 338));
-        ApplyWindowRegion(_previewHwnd, PreviewWidth, 338);
+        var previewSize = WindowDpi.ToPhysicalSize(_previewHwnd, PreviewWidth, PreviewHeight);
+        _previewAppWindow.Resize(previewSize);
+        ApplyWindowRegion(_previewHwnd, previewSize.Width, previewSize.Height);
         DisableDwmBorder(_previewHwnd);
 
         var escapeAccelerator = new KeyboardAccelerator { Key = VirtualKey.Escape };
@@ -513,18 +515,20 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         AddToolbarButton(toolbar, 2, "\uE8D2", _textFilterText, HeaderFilter.Text);
         AddToolbarButton(toolbar, 3, "\uEB9F", _previewImageText, HeaderFilter.Image);
         _searchButton = IconButton("\uE721", _searchPlaceholder);
+        AutomationProperties.SetAutomationId(_searchButton, "RichQuickMenuSearchButton");
         _searchButton.Margin = new Thickness(2, 0, 8, 0);
         _searchButton.Click += (_, _) => ToggleSearch();
         UpdateToolbarButton(_searchButton, selected: false);
         Grid.SetColumn(_searchButton, 4);
         toolbar.Children.Add(_searchButton);
         _backButton = IconButton("\uE72B", _backText);
+        AutomationProperties.SetAutomationId(_backButton, "RichQuickMenuBackButton");
         _backButton.Margin = new Thickness(2, 0, 8, 0);
         _backButton.HorizontalAlignment = HorizontalAlignment.Right;
         _backButton.Click += (_, _) => NavigateBack();
         Grid.SetColumn(_backButton, 5);
         toolbar.Children.Add(_backButton);
-        AddToolbarButton(toolbar, 6, "\uE711", _closeText, selected: false, Dismiss);
+        AddToolbarButton(toolbar, 6, "\uE711", _closeText, selected: false, Dismiss, "RichQuickMenuCloseButton");
         panel.Children.Add(toolbar);
 
         _searchBox.PlaceholderText = _searchPlaceholder;
@@ -536,6 +540,8 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _searchBox.LostFocus += (_, _) => _searchBoxFocused = false;
         _searchBox.TextChanged += (_, _) => ScheduleSearchUpdate();
         _searchBox.KeyDown += OnSearchBoxKeyDown;
+        AutomationProperties.SetAutomationId(_searchBox, "RichQuickMenuSearchBox");
+        AutomationProperties.SetName(_searchBox, _searchPlaceholder);
         Grid.SetRow(_searchBox, 1);
         panel.Children.Add(_searchBox);
 
@@ -558,6 +564,8 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             BorderBrush = Brush(_palette.AllHistoryBorder),
             Foreground = Brush(_palette.AllHistoryForeground)
         };
+        AutomationProperties.SetAutomationId(allHistoryButton, "RichQuickMenuShowAllHistoryButton");
+        AutomationProperties.SetName(allHistoryButton, _showAllHistoryText);
         allHistoryButton.Click += (_, _) =>
         {
             Dismiss();
@@ -748,9 +756,11 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         var x = _dragStartWindowPosition.X + cursor.X - _dragStartCursor.X;
         var y = _dragStartWindowPosition.Y + cursor.Y - _dragStartCursor.Y;
         _appWindow.Move(new PointInt32(x, y));
-        ApplyWindowRegion(_hwnd, MenuWidth, WindowHeight);
+        var menuSize = WindowDpi.ToPhysicalSize(_hwnd, MenuWidth, WindowHeight);
+        ApplyWindowRegion(_hwnd, menuSize.Width, menuSize.Height);
         DisableDwmBorder(_hwnd);
-        _anchorPoint = new NativeMethods.Point { X = x + 18, Y = y + 18 };
+        var anchorOffset = WindowDpi.ToPhysicalPixels(_hwnd, 18);
+        _anchorPoint = new NativeMethods.Point { X = x + anchorOffset, Y = y + anchorOffset };
         _hasAnchorPoint = true;
         PositionPreviewWindow();
         args.Handled = true;
@@ -837,9 +847,15 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         foreach (var item in source.Where(item => !item.IsSeparator && MatchesFilter(item)))
         {
             _visibleItems.Add(item);
-            var card = BuildItemCard(item, _visibleItems.Count - 1);
-            _itemCards.Add(card);
-            _itemHost.Children.Add(card);
+            var (host, button) = BuildItemCard(item, _visibleItems.Count - 1);
+            _itemCards.Add(button);
+            _itemHost.Children.Add(host);
+        }
+
+        for (var index = 0; index < _itemCards.Count; index++)
+        {
+            AutomationProperties.SetPositionInSet(_itemCards[index], index + 1);
+            AutomationProperties.SetSizeOfSet(_itemCards[index], _itemCards.Count);
         }
 
         if (_visibleItems.Count == 0)
@@ -861,12 +877,15 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         return _activeFilter switch
         {
             HeaderFilter.Pinned => item.IsPinned,
-            HeaderFilter.Text => item.KindLabel.Equals("Text", StringComparison.OrdinalIgnoreCase)
-                || item.KindLabel.Equals("Code", StringComparison.OrdinalIgnoreCase)
-                || item.KindLabel.Equals("Link", StringComparison.OrdinalIgnoreCase),
+            HeaderFilter.Text => MatchesTextFilter(item),
             HeaderFilter.Image => IsImageItem(item),
             _ => true
         };
+    }
+
+    internal static bool MatchesTextFilter(QuickMenuItem item)
+    {
+        return item.IsFolder || item.KindLabel is "T" or "R" or "S";
     }
 
     private void SetFilter(HeaderFilter filter)
@@ -879,12 +898,11 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _activeFilter = filter;
         _selectedIndex = 0;
         RebuildItems();
-        _root.Focus(FocusState.Programmatic);
     }
 
-    private Border BuildItemCard(QuickMenuItem item, int index)
+    private (FrameworkElement Host, Button Button) BuildItemCard(QuickMenuItem item, int index)
     {
-        var card = new Border
+        var button = new Button
         {
             Height = 76,
             CornerRadius = new CornerRadius(7),
@@ -892,21 +910,31 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             BorderBrush = Brush(_palette.ItemBorder),
             Background = Brush(_palette.ItemBackground),
             Padding = new Thickness(8),
-            Child = BuildItemContent(item)
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Stretch,
+            UseSystemFocusVisuals = true,
+            Content = BuildItemContent(item)
         };
-        card.PointerMoved += (_, _) => OnCardPointerHover(index);
-        ApplyItemCardAutomation(card, item);
-        card.Tapped += (_, args) =>
-        {
-            if (IsFromPasteOptionsButton(args.OriginalSource))
-            {
-                args.Handled = true;
-                return;
-            }
+        button.PointerMoved += (_, _) => OnCardPointerHover(index);
+        ApplyItemCardAutomation(button, item, index);
+        button.Click += (_, _) => InvokeItem(item);
 
-            InvokeItem(item);
-        };
-        return card;
+        if (!item.HasPasteOptions)
+        {
+            return (button, button);
+        }
+
+        var host = new Grid { Height = 76 };
+        host.Children.Add(button);
+        var pasteOptionsButton = CreatePasteOptionsButton(item);
+        pasteOptionsButton.HorizontalAlignment = HorizontalAlignment.Right;
+        pasteOptionsButton.VerticalAlignment = VerticalAlignment.Center;
+        pasteOptionsButton.Margin = new Thickness(0, 0, 8, 0);
+        pasteOptionsButton.PointerMoved += (_, _) => OnCardPointerHover(index);
+        AutomationProperties.SetAutomationId(pasteOptionsButton, $"RichQuickMenuPasteOptions_{index}");
+        host.Children.Add(pasteOptionsButton);
+        return (host, button);
     }
 
     private UIElement BuildItemContent(QuickMenuItem item)
@@ -936,9 +964,11 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         Grid.SetColumn(textPanel, 1);
         grid.Children.Add(textPanel);
 
-        var trailing = item.IsFolder ? CreateFolderGlyph()
-            : item.HasPasteOptions ? CreatePasteOptionsButton(item)
-            : CreatePinnedGlyph(item);
+        FrameworkElement trailing = item.IsFolder
+            ? CreateFolderGlyph()
+            : item.HasPasteOptions
+                ? new Border { Width = 34 }
+                : CreatePinnedGlyph(item);
         Grid.SetColumn(trailing, 2);
         grid.Children.Add(trailing);
 
@@ -953,27 +983,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         button.Margin = new Thickness(0);
         button.Background = Brush(_palette.ItemBackground);
         button.BorderBrush = Brush(_palette.ItemBackground);
-        button.Tag = PasteOptionsButtonTag;
         AutomationProperties.SetHelpText(button, _pasteOptionsHelpText);
-        button.Tapped += (_, args) => args.Handled = true;
         button.Click += (_, _) => ShowPasteOptions(item, button);
         return button;
-    }
-
-    private static bool IsFromPasteOptionsButton(object source)
-    {
-        var current = source as DependencyObject;
-        while (current is not null)
-        {
-            if (current is Button { Tag: PasteOptionsButtonTag })
-            {
-                return true;
-            }
-
-            current = VisualTreeHelper.GetParent(current);
-        }
-
-        return false;
     }
 
     private static bool IsFromButton(object source)
@@ -1057,8 +1069,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         return optionItem;
     }
 
-    private void ApplyItemCardAutomation(Border card, QuickMenuItem item)
+    private void ApplyItemCardAutomation(Button card, QuickMenuItem item, int index)
     {
+        AutomationProperties.SetAutomationId(card, $"RichQuickMenuItem_{index}");
         AutomationProperties.SetName(card, item.Title);
         var helpText = BuildItemHelpText(item, item.HasPasteOptions);
         if (!string.IsNullOrWhiteSpace(helpText))
@@ -1192,6 +1205,11 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         ApplyItemSelectionStyle(_lastStyledSelectedIndex, selected: false);
         ApplyItemSelectionStyle(_selectedIndex, selected: true);
         _lastStyledSelectedIndex = _selectedIndex;
+
+        if (_searchBox.Visibility != Visibility.Visible)
+        {
+            _itemCards.ElementAtOrDefault(_selectedIndex)?.Focus(FocusState.Keyboard);
+        }
 
         if (bringIntoView)
         {
@@ -1895,12 +1913,21 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             _hasAnchorPoint = true;
         }
 
+        // Move first so GetDpiForWindow observes the cursor's monitor on mixed-DPI setups.
+        _appWindow.Move(new PointInt32(_anchorPoint.X, _anchorPoint.Y));
         var workArea = GetWorkArea(_anchorPoint);
-        var menuX = Math.Clamp(_anchorPoint.X - 18, workArea.Left + ScreenEdgePadding, workArea.Right - MenuWidth - ScreenEdgePadding);
-        var y = Math.Clamp(_anchorPoint.Y - 18, workArea.Top + ScreenEdgePadding, workArea.Bottom - WindowHeight - ScreenEdgePadding);
-        _appWindow.Resize(new SizeInt32(MenuWidth, WindowHeight));
+        var menuSize = WindowDpi.ToPhysicalSize(_hwnd, MenuWidth, WindowHeight);
+        var padding = WindowDpi.ToPhysicalPixels(_hwnd, ScreenEdgePadding);
+        var anchorOffset = WindowDpi.ToPhysicalPixels(_hwnd, 18);
+        var minX = workArea.Left + padding;
+        var minY = workArea.Top + padding;
+        var maxX = Math.Max(minX, workArea.Right - menuSize.Width - padding);
+        var maxY = Math.Max(minY, workArea.Bottom - menuSize.Height - padding);
+        var menuX = Math.Clamp(_anchorPoint.X - anchorOffset, minX, maxX);
+        var y = Math.Clamp(_anchorPoint.Y - anchorOffset, minY, maxY);
+        _appWindow.Resize(menuSize);
         _appWindow.Move(new PointInt32(menuX, y));
-        ApplyWindowRegion(_hwnd, MenuWidth, WindowHeight);
+        ApplyWindowRegion(_hwnd, menuSize.Width, menuSize.Height);
         DisableDwmBorder(_hwnd);
         PositionPreviewWindow();
         BringToFront();
@@ -1914,17 +1941,28 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         var workArea = GetWorkArea(_anchorPoint);
-        var menuX = Math.Clamp(_anchorPoint.X - 18, workArea.Left + ScreenEdgePadding, workArea.Right - MenuWidth - ScreenEdgePadding);
-        var menuY = Math.Clamp(_anchorPoint.Y - 18, workArea.Top + ScreenEdgePadding, workArea.Bottom - WindowHeight - ScreenEdgePadding);
-        var rightX = menuX + MenuWidth + WindowGap;
-        var leftX = menuX - PreviewWidth - WindowGap;
-        var previewX = rightX + PreviewWidth <= workArea.Right - ScreenEdgePadding
+        var menuSize = WindowDpi.ToPhysicalSize(_hwnd, MenuWidth, WindowHeight);
+        var previewSize = WindowDpi.ToPhysicalSize(_hwnd, PreviewWidth, PreviewHeight);
+        var padding = WindowDpi.ToPhysicalPixels(_hwnd, ScreenEdgePadding);
+        var anchorOffset = WindowDpi.ToPhysicalPixels(_hwnd, 18);
+        var gap = WindowDpi.ToPhysicalPixels(_hwnd, WindowGap);
+        var previewYOffset = WindowDpi.ToPhysicalPixels(_hwnd, 90);
+        var minX = workArea.Left + padding;
+        var minY = workArea.Top + padding;
+        var maxMenuX = Math.Max(minX, workArea.Right - menuSize.Width - padding);
+        var maxMenuY = Math.Max(minY, workArea.Bottom - menuSize.Height - padding);
+        var menuX = Math.Clamp(_anchorPoint.X - anchorOffset, minX, maxMenuX);
+        var menuY = Math.Clamp(_anchorPoint.Y - anchorOffset, minY, maxMenuY);
+        var rightX = menuX + menuSize.Width + gap;
+        var leftX = menuX - previewSize.Width - gap;
+        var previewX = rightX + previewSize.Width <= workArea.Right - padding
             ? rightX
-            : Math.Max(workArea.Left + ScreenEdgePadding, leftX);
-        var previewY = Math.Clamp(menuY + 90, workArea.Top + ScreenEdgePadding, workArea.Bottom - 338 - ScreenEdgePadding);
-        _previewAppWindow.Resize(new SizeInt32(PreviewWidth, 338));
+            : Math.Max(minX, leftX);
+        var maxPreviewY = Math.Max(minY, workArea.Bottom - previewSize.Height - padding);
+        var previewY = Math.Clamp(menuY + previewYOffset, minY, maxPreviewY);
+        _previewAppWindow.Resize(previewSize);
         _previewAppWindow.Move(new PointInt32(previewX, previewY));
-        ApplyWindowRegion(_previewHwnd, PreviewWidth, 338);
+        ApplyWindowRegion(_previewHwnd, previewSize.Width, previewSize.Height);
         _previewAppWindow.Show();
         DisableDwmBorder(_previewHwnd);
         BringPreviewToFront();
@@ -2020,7 +2058,8 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             return;
         }
 
-        var region = CreateRoundRectRgn(0, 1, width, height, 18, 18);
+        var radius = WindowDpi.ToPhysicalPixels(hwnd, 18);
+        var region = CreateRoundRectRgn(0, 1, width, height, radius, radius);
         if (region == IntPtr.Zero)
         {
             return;
@@ -2068,7 +2107,14 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             : new NativeMethods.Rect { Left = 0, Top = 0, Right = 1920, Bottom = 1080 };
     }
 
-    private void AddToolbarButton(Grid toolbar, int column, string glyph, string tooltip, bool selected, Action? action)
+    private void AddToolbarButton(
+        Grid toolbar,
+        int column,
+        string glyph,
+        string tooltip,
+        bool selected,
+        Action? action,
+        string? automationId = null)
     {
         var button = IconButton(glyph, tooltip);
         button.Margin = new Thickness(2, 0, 8, 0);
@@ -2079,15 +2125,39 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             button.Click += (_, _) => action();
         }
 
+        if (!string.IsNullOrWhiteSpace(automationId))
+        {
+            AutomationProperties.SetAutomationId(button, automationId);
+        }
+
         Grid.SetColumn(button, column);
         toolbar.Children.Add(button);
     }
 
     private void AddToolbarButton(Grid toolbar, int column, string glyph, string tooltip, HeaderFilter filter)
     {
-        var button = IconButton(glyph, tooltip);
+        var button = new ToggleButton
+        {
+            Width = 42,
+            Height = 38,
+            Padding = new Thickness(0),
+            Foreground = Brush(_palette.ButtonForeground),
+            Content = new FontIcon
+            {
+                Glyph = glyph,
+                FontFamily = new FontFamily("Segoe Fluent Icons"),
+                FontSize = 18
+            }
+        };
+        ToolTipService.SetToolTip(button, tooltip);
+        AutomationProperties.SetName(button, tooltip);
+        AutomationProperties.SetAutomationId(button, $"RichQuickMenuFilter{filter}");
         button.Margin = new Thickness(2, 0, 8, 0);
-        button.Click += (_, _) => SetFilter(filter);
+        button.Click += (_, _) =>
+        {
+            SetFilter(filter);
+            UpdateToolbarSelection();
+        };
         _filterButtons[filter] = button;
         Grid.SetColumn(button, column);
         toolbar.Children.Add(button);
@@ -2114,9 +2184,17 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         button.BorderBrush = selected ? Brush(_palette.ToolbarSelectedBorder) : Brush(_palette.ToolbarBackground);
     }
 
+    private void UpdateToolbarButton(ToggleButton button, bool selected)
+    {
+        button.IsChecked = selected;
+        button.Background = selected ? Brush(_palette.ToolbarSelectedBackground) : Brush(_palette.ToolbarBackground);
+        button.BorderBrush = selected ? Brush(_palette.ToolbarSelectedBorder) : Brush(_palette.ToolbarBackground);
+    }
+
     private void AddPreviewAction(Grid actions, int column, string glyph, string tooltip, Action action)
     {
         var button = IconButton(glyph, tooltip);
+        AutomationProperties.SetAutomationId(button, $"RichQuickMenuPreviewAction_{column}");
         button.Height = 42;
         button.Background = Brush(_palette.PreviewActionBackground);
         button.BorderBrush = Brush(_palette.PreviewActionBorder);

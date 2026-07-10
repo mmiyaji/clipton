@@ -2,6 +2,7 @@ using System;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
+using Windows.UI.ViewManagement;
 
 namespace Clipton.WinUI;
 
@@ -11,9 +12,49 @@ internal readonly record struct ThemeColor(byte A, byte R, byte G, byte B)
 
     public static ThemeColor Alpha(byte a, byte r, byte g, byte b) => new(a, r, g, b);
 
+    public static ThemeColor FromColor(Color color) => new(color.A, color.R, color.G, color.B);
+
     public Color ToColor() => Color.FromArgb(A, R, G, B);
 
     public SolidColorBrush ToBrush() => new(ToColor());
+}
+
+internal static class SystemThemeColors
+{
+    public static bool IsHighContrast
+    {
+        get
+        {
+            try
+            {
+                return new AccessibilitySettings().HighContrast;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+
+    public static ThemeColor Resolve(string resourceKey, UIColorType fallbackType, ThemeColor fallback)
+    {
+        try
+        {
+            var resources = Application.Current?.Resources;
+            if (resources is not null
+                && resources.ContainsKey(resourceKey)
+                && resources[resourceKey] is SolidColorBrush brush)
+            {
+                return ThemeColor.FromColor(brush.Color);
+            }
+
+            return ThemeColor.FromColor(new UISettings().GetColorValue(fallbackType));
+        }
+        catch
+        {
+            return fallback;
+        }
+    }
 }
 
 internal sealed record QuickMenuThemePalette(
@@ -72,7 +113,57 @@ internal sealed record QuickMenuThemePalette(
 
     public static QuickMenuThemePalette ForTheme(string? theme)
     {
+        if (SystemThemeColors.IsHighContrast)
+        {
+            return CreateHighContrast();
+        }
+
         return string.Equals(theme, "dark", StringComparison.OrdinalIgnoreCase) ? Dark : Light;
+    }
+
+    private static QuickMenuThemePalette CreateHighContrast()
+    {
+        var background = SystemThemeColors.Resolve(
+            "SystemColorWindowColorBrush",
+            UIColorType.Background,
+            ThemeColor.Opaque(0, 0, 0));
+        var foreground = SystemThemeColors.Resolve(
+            "SystemColorWindowTextColorBrush",
+            UIColorType.Foreground,
+            ThemeColor.Opaque(255, 255, 255));
+        var buttonFace = SystemThemeColors.Resolve(
+            "SystemColorButtonFaceColorBrush",
+            UIColorType.Background,
+            background);
+        var buttonText = SystemThemeColors.Resolve(
+            "SystemColorButtonTextColorBrush",
+            UIColorType.Foreground,
+            foreground);
+        var highlight = SystemThemeColors.Resolve(
+            "SystemColorHighlightColorBrush",
+            UIColorType.Accent,
+            ThemeColor.Opaque(0, 120, 215));
+        var highlightText = SystemThemeColors.Resolve(
+            "SystemColorHighlightTextColorBrush",
+            UIColorType.Foreground,
+            foreground);
+        return new QuickMenuThemePalette(
+            "highContrast",
+            ElementTheme.Default,
+            foreground,
+            background,
+            background,
+            background,
+            foreground,
+            foreground,
+            foreground,
+            highlight,
+            highlightText,
+            buttonFace,
+            buttonText,
+            buttonText,
+            foreground,
+            background);
     }
 }
 
@@ -174,6 +265,70 @@ internal sealed record RichQuickMenuPalette(
 
     public static RichQuickMenuPalette ForTheme(string? theme)
     {
+        if (SystemThemeColors.IsHighContrast)
+        {
+            return CreateHighContrast();
+        }
+
         return string.Equals(theme, "dark", StringComparison.OrdinalIgnoreCase) ? Dark : Light;
+    }
+
+    private static RichQuickMenuPalette CreateHighContrast()
+    {
+        var background = SystemThemeColors.Resolve(
+            "SystemColorWindowColorBrush",
+            UIColorType.Background,
+            ThemeColor.Opaque(0, 0, 0));
+        var foreground = SystemThemeColors.Resolve(
+            "SystemColorWindowTextColorBrush",
+            UIColorType.Foreground,
+            ThemeColor.Opaque(255, 255, 255));
+        var buttonFace = SystemThemeColors.Resolve(
+            "SystemColorButtonFaceColorBrush",
+            UIColorType.Background,
+            background);
+        var buttonText = SystemThemeColors.Resolve(
+            "SystemColorButtonTextColorBrush",
+            UIColorType.Foreground,
+            foreground);
+        var highlight = SystemThemeColors.Resolve(
+            "SystemColorHighlightColorBrush",
+            UIColorType.Accent,
+            ThemeColor.Opaque(0, 120, 215));
+        var highlightText = SystemThemeColors.Resolve(
+            "SystemColorHighlightTextColorBrush",
+            UIColorType.Foreground,
+            foreground);
+        return new RichQuickMenuPalette(
+            "highContrast",
+            ElementTheme.Default,
+            background,
+            background,
+            foreground,
+            foreground,
+            background,
+            buttonFace,
+            buttonText,
+            background,
+            buttonFace,
+            buttonText,
+            buttonText,
+            background,
+            highlight,
+            highlightText,
+            highlightText,
+            foreground,
+            background,
+            highlight,
+            background,
+            buttonFace,
+            buttonText,
+            buttonFace,
+            buttonFace,
+            highlight,
+            buttonText,
+            buttonFace,
+            buttonText,
+            foreground);
     }
 }
