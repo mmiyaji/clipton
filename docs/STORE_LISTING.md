@@ -1,6 +1,6 @@
 # Microsoft Store Listing Draft
 
-Last updated: 2026-06-28
+Last updated: 2026-07-10
 
 Use this document as the source text for Partner Center Store listings.
 
@@ -12,6 +12,7 @@ Official references:
 ## Product Identity
 
 - Product name: Clipton
+- Release candidate: 0.1.19
 - Category: Productivity
 - Target device family: PC / Windows Desktop
 - Store listing draft languages: English, Japanese
@@ -54,7 +55,7 @@ clipboard, clipboard manager, clipboard history, paste, snippets, productivity, 
 
 ### Release Notes
 
-Current Microsoft Store release candidate with WinUI interface, global hotkey menu, compact and rich quick menu styles, image preview, encrypted local history, PIN lock, snippets, folders, search, sensitive-content masking, import/export, seven UI languages, and configurable saved history count.
+Version 0.1.19 strengthens clipboard-history safety and accessibility. Full exports now include encrypted history that is not currently loaded and stop instead of producing a partial backup when stored data cannot be read completely. Paste actions verify both the clipboard write and the original target window before sending Ctrl+V. Quick menu scaling, text filtering, High Contrast colors, and screen-reader automation were improved. Store packages now include all seven UI languages.
 
 ## Japanese Listing
 
@@ -91,7 +92,7 @@ Clipton はプライバシーに配慮した日常作業向けに設計してい
 
 ### Release Notes
 
-WinUI インターフェイス、グローバルホットキーメニュー、標準/リッチメニュー、画像プレビュー、暗号化ローカル履歴、PIN ロック、登録単語、フォルダ、検索、保護対象マスク、インポート/エクスポート、7 言語 UI、保存履歴数設定を備えた Microsoft Store 公開候補です。
+バージョン 0.1.19 では、履歴の安全性とアクセシビリティを強化しました。エクスポートは未読込の暗号化履歴も対象とし、保存データを完全に読めない場合は不完全なバックアップを作らず停止します。貼り付け前にクリップボード書き込みと元の対象ウィンドウを確認するようにしました。クイックメニューの高 DPI 表示、テキスト絞り込み、ハイコントラスト配色、スクリーンリーダー向け情報も改善し、Store パッケージには 7 言語の UI をすべて収録しています。
 
 ## Screenshot Captions
 

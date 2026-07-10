@@ -1,6 +1,14 @@
 # Microsoft Store Preparation
 
-Last updated: 2026-06-28
+Last updated: 2026-07-10
+
+## Current Release Candidate
+
+- App version: `0.1.19`
+- Package version: `0.1.19.0`
+- Expected Store upload artifact: `packaging/Clipton.Package/bin/x64/Release/AppPackages/Clipton.Package_0.1.19.0_x64_bundle.msixupload`
+- Copy-ready English and Japanese release notes are maintained in `docs/STORE_LISTING.md`.
+- Package verification must confirm all seven shipped UI languages in both the bundle and Store upload archive.
 
 ## Required Before Store Submission
 
@@ -40,10 +48,10 @@ WinUI is the active release target. The intended release shape is:
 Use Visual Studio 2022 or MSBuild with DesktopBridge targets installed:
 
 ```powershell
-msbuild packaging\Clipton.Package\Clipton.Package.wapproj /p:Configuration=Release /p:Platform=x64 /p:UapAppxPackageBuildMode=StoreUpload
+msbuild packaging\Clipton.Package\Clipton.Package.wapproj /restore /m /p:Configuration=Release /p:Platform=x64 /p:AppxBundle=Always /p:UapAppxPackageBuildMode=StoreUpload
 ```
 
-Production Store submission still requires Partner Center identity association and signing.
+Production submission still requires Partner Center package acceptance plus final clean-profile and WACK validation.
 
 Current source uses the packaged `StartupTask` API when Clipton has package identity, and falls back to the registry `Run` key only for unpackaged development builds.
 
@@ -61,7 +69,7 @@ Current source uses the packaged `StartupTask` API when Clipton has package iden
 - Verify final screenshots are PNG files, at least 1366 x 768 pixels, under 50 MB, and uploaded separately for English and Japanese Store listings.
 - If using a trailer, verify MP4/MOV 1920 x 1080 video, PNG 1920 x 1080 thumbnail, title, and optional WebVTT captions.
 - Confirm privacy policy and terms URLs are publicly reachable before Partner Center submission.
-- Confirm Partner Center identity and publisher fields replace the development manifest values (`Clipton.ClipboardManager`, `CN=Clipton`) before final package upload.
+- Confirm the package identity (`mmiyaji.Clipton`) and publisher ID match the Partner Center product reservation before final upload.
 
 ## Current Store Assets
 
