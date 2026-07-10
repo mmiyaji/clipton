@@ -1,6 +1,7 @@
 param(
     [string]$PackageRoot = "packaging\Clipton.Package\bin\x64\Release\AppPackages",
-    [int64]$MinPackageBytes = 1024
+    [int64]$MinPackageBytes = 1024,
+    [string[]]$ExpectedLanguages = @("en-US", "ja-JP", "de-DE", "es-ES", "fr-FR", "ko-KR", "zh-Hans")
 )
 
 $ErrorActionPreference = "Stop"
@@ -55,6 +56,79 @@ function Test-NestedPackageManifest {
     return $false
 }
 
+function Get-PackageManifestLanguagesFromStream {
+    param(
+        [System.IO.Stream]$Stream,
+        [string]$PackageName
+    )
+
+    $results = New-Object System.Collections.Generic.List[object]
+    $archive = New-Object System.IO.Compression.ZipArchive($Stream, [System.IO.Compression.ZipArchiveMode]::Read, $true)
+    try {
+        $manifestEntry = $archive.Entries | Where-Object { $_.FullName -eq "AppxManifest.xml" } | Select-Object -First 1
+        if ($null -ne $manifestEntry) {
+            $manifestStream = $manifestEntry.Open()
+            try {
+                $reader = New-Object System.IO.StreamReader($manifestStream)
+                try {
+                    [xml]$manifest = $reader.ReadToEnd()
+                } finally {
+                    $reader.Dispose()
+                }
+            } finally {
+                $manifestStream.Dispose()
+            }
+
+            $languages = @($manifest.SelectNodes("/*[local-name()='Package']/*[local-name()='Resources']/*[local-name()='Resource']") |
+                ForEach-Object { $_.GetAttribute("Language") } |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+            $results.Add([pscustomobject]@{
+                Package = $PackageName
+                Languages = $languages
+            })
+        }
+
+        foreach ($entry in $archive.Entries) {
+            if ($entry.FullName -notmatch '\.(msix|appx|msixbundle|appxbundle)$') {
+                continue
+            }
+
+            $memory = New-Object System.IO.MemoryStream
+            try {
+                $nestedStream = $entry.Open()
+                try {
+                    $nestedStream.CopyTo($memory)
+                } finally {
+                    $nestedStream.Dispose()
+                }
+
+                $memory.Position = 0
+                $nestedName = "$PackageName::$($entry.FullName)"
+                foreach ($nestedResult in Get-PackageManifestLanguagesFromStream -Stream $memory -PackageName $nestedName) {
+                    $results.Add($nestedResult)
+                }
+            } finally {
+                $memory.Dispose()
+            }
+        }
+    } finally {
+        $archive.Dispose()
+    }
+
+    return $results.ToArray()
+}
+
+function Get-PackageManifestLanguages {
+    param([string]$Path)
+
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        return @(Get-PackageManifestLanguagesFromStream -Stream $stream -PackageName ([System.IO.Path]::GetFileName($Path)))
+    } finally {
+        $stream.Dispose()
+    }
+}
+
 $root = [IO.Path]::GetFullPath($PackageRoot)
 if (-not (Test-Path $root)) {
     throw "Package root was not found: $root"
@@ -91,13 +165,24 @@ foreach ($package in $packages) {
         if (-not $hasDirectManifest -and -not $hasNestedManifest) {
             $failures.Add("$($package.Name) does not contain an Appx manifest directly or in a nested package.")
         }
+
+        $isDependencyPackage = $package.FullName -match '[\\/]Dependencies[\\/]'
+        if (-not $isDependencyPackage) {
+            $manifestLanguages = @(Get-PackageManifestLanguages $package.FullName |
+                ForEach-Object { $_.Languages } |
+                Sort-Object -Unique)
+            $missingLanguages = @($ExpectedLanguages | Where-Object { $manifestLanguages -notcontains $_ })
+            if ($missingLanguages.Count -gt 0) {
+                $failures.Add("$($package.Name) is missing declared Store language resources: $($missingLanguages -join ', '). Found: $($manifestLanguages -join ', ').")
+            }
+        }
     } catch {
         $failures.Add("$($package.Name) could not be opened as a package archive: $($_.Exception.Message)")
     }
 }
 
 if ($failures.Count -gt 0) {
-    $failures | ForEach-Object { Write-Error $_ }
+    $failures | ForEach-Object { Write-Error $_ -ErrorAction Continue }
     throw "Store package verification failed with $($failures.Count) issue(s)."
 }
 

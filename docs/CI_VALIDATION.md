@@ -16,7 +16,7 @@ Workflow job: `package-verify`
 
 - Builds the Windows Application Packaging Project in Release x64 Store upload mode.
 - Runs `tools/ci/verify-store-package.ps1`.
-- Verifies that Store upload artifacts exist, are non-empty, are readable package archives, and contain an Appx manifest directly or inside a nested package.
+- Verifies that Store upload artifacts exist, are non-empty, are readable package archives, contain an Appx manifest directly or inside a nested package, and declare all seven shipped UI languages in the app package.
 
 The package verification script is also used by the Store build and Store publish workflows before artifacts are uploaded or submitted.
 

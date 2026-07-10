@@ -16,6 +16,8 @@
     <AppxAutoIncrementPackageRevision>false</AppxAutoIncrementPackageRevision>
     <AppxBundle>Always</AppxBundle>
     <AppxBundlePlatforms>x64</AppxBundlePlatforms>
+    <AppxBundleAutoResourcePackageQualifiers>Scale|DXFeatureLevel</AppxBundleAutoResourcePackageQualifiers>
+    <AppxDefaultResourceQualifiers>Language=en-US;ja-JP;de-DE;es-ES;fr-FR;ko-KR;zh-Hans</AppxDefaultResourceQualifiers>
     <AppxPackageDir>$(OutputPath)AppPackages\</AppxPackageDir>
     <EntryPointProjectUniqueName>..\..\src\Clipton.WinUI\Clipton.WinUI.csproj</EntryPointProjectUniqueName>
     <TargetPlatformIdentifier>UAP</TargetPlatformIdentifier>
