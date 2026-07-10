@@ -42,19 +42,17 @@ public static class ClipboardBridge
     /// <summary>
     /// Places a snapshot back on the clipboard, optionally reducing it to plain text.
     /// </summary>
-    public static void Put(ClipboardSnapshot snapshot, bool asPlainText)
+    /// <returns><see langword="true"/> when the clipboard was updated.</returns>
+    public static bool Put(ClipboardSnapshot snapshot, bool asPlainText)
     {
-        WithClipboardRetry(() =>
-        {
-            PutOnce(snapshot, asPlainText);
-            return true;
-        });
+        return WithClipboardRetry(() => PutOnce(snapshot, asPlainText));
     }
 
     /// <summary>Places plain text on the clipboard.</summary>
-    public static void PutText(string text)
+    /// <returns><see langword="true"/> when the clipboard was updated.</returns>
+    public static bool PutText(string text)
     {
-        WithClipboardRetry(() =>
+        return WithClipboardRetry(() =>
         {
             var data = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
             data.SetText(text);
@@ -65,33 +63,24 @@ public static class ClipboardBridge
     }
 
     /// <summary>Places PNG image bytes on the clipboard as a bitmap.</summary>
-    public static void PutImagePng(byte[] imagePng)
+    /// <returns><see langword="true"/> when the clipboard was updated.</returns>
+    public static bool PutImagePng(byte[] imagePng)
     {
-        WithClipboardRetry(() =>
-        {
-            PutBitmap(imagePng);
-            return true;
-        });
+        return WithClipboardRetry(() => PutBitmap(imagePng));
     }
 
     /// <summary>Converts PNG bytes to JPEG and places the result on the clipboard.</summary>
-    public static void PutImageJpeg(byte[] imagePng)
+    /// <returns><see langword="true"/> when the clipboard was updated.</returns>
+    public static bool PutImageJpeg(byte[] imagePng)
     {
-        WithClipboardRetry(() =>
-        {
-            PutBitmap(EncodeJpeg(imagePng));
-            return true;
-        });
+        return WithClipboardRetry(() => PutBitmap(EncodeJpeg(imagePng)));
     }
 
     /// <summary>Places one existing file path on the clipboard as a file drop.</summary>
-    public static void PutFileDrop(string path)
+    /// <returns><see langword="true"/> when the file still exists and the clipboard was updated.</returns>
+    public static bool PutFileDrop(string path)
     {
-        WithClipboardRetry(() =>
-        {
-            PutFiles([path]);
-            return true;
-        });
+        return WithClipboardRetry(() => PutFiles([path]));
     }
 
     /// <summary>
@@ -187,21 +176,19 @@ public static class ClipboardBridge
             || data.Contains(StandardDataFormats.Bitmap);
     }
 
-    private static void PutOnce(ClipboardSnapshot snapshot, bool asPlainText)
+    private static bool PutOnce(ClipboardSnapshot snapshot, bool asPlainText)
     {
         var plainText = GetPlainText(snapshot);
         if (asPlainText && !string.IsNullOrEmpty(plainText))
         {
-            PutText(plainText);
-            return;
+            return PutText(plainText);
         }
 
         // File drops are restored through StorageItems; text and bitmap formats can be
         // combined in one package so mixed Office payloads keep both representations.
         if (snapshot.FilePaths.Count > 0)
         {
-            PutFiles(snapshot.FilePaths);
-            return;
+            return PutFiles(snapshot.FilePaths);
         }
 
         var data = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
@@ -232,14 +219,15 @@ public static class ClipboardBridge
 
         if (!hasContent)
         {
-            return;
+            return false;
         }
 
         Clipboard.SetContent(data);
         Clipboard.Flush();
+        return true;
     }
 
-    private static void PutFiles(IReadOnlyList<string> paths)
+    private static bool PutFiles(IReadOnlyList<string> paths)
     {
         var files = paths
             .Where(File.Exists)
@@ -248,7 +236,7 @@ public static class ClipboardBridge
         if (files.Length == 0)
         {
             AppDiagnostics.Warning("Clipboard file paste", $"No existing files were available for {paths.Count} requested path(s).");
-            return;
+            return false;
         }
 
         if (files.Length != paths.Count)
@@ -260,14 +248,21 @@ public static class ClipboardBridge
         data.SetStorageItems(files);
         Clipboard.SetContent(data);
         Clipboard.Flush();
+        return true;
     }
 
-    private static void PutBitmap(byte[] bytes)
+    private static bool PutBitmap(byte[] bytes)
     {
+        if (bytes.Length == 0)
+        {
+            return false;
+        }
+
         var data = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
         SetBitmap(data, bytes);
         Clipboard.SetContent(data);
         Clipboard.Flush();
+        return true;
     }
 
     private static void SetBitmap(DataPackage data, byte[] bytes)

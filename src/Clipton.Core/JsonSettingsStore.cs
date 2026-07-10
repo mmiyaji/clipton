@@ -29,12 +29,12 @@ public sealed class JsonSettingsStore
             return new CliptonSettings();
         }
 
-        var json = File.ReadAllText(_path);
         CliptonSettings settings;
         bool historyPersistenceConfigured;
         bool maskRuleDefinitionsConfigured;
         try
         {
+            var json = File.ReadAllText(_path);
             settings = JsonSerializer.Deserialize<CliptonSettings>(json, Options) ?? new CliptonSettings();
             using var document = JsonDocument.Parse(json);
             if (document.RootElement.ValueKind != JsonValueKind.Object)
@@ -49,6 +49,14 @@ public sealed class JsonSettingsStore
         {
             return new CliptonSettings();
         }
+        catch (IOException)
+        {
+            return new CliptonSettings();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return new CliptonSettings();
+        }
 
         // Older settings files did not have an explicit history-persistence choice.
         // Preserve the historical default of encrypted local history instead of treating
@@ -60,10 +68,7 @@ public sealed class JsonSettingsStore
 
         settings.MaxHistoryItems = Math.Clamp(settings.MaxHistoryItems, 1, 1000);
         settings.ClipboardCaptureDelayMilliseconds = NormalizeClipboardCaptureDelay(settings.ClipboardCaptureDelayMilliseconds);
-        settings.PinnedHistoryIds = settings.PinnedHistoryIds
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
+        NormalizeCollections(settings);
         settings.Locale = NormalizeLocale(settings.Locale);
         settings.Theme = NormalizeTheme(settings.Theme);
         settings.QuickMenuDisplayMode = NormalizeQuickMenuDisplayMode(settings.QuickMenuDisplayMode);
@@ -82,10 +87,13 @@ public sealed class JsonSettingsStore
     /// </summary>
     public void Save(CliptonSettings settings)
     {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        NormalizeCollections(settings);
         settings.QuickMenuDisplayMode = NormalizeQuickMenuDisplayMode(settings.QuickMenuDisplayMode);
-        settings.ExcludedCaptureApplicationPatterns = ApplicationExclusionList.Normalize(settings.ExcludedCaptureApplicationPatterns);
         NormalizeHistoryAccessLock(settings);
         NormalizeMaskRuleSettings(settings, preferConfiguredDefinitions: true);
+        NormalizeQuickMenuShortcuts(settings);
         NormalizeQuickMenuPasteOptions(settings);
         var directory = Path.GetDirectoryName(_path);
         if (!string.IsNullOrWhiteSpace(directory))
@@ -95,8 +103,49 @@ public sealed class JsonSettingsStore
 
         var tempDirectory = string.IsNullOrWhiteSpace(directory) ? "." : directory;
         var tempPath = Path.Combine(tempDirectory, $"{Path.GetFileName(_path)}.{Guid.NewGuid():N}.tmp");
-        File.WriteAllText(tempPath, JsonSerializer.Serialize(settings, Options));
-        File.Move(tempPath, _path, overwrite: true);
+        try
+        {
+            File.WriteAllText(tempPath, JsonSerializer.Serialize(settings, Options));
+            File.Move(tempPath, _path, overwrite: true);
+        }
+        finally
+        {
+            TryDeleteTemporaryFile(tempPath);
+        }
+    }
+
+    private static void NormalizeCollections(CliptonSettings settings)
+    {
+        settings.ExcludedCaptureApplicationPatterns =
+            ApplicationExclusionList.Normalize(settings.ExcludedCaptureApplicationPatterns);
+        settings.PinnedHistoryIds = (settings.PinnedHistoryIds ?? [])
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        settings.CustomMaskPatterns = (settings.CustomMaskPatterns ?? [])
+            .Where(pattern => !string.IsNullOrWhiteSpace(pattern))
+            .Select(pattern => pattern.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        settings.MaskRuleDefinitions = (settings.MaskRuleDefinitions ?? [])
+            .Where(rule => rule is not null)
+            .ToArray();
+    }
+
+    private static void TryDeleteTemporaryFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (IOException)
+        {
+            // Preserve the original settings-write failure; temporary-file cleanup is best effort.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Preserve the original settings-write failure; temporary-file cleanup is best effort.
+        }
     }
 
     private static void NormalizeMaskRuleSettings(CliptonSettings settings, bool preferConfiguredDefinitions)

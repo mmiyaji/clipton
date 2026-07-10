@@ -440,4 +440,60 @@ public sealed class SensitiveContentDetectorTests
     {
         Assert.Empty(SensitiveContentDetector.GetInvalidCustomPatterns(null));
     }
+
+    [Fact]
+    public void ShouldMask_WhenCustomPatternTimesOut_FailsClosed()
+    {
+        var text = new string('a', 20_000) + "!";
+
+        var shouldMask = SensitiveContentDetector.ShouldMask(
+            text,
+            maskRuleDefinitions: CreateDisabledRules(),
+            customPatterns: ["(a+)+$"],
+            customPatternsEnabled: true);
+
+        Assert.True(shouldMask);
+    }
+
+    [Fact]
+    public void FindMatchedRules_WhenCustomPatternTimesOut_ReportsTheRule()
+    {
+        var text = new string('a', 20_000) + "!";
+
+        var matches = SensitiveContentDetector.FindMatchedRules(
+            text,
+            maskRuleDefinitions: CreateDisabledRules(),
+            customPatterns: ["(a+)+$"],
+            customPatternsEnabled: true);
+
+        var match = Assert.Single(matches);
+        Assert.True(match.IsCustomPattern);
+        Assert.Equal("(a+)+$", match.Pattern);
+    }
+
+    [Fact]
+    public void CreateMaskedPreview_WhenCustomPatternTimesOut_MasksAllVisibleText()
+    {
+        var text = new string('a', 20_000) + "!";
+
+        var preview = SensitiveContentDetector.CreateMaskedPreview(
+            text,
+            visiblePrefixLength: 3,
+            maskRuleDefinitions: CreateDisabledRules(),
+            customPatterns: ["(a+)+$"],
+            customPatternsEnabled: true);
+
+        Assert.Equal(new string('\u2022', 8), preview);
+    }
+
+    private static MaskRuleDefinition[] CreateDisabledRules()
+    {
+        var rules = MaskRuleDefinitionDefaults.CreateDefaultRules();
+        foreach (var rule in rules)
+        {
+            rule.Enabled = false;
+        }
+
+        return rules;
+    }
 }

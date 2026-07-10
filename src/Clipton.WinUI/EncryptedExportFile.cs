@@ -14,6 +14,8 @@ internal static class EncryptedExportFile
     private const int NonceSize = 12;
     private const int TagSize = 16;
     private const int Iterations = 210_000;
+    internal const int MinSupportedIterations = 25_000;
+    internal const int MaxSupportedIterations = 1_000_000;
     private const string Kdf = "PBKDF2-SHA256";
     private const string Cipher = "AES-256-GCM";
     internal const long MaxImportFileBytes = 128L * 1024 * 1024;
@@ -85,7 +87,7 @@ internal static class EncryptedExportFile
         if (envelope.Version != Version
             || !string.Equals(envelope.Kind, expectedKind, StringComparison.Ordinal)
             || !string.Equals(envelope.Kdf, Kdf, StringComparison.Ordinal)
-            || envelope.Iterations <= 0
+            || envelope.Iterations is < MinSupportedIterations or > MaxSupportedIterations
             || !string.Equals(envelope.Cipher, Cipher, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("The selected file is not a supported encrypted Clipton export.");

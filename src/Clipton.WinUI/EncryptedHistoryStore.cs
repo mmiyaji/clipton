@@ -153,6 +153,58 @@ public sealed class EncryptedHistoryStore
     }
 
     /// <summary>
+    /// Loads every persisted history item for a complete export, or throws when the
+    /// committed ordering and readable payloads do not match exactly.
+    /// </summary>
+    /// <remarks>
+    /// Unlike normal paging reads, this method never repairs a manifest or suppresses a
+    /// payload failure. The manifest and all referenced payloads are read under one lock
+    /// so callers cannot mistake a partial backup for a complete export.
+    /// </remarks>
+    public IReadOnlyList<ClipboardSnapshot> LoadAllStrict()
+    {
+        lock (_syncRoot)
+        {
+            try
+            {
+                if (!File.Exists(_manifestPath))
+                {
+                    if (Directory.Exists(_directory))
+                    {
+                        throw new InvalidDataException(
+                            "The persisted history directory exists without its required manifest.");
+                    }
+
+                    return LoadLegacyStrict();
+                }
+
+                HistoryManifestDto? manifest = ReadManifest();
+                if (manifest is null
+                    || manifest.OrderedIds is null
+                    || !IsSupportedManifestVersion(manifest.Version))
+                {
+                    throw new InvalidDataException("The persisted history manifest is not supported.");
+                }
+
+                var items = LoadOrderedDtos(manifest, repairItemizedManifest: false).ToArray();
+                if (items.Any(item => item is null)
+                    || !manifest.OrderedIds.SequenceEqual(items.Select(item => item.Id), StringComparer.Ordinal))
+                {
+                    throw new InvalidDataException(
+                        "The persisted history manifest does not match all readable item payloads.");
+                }
+
+                return items.Select(item => item.ToSnapshot()).ToArray();
+            }
+            catch (Exception exception) when (IsTransientReadException(exception))
+            {
+                MarkTransientReadFailure(exception, "Load complete history for export");
+                throw;
+            }
+        }
+    }
+
+    /// <summary>
     /// Replaces persisted history with the supplied resident snapshots.
     /// </summary>
     public void Save(IEnumerable<ClipboardSnapshot> snapshots)
@@ -187,7 +239,9 @@ public sealed class EncryptedHistoryStore
                 var persistedIds = GetExistingItemIds(manifest, repairManifest: true);
                 var ids = currentItems
                     .Select(item => item.Id)
-                    .Concat(persistedIds.Where(id => !currentIds.Contains(id)))
+                    .Concat(persistedIds
+                        .Skip(Math.Max(0, loadedPersistedCount))
+                        .Where(id => !currentIds.Contains(id)))
                     .Take(capacity)
                     .ToArray();
                 SaveItemized(currentItems, ids);
@@ -233,7 +287,24 @@ public sealed class EncryptedHistoryStore
     {
         lock (_syncRoot)
         {
-            var items = LoadOrderedDtos().ToArray();
+            ClipboardSnapshotDto[] items;
+            if (File.Exists(_manifestPath))
+            {
+                var manifest = ReadManifest();
+                items = LoadOrderedDtos(manifest, repairItemizedManifest: false).ToArray();
+                if (!manifest.OrderedIds.SequenceEqual(items.Select(item => item.Id), StringComparer.Ordinal))
+                {
+                    AppDiagnostics.Warning(
+                        "Clear history source metadata",
+                        "History could not be read completely; preserving the existing manifest and payload files.");
+                    return;
+                }
+            }
+            else
+            {
+                items = LoadOrderedDtos().ToArray();
+            }
+
             if (items.Length == 0
                 || items.All(item => string.IsNullOrWhiteSpace(item.SourceApplicationName)
                     && string.IsNullOrWhiteSpace(item.SourceWindowTitle)))
@@ -275,38 +346,7 @@ public sealed class EncryptedHistoryStore
     {
         if (File.Exists(_manifestPath))
         {
-            var manifest = ReadManifest();
-            if (!IsSupportedManifestVersion(manifest.Version))
-            {
-                return [];
-            }
-
-            if (manifest.Version == FormatVersion)
-            {
-                return LoadDtosFromItems(manifest, 0, manifest.OrderedIds.Length);
-            }
-
-            if (manifest.Version == ChunkedFormatVersion)
-            {
-                return LoadDtosFromChunks(manifest, 0, manifest.OrderedIds.Length);
-            }
-
-            var byId = new Dictionary<string, ClipboardSnapshotDto>(StringComparer.Ordinal);
-            foreach (var item in File.Exists(_basePath) ? ReadProtected<ClipboardSnapshotDto[]>(_basePath) : [])
-            {
-                byId[item.Id] = item;
-            }
-
-            foreach (var item in File.Exists(_deltaPath) ? ReadProtected<ClipboardSnapshotDto[]>(_deltaPath) : [])
-            {
-                byId[item.Id] = item;
-            }
-
-            return manifest.OrderedIds
-                .Select(id => byId.GetValueOrDefault(id))
-                .Where(item => item is not null)
-                .Select(item => item!)
-                .ToArray();
+            return LoadOrderedDtos(ReadManifest(), repairItemizedManifest: true);
         }
 
         if (!File.Exists(_legacyPath))
@@ -317,6 +357,43 @@ public sealed class EncryptedHistoryStore
         var encrypted = File.ReadAllBytes(_legacyPath);
         var json = ProtectedData.Unprotect(encrypted, optionalEntropy: null, DataProtectionScope.CurrentUser);
         return JsonSerializer.Deserialize<ClipboardSnapshotDto[]>(json) ?? [];
+    }
+
+    private IReadOnlyList<ClipboardSnapshotDto> LoadOrderedDtos(
+        HistoryManifestDto manifest,
+        bool repairItemizedManifest)
+    {
+        if (!IsSupportedManifestVersion(manifest.Version))
+        {
+            return [];
+        }
+
+        if (manifest.Version == FormatVersion)
+        {
+            return LoadDtosFromItems(manifest, 0, manifest.OrderedIds.Length, repairItemizedManifest);
+        }
+
+        if (manifest.Version == ChunkedFormatVersion)
+        {
+            return LoadDtosFromChunks(manifest, 0, manifest.OrderedIds.Length);
+        }
+
+        var byId = new Dictionary<string, ClipboardSnapshotDto>(StringComparer.Ordinal);
+        foreach (var item in File.Exists(_basePath) ? ReadProtected<ClipboardSnapshotDto[]>(_basePath) : [])
+        {
+            byId[item.Id] = item;
+        }
+
+        foreach (var item in File.Exists(_deltaPath) ? ReadProtected<ClipboardSnapshotDto[]>(_deltaPath) : [])
+        {
+            byId[item.Id] = item;
+        }
+
+        return manifest.OrderedIds
+            .Select(id => byId.GetValueOrDefault(id))
+            .Where(item => item is not null)
+            .Select(item => item!)
+            .ToArray();
     }
 
     private IReadOnlyList<ClipboardSnapshot> LoadLegacy()
@@ -341,6 +418,25 @@ public sealed class EncryptedHistoryStore
         {
             return [];
         }
+    }
+
+    private IReadOnlyList<ClipboardSnapshot> LoadLegacyStrict()
+    {
+        if (!File.Exists(_legacyPath))
+        {
+            return [];
+        }
+
+        var encrypted = File.ReadAllBytes(_legacyPath);
+        var json = ProtectedData.Unprotect(encrypted, optionalEntropy: null, DataProtectionScope.CurrentUser);
+        var items = JsonSerializer.Deserialize<ClipboardSnapshotDto[]>(json)
+            ?? throw new InvalidDataException("The persisted legacy history payload is empty.");
+        if (items.Any(item => item is null))
+        {
+            throw new InvalidDataException("The persisted legacy history contains an invalid item.");
+        }
+
+        return items.Select(item => item.ToSnapshot()).ToArray();
     }
 
     private void SaveCompacted(ClipboardSnapshotDto[] items)
@@ -371,21 +467,33 @@ public sealed class EncryptedHistoryStore
 
     private void SaveItemized(IReadOnlyList<ClipboardSnapshotDto> items, string[] ids, bool overwriteExistingItems = false)
     {
-        Directory.CreateDirectory(_itemsDirectory);
         var idsToKeep = ids.ToHashSet(StringComparer.Ordinal);
-        foreach (var item in items)
+        foreach (var id in ids)
+        {
+            _ = ItemPath(id);
+        }
+
+        var itemPaths = items
+            .Select(item => (Item: item, Path: ItemPath(item.Id)))
+            .ToArray();
+
+        Directory.CreateDirectory(_itemsDirectory);
+        foreach (var (item, path) in itemPaths)
         {
             if (!idsToKeep.Contains(item.Id))
             {
                 continue;
             }
 
-            var path = ItemPath(item.Id);
             if (overwriteExistingItems || !File.Exists(path))
             {
                 WriteProtected(path, item);
             }
         }
+
+        // Commit the new ordering before destructive cleanup. If the manifest write fails,
+        // the previously committed manifest still has all of its referenced payload files.
+        WriteManifest(new HistoryManifestDto(FormatVersion, ids, ids, []));
 
         // The manifest is the ordering source of truth; item files not referenced by it
         // are stale encrypted payloads and should be removed after each complete save.
@@ -409,7 +517,6 @@ public sealed class EncryptedHistoryStore
             TryDeleteDirectory(_chunksDirectory);
         }
 
-        WriteManifest(new HistoryManifestDto(FormatVersion, ids, ids, []));
         CleanupStaleChunkDirectories();
     }
 
@@ -420,9 +527,13 @@ public sealed class EncryptedHistoryStore
             .ToArray();
     }
 
-    private IReadOnlyList<ClipboardSnapshotDto> LoadDtosFromItems(HistoryManifestDto manifest, int offset, int count)
+    private IReadOnlyList<ClipboardSnapshotDto> LoadDtosFromItems(
+        HistoryManifestDto manifest,
+        int offset,
+        int count,
+        bool repairManifest = true)
     {
-        var existingIds = GetExistingItemIds(manifest, repairManifest: true);
+        var existingIds = GetExistingItemIds(manifest, repairManifest);
         if (existingIds.Length == 0 || offset >= existingIds.Length)
         {
             return [];
@@ -448,7 +559,18 @@ public sealed class EncryptedHistoryStore
         var missingCount = 0;
         foreach (var id in manifest.OrderedIds)
         {
-            if (File.Exists(ItemPath(id)))
+            string path;
+            try
+            {
+                path = ItemPath(id);
+            }
+            catch (InvalidDataException)
+            {
+                missingCount++;
+                continue;
+            }
+
+            if (File.Exists(path))
             {
                 existingIds.Add(id);
             }
@@ -624,7 +746,28 @@ public sealed class EncryptedHistoryStore
 
     private string ItemPath(string id)
     {
-        return Path.Combine(_itemsDirectory, $"{id}.dat");
+        if (string.IsNullOrWhiteSpace(id) || id.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            throw new InvalidDataException("History item id is not a valid file name.");
+        }
+
+        try
+        {
+            var itemsDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(_itemsDirectory));
+            var path = Path.GetFullPath(Path.Combine(itemsDirectory, $"{id}.dat"));
+            var directoryPrefix = $"{itemsDirectory}{Path.DirectorySeparatorChar}";
+            if (!path.StartsWith(directoryPrefix, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(Path.GetDirectoryName(path), itemsDirectory, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException("History item path is outside the item storage directory.");
+            }
+
+            return path;
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            throw new InvalidDataException("History item id cannot be converted to a safe storage path.", exception);
+        }
     }
 
     private static void TryDeleteFile(string path)

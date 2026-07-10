@@ -192,7 +192,7 @@ public sealed class HistoryAccessLockPrivacyTests
     }
 
     [Fact]
-    public void SourceMetadata_IsDisabledByDefaultAndScrubbedFromPersistedHistory()
+    public void SourceMetadata_IsHiddenByDefaultWithoutEagerlyRewritingPersistedHistory()
     {
         var root = CreateTestRoot();
         var historyPath = Path.Combine(root, "history.dat");
@@ -212,8 +212,14 @@ public sealed class HistoryAccessLockPrivacyTests
         Assert.Null(item.SourceApplicationName);
         Assert.Null(item.SourceWindowTitle);
         var persisted = Assert.Single(store.Load());
-        Assert.Null(persisted.SourceApplicationName);
-        Assert.Null(persisted.SourceWindowTitle);
+        Assert.Equal("SecretApp", persisted.SourceApplicationName);
+        Assert.Equal("Secret Window", persisted.SourceWindowTitle);
+
+        var exportPath = Path.Combine(root, "metadata-private-export.json");
+        Assert.Equal(1, runtime.ExportHistory(exportPath));
+        var exportedJson = File.ReadAllText(exportPath);
+        Assert.DoesNotContain("SecretApp", exportedJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("Secret Window", exportedJson, StringComparison.Ordinal);
     }
 
     [Fact]

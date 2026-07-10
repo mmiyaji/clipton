@@ -10,8 +10,8 @@ namespace Clipton.Core;
 /// <remarks>
 /// Detection is preview-only: the original clipboard payload remains unchanged so paste
 /// fidelity is preserved. Custom patterns are compiled with a timeout and invalid
-/// patterns are ignored by matching APIs, which keeps history rendering resilient to
-/// user-supplied regular expressions.
+/// patterns are ignored by matching APIs. A match timeout is treated as sensitive so
+/// user-supplied regular expressions cannot expose preview text or crash history rendering.
 /// </remarks>
 public static class SensitiveContentDetector
 {
@@ -48,30 +48,39 @@ public static class SensitiveContentDetector
             return false;
         }
 
-        foreach (var rule in MaskRuleDefinitionDefaults.Normalize(maskRuleDefinitions))
+        try
         {
-            if (!rule.Enabled || string.IsNullOrWhiteSpace(rule.Pattern))
+            foreach (var rule in MaskRuleDefinitionDefaults.Normalize(maskRuleDefinitions))
             {
-                continue;
-            }
+                if (!rule.Enabled || string.IsNullOrWhiteSpace(rule.Pattern))
+                {
+                    continue;
+                }
 
-            if (rule.Id == MaskRuleIds.CreditCard)
-            {
-                if (LooksLikeCreditCard(text, rule.Pattern))
+                if (rule.Id == MaskRuleIds.CreditCard)
+                {
+                    if (LooksLikeCreditCard(text, rule.Pattern))
+                    {
+                        return true;
+                    }
+
+                    continue;
+                }
+
+                if (TryGetRegex(rule.Pattern, out var regex) && regex.IsMatch(text))
                 {
                     return true;
                 }
-
-                continue;
             }
 
-            if (TryGetRegex(rule.Pattern, out var regex) && regex.IsMatch(text))
-            {
-                return true;
-            }
+            return customPatternsEnabled && MatchesCustomPattern(text, customPatterns);
         }
-
-        return customPatternsEnabled && MatchesCustomPattern(text, customPatterns);
+        catch (RegexMatchTimeoutException)
+        {
+            // Preview masking is privacy-sensitive. An indeterminate match is treated as
+            // sensitive instead of exposing content or crashing the history surface.
+            return true;
+        }
     }
 
     /// <summary>
@@ -99,9 +108,19 @@ public static class SensitiveContentDetector
                 continue;
             }
 
-            var matched = rule.Id == MaskRuleIds.CreditCard
-                ? LooksLikeCreditCard(text, rule.Pattern)
-                : TryGetRegex(rule.Pattern, out var regex) && regex.IsMatch(text);
+            bool matched;
+            try
+            {
+                matched = rule.Id == MaskRuleIds.CreditCard
+                    ? LooksLikeCreditCard(text, rule.Pattern)
+                    : TryGetRegex(rule.Pattern, out var regex) && regex.IsMatch(text);
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                matches.Add(new MaskRuleMatch(rule.Id, rule.NameKey, rule.Pattern, IsCustomPattern: false));
+                return DistinctMatches(matches);
+            }
+
             if (matched)
             {
                 matches.Add(new MaskRuleMatch(rule.Id, rule.NameKey, rule.Pattern, IsCustomPattern: false));
@@ -112,16 +131,22 @@ public static class SensitiveContentDetector
         {
             foreach (var pattern in ValidateCustomPatterns(customPatterns))
             {
-                if (TryGetRegex(pattern, out var regex) && regex.IsMatch(text))
+                try
+                {
+                    if (TryGetRegex(pattern, out var regex) && regex.IsMatch(text))
+                    {
+                        matches.Add(new MaskRuleMatch("custom", "MaskRuleCustomPattern", pattern, IsCustomPattern: true));
+                    }
+                }
+                catch (RegexMatchTimeoutException)
                 {
                     matches.Add(new MaskRuleMatch("custom", "MaskRuleCustomPattern", pattern, IsCustomPattern: true));
+                    return DistinctMatches(matches);
                 }
             }
         }
 
-        return matches
-            .DistinctBy(match => (match.RuleId, match.Pattern))
-            .ToArray();
+        return DistinctMatches(matches);
     }
 
     /// <summary>
@@ -190,29 +215,37 @@ public static class SensitiveContentDetector
             return null;
         }
 
-        var replacements = new List<MaskReplacement>();
-        foreach (var rule in MaskRuleDefinitionDefaults.Normalize(maskRuleDefinitions))
+        try
         {
-            if (!rule.Enabled || !TryGetRegex(rule.Pattern, out var regex))
+            var replacements = new List<MaskReplacement>();
+            foreach (var rule in MaskRuleDefinitionDefaults.Normalize(maskRuleDefinitions))
             {
-                continue;
+                if (!rule.Enabled || !TryGetRegex(rule.Pattern, out var regex))
+                {
+                    continue;
+                }
+
+                replacements.AddRange(CreateReplacements(text, rule.Id, regex, visiblePrefixLength));
             }
 
-            replacements.AddRange(CreateReplacements(text, rule.Id, regex, visiblePrefixLength));
-        }
+            if (customPatternsEnabled)
+            {
+                replacements.AddRange(CreateCustomReplacements(text, customPatterns, visiblePrefixLength));
+            }
 
-        if (customPatternsEnabled)
+            var result = ApplyReplacements(text, replacements);
+            if (!string.Equals(result, text, StringComparison.Ordinal))
+            {
+                return result;
+            }
+
+            return null;
+        }
+        catch (RegexMatchTimeoutException)
         {
-            replacements.AddRange(CreateCustomReplacements(text, customPatterns, visiblePrefixLength));
+            // Do not retain even the configured visible prefix when the match result is unknown.
+            return MaskValue(text, visiblePrefixLength: 0);
         }
-
-        var result = ApplyReplacements(text, replacements);
-        if (!string.Equals(result, text, StringComparison.Ordinal))
-        {
-            return result;
-        }
-
-        return null;
     }
 
     /// <summary>
@@ -396,6 +429,13 @@ public static class SensitiveContentDetector
 
         result.Append(text, cursor, text.Length - cursor);
         return result.ToString();
+    }
+
+    private static MaskRuleMatch[] DistinctMatches(IEnumerable<MaskRuleMatch> matches)
+    {
+        return matches
+            .DistinctBy(match => (match.RuleId, match.Pattern))
+            .ToArray();
     }
 
     private static bool IsCreditCardMatch(Match match)

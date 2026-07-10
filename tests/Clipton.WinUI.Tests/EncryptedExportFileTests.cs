@@ -47,6 +47,21 @@ public sealed class EncryptedExportFileTests
         Assert.Equal(["alpha"], loaded);
     }
 
+    [Theory]
+    [InlineData(EncryptedExportFile.MinSupportedIterations - 1)]
+    [InlineData(EncryptedExportFile.MaxSupportedIterations + 1)]
+    public void Read_RejectsIterationCountsOutsideSupportedRangeBeforeKeyDerivation(int iterations)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-export-tests", Guid.NewGuid().ToString("N"), "invalid-iterations.clipton");
+        var options = new JsonSerializerOptions();
+        const string kind = "test";
+        const string passphrase = "correct horse";
+        WriteUnencryptedEnvelope(path, kind, options, iterations);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            EncryptedExportFile.Read<string[]>(path, kind, passphrase, options));
+    }
+
     private static void WriteEncryptedEnvelope<T>(
         string path,
         string kind,
@@ -83,6 +98,28 @@ public sealed class EncryptedExportFileTests
             Nonce = Convert.ToBase64String(nonce),
             Tag = Convert.ToBase64String(tag),
             Ciphertext = Convert.ToBase64String(ciphertext)
+        };
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, JsonSerializer.SerializeToUtf8Bytes(envelope, options));
+    }
+
+    private static void WriteUnencryptedEnvelope(
+        string path,
+        string kind,
+        JsonSerializerOptions options,
+        int iterations)
+    {
+        var envelope = new
+        {
+            Version = 1,
+            Kind = kind,
+            Kdf = "PBKDF2-SHA256",
+            Iterations = iterations,
+            Cipher = "AES-256-GCM",
+            Salt = Convert.ToBase64String(new byte[16]),
+            Nonce = Convert.ToBase64String(new byte[12]),
+            Tag = Convert.ToBase64String(new byte[16]),
+            Ciphertext = string.Empty
         };
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllBytes(path, JsonSerializer.SerializeToUtf8Bytes(envelope, options));

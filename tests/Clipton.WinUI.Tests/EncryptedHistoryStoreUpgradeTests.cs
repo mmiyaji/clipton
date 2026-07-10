@@ -26,6 +26,23 @@ public sealed class EncryptedHistoryStoreUpgradeTests
     }
 
     [Fact]
+    public void LoadAllStrict_ReadsLegacySingleFileHistory()
+    {
+        var root = CreateTestRoot();
+        var path = Path.Combine(root, "history.dat");
+        var store = new EncryptedHistoryStore(path);
+        WriteProtected(path, new[]
+        {
+            Dto("legacy-1", "oldest"),
+            Dto("legacy-2", "newest")
+        });
+
+        var loaded = store.LoadAllStrict();
+
+        Assert.Equal(["legacy-1", "legacy-2"], loaded.Select(item => item.Id));
+    }
+
+    [Fact]
     public void LoadRange_ReadsLegacySegmentedVersion3History()
     {
         var root = CreateTestRoot();
@@ -94,6 +111,30 @@ public sealed class EncryptedHistoryStoreUpgradeTests
         Assert.True(File.Exists(Path.Combine(historyRoot, "items", "new-1.dat")));
         Assert.True(File.Exists(Path.Combine(historyRoot, "items", "old-1.dat")));
         Assert.Equal(["new-1", "old-1"], store.LoadRecent(10).Select(item => item.Id));
+    }
+
+    [Fact]
+    public void SavePreservingOlder_DoesNotRestoreDeletedItemFromLoadedPrefix()
+    {
+        var root = CreateTestRoot();
+        var path = Path.Combine(root, "history.dat");
+        var store = new EncryptedHistoryStore(path);
+        store.Save([
+            Snapshot("persisted-1", "first"),
+            Snapshot("persisted-2", "second"),
+            Snapshot("persisted-3", "third"),
+            Snapshot("persisted-4", "fourth")
+        ]);
+
+        store.SavePreservingOlder(
+            [Snapshot("new-1", "new"), Snapshot("persisted-1", "first")],
+            loadedPersistedCount: 2,
+            capacity: 10);
+
+        Assert.Equal(
+            ["new-1", "persisted-1", "persisted-3", "persisted-4"],
+            store.LoadRecent(10).Select(item => item.Id));
+        Assert.False(File.Exists(Path.Combine(root, "history", "items", "persisted-2.dat")));
     }
 
     [Fact]

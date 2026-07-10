@@ -69,6 +69,89 @@ public sealed class SettingsStoreTests
     }
 
     [Fact]
+    public void Load_ReturnsDefaultsWhenSettingsFileCannotBeRead()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "{}");
+        var store = new JsonSettingsStore(path);
+
+        using var lockedFile = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+        var loaded = store.Load();
+
+        Assert.Equal(200, loaded.MaxHistoryItems);
+        Assert.Equal("system", loaded.Locale);
+    }
+
+    [Fact]
+    public void Load_NormalizesNullCollectionsAndElements()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """
+{
+  "ExcludedCaptureApplicationPatterns": null,
+  "PinnedHistoryIds": [null, "", "kept", "kept"],
+  "CustomMaskPatterns": [null, " ", " alpha-\\d+ ", "alpha-\\d+"],
+  "MaskRuleDefinitions": [null],
+  "QuickMenuShortcuts": null,
+  "QuickMenuPasteOptions": null
+}
+""");
+        var store = new JsonSettingsStore(path);
+
+        var loaded = store.Load();
+
+        Assert.Empty(loaded.ExcludedCaptureApplicationPatterns);
+        Assert.Equal(["kept"], loaded.PinnedHistoryIds);
+        Assert.Equal(["alpha-\\d+"], loaded.CustomMaskPatterns);
+        Assert.Equal(MaskRuleDefinitionDefaults.CreateDefaultRules().Length, loaded.MaskRuleDefinitions.Length);
+        Assert.Equal(QuickMenuShortcutSettings.DefaultSearch, loaded.QuickMenuShortcuts.Search);
+        Assert.Empty(loaded.QuickMenuPasteOptions.DisabledOptionIds);
+    }
+
+    [Fact]
+    public void Save_NormalizesNullCollections()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");
+        var store = new JsonSettingsStore(path);
+        var settings = new CliptonSettings
+        {
+            ExcludedCaptureApplicationPatterns = null!,
+            PinnedHistoryIds = null!,
+            CustomMaskPatterns = null!,
+            MaskRuleDefinitions = null!,
+            QuickMenuShortcuts = null!,
+            QuickMenuPasteOptions = null!
+        };
+
+        store.Save(settings);
+
+        Assert.NotNull(settings.QuickMenuShortcuts);
+        Assert.NotNull(settings.QuickMenuPasteOptions);
+        var loaded = store.Load();
+
+        Assert.Empty(loaded.ExcludedCaptureApplicationPatterns);
+        Assert.Empty(loaded.PinnedHistoryIds);
+        Assert.Empty(loaded.CustomMaskPatterns);
+        Assert.Equal(MaskRuleDefinitionDefaults.CreateDefaultRules().Length, loaded.MaskRuleDefinitions.Length);
+    }
+
+    [Fact]
+    public void Save_WhenCommitFails_RemovesTemporaryFile()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(root, "settings.json");
+        Directory.CreateDirectory(path);
+        var store = new JsonSettingsStore(path);
+
+        var exception = Record.Exception(() => store.Save(new CliptonSettings()));
+
+        Assert.NotNull(exception);
+        Assert.Empty(Directory.EnumerateFiles(root, "settings.json.*.tmp"));
+    }
+
+    [Fact]
     public void Load_ReturnsDefaultsWhenSettingsJsonIsNullLiteral()
     {
         var path = Path.Combine(Path.GetTempPath(), "clipton-tests", Guid.NewGuid().ToString("N"), "settings.json");

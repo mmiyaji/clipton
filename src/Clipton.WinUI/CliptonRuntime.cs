@@ -14,6 +14,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.Win32;
 using Windows.Graphics;
+using Windows.UI.ViewManagement;
 using WinRT.Interop;
 using Drawing = System.Drawing;
 using Drawing2D = System.Drawing.Drawing2D;
@@ -52,6 +53,7 @@ public sealed class CliptonRuntime : IDisposable
     private static readonly TimeSpan HistoryAccessUnlockBackoff = TimeSpan.FromSeconds(30);
     private static readonly Regex UrlRegex = new(@"\b(?:https?|ftp)://[^\s<>()""']+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private readonly DispatcherQueue? _dispatcherQueue;
+    private readonly AccessibilitySettings? _accessibilitySettings;
     private readonly LocalizationCatalog _localization = new();
     private readonly JsonSettingsStore _settingsStore;
     private readonly EncryptedHistoryStore _historyStore;
@@ -66,6 +68,7 @@ public sealed class CliptonRuntime : IDisposable
     private readonly object _historyImageCacheGate = new();
     private readonly Dictionary<string, byte[]> _historyImageBytesByKey = new(StringComparer.Ordinal);
     private readonly Queue<string> _historyImageCacheKeys = new();
+    private readonly HashSet<string> _deletedHistoryIds = new(StringComparer.Ordinal);
     private CancellationTokenSource? _historySaveDebounce;
     private long _historySaveVersion;
     private long _lastImmediateHistorySaveTick;
@@ -77,7 +80,7 @@ public sealed class CliptonRuntime : IDisposable
     private MainWindow? _mainWindow;
     private QuickMenuWindow? _defaultQuickMenu;
     private RichQuickMenuWindow? _richQuickMenu;
-    private IntPtr _pasteTargetWindow;
+    private PasteTargetWindowIdentity _pasteTargetWindow;
     private long _lastQuickMenuRequestTick;
     private int _quickMenuRequestPending;
     private bool _clipboardServicesStarted;
@@ -87,6 +90,7 @@ public sealed class CliptonRuntime : IDisposable
     private DateTimeOffset? _historyAccessUnlockedUntilUtc;
     private int _historyAccessUnlockFailedAttempts;
     private DateTimeOffset? _historyAccessUnlockBlockedUntilUtc;
+    private int _disposeState;
 
     /// <summary>
     /// Creates the runtime and loads settings, snippets and the initial resident history.
@@ -123,11 +127,6 @@ public sealed class CliptonRuntime : IDisposable
 
         if (Settings.PersistEncryptedHistory)
         {
-            if (!Settings.SaveHistorySourceMetadata)
-            {
-                _historyStore.ClearSourceMetadata();
-            }
-
             _persistedHistoryCount = _historyStore.Count();
             var snapshots = _historyStore.LoadRecent(Math.Min(Settings.MaxHistoryItems, InitialPersistedHistoryLoadCount));
             _loadedPersistedHistoryCount = snapshots.Count;
@@ -138,6 +137,32 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         AppProfiler.Mark($"History loaded. count={History.Items.Count}; persisted={_persistedHistoryCount}");
+        _accessibilitySettings = isSafeMode ? null : TryCreateAccessibilitySettings();
+        if (_accessibilitySettings is not null)
+        {
+            try
+            {
+                _accessibilitySettings.HighContrastChanged += OnHighContrastChanged;
+            }
+            catch (COMException exception)
+            {
+                AppDiagnostics.Log(exception, "High contrast event subscription");
+                _accessibilitySettings = null;
+            }
+        }
+    }
+
+    private static AccessibilitySettings? TryCreateAccessibilitySettings()
+    {
+        try
+        {
+            return new AccessibilitySettings();
+        }
+        catch (Exception exception) when (exception is COMException or TypeInitializationException)
+        {
+            AppDiagnostics.Log(exception, "Accessibility settings initialization");
+            return null;
+        }
     }
 
     private static DispatcherQueue? ResolveDispatcherQueue(bool isSafeMode)
@@ -334,7 +359,7 @@ public sealed class CliptonRuntime : IDisposable
         QueueClipboardPaste(() =>
         {
             var filePaths = requiresFilePaths ? GetCurrentClipboardFilePaths() : null;
-            ClipboardBridge.PutText(SnippetTemplateRenderer.Render(snippetText, filePaths: filePaths));
+            return ClipboardBridge.PutText(SnippetTemplateRenderer.Render(snippetText, filePaths: filePaths));
         }, sendPaste: true);
     }
 
@@ -418,7 +443,7 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         string? tempPasteFilePath = null;
-        Action? writeClipboard = mode switch
+        Func<bool>? writeClipboard = mode switch
         {
             ImagePasteMode.Original => () => ClipboardBridge.Put(item, asPlainText: false),
             ImagePasteMode.Png => () => ClipboardBridge.PutImagePng(imagePng),
@@ -427,7 +452,7 @@ public sealed class CliptonRuntime : IDisposable
             ImagePasteMode.File => () =>
             {
                 tempPasteFilePath = CreateTempImageFile(item);
-                ClipboardBridge.PutFileDrop(tempPasteFilePath);
+                return ClipboardBridge.PutFileDrop(tempPasteFilePath);
             },
             _ => null
         };
@@ -439,15 +464,16 @@ public sealed class CliptonRuntime : IDisposable
         QueueClipboardPaste(writeClipboard, sendPaste, () => tempPasteFilePath);
     }
 
-    private void QueueClipboardPaste(Action writeClipboard, bool sendPaste, Func<string?>? tempPasteFilePath = null)
+    private void QueueClipboardPaste(Func<bool> writeClipboard, bool sendPaste, Func<string?>? tempPasteFilePath = null)
     {
         var pasteTargetWindow = _pasteTargetWindow;
+        _pasteTargetWindow = default;
         _captureWorker.Post(() =>
         {
             try
             {
-                writeClipboard();
-                if (sendPaste)
+                var clipboardUpdated = writeClipboard();
+                if (clipboardUpdated && sendPaste)
                 {
                     SendPaste(pasteTargetWindow);
                 }
@@ -746,6 +772,7 @@ public sealed class CliptonRuntime : IDisposable
         else
         {
             History.Clear();
+            _deletedHistoryIds.Clear();
             _persistedHistoryCount = 0;
             _loadedPersistedHistoryCount = 0;
             Settings.PinnedHistoryIds = [];
@@ -949,6 +976,7 @@ public sealed class CliptonRuntime : IDisposable
 
         if (History.Remove(id))
         {
+            _deletedHistoryIds.Add(id);
             UnpinHistoryItem(id, refresh: false);
             DeleteHistoryImageFiles(id);
             QueueHistorySave();
@@ -1038,7 +1066,7 @@ public sealed class CliptonRuntime : IDisposable
     }
 
     /// <summary>
-    /// Exports the currently resident history items to a portable JSON file.
+    /// Exports all available history items to a portable JSON file.
     /// </summary>
     public int ExportHistory(string path)
     {
@@ -1060,12 +1088,51 @@ public sealed class CliptonRuntime : IDisposable
 
     private HistoryExportDto CreateHistoryExportDto(out int count)
     {
-        var items = History.Items
-            .Select(ApplySourceMetadataPolicy)
+        var snapshots = new List<ClipboardSnapshot>(Settings.MaxHistoryItems);
+        var seenIds = new HashSet<string>(StringComparer.Ordinal);
+        var seenFingerprints = new HashSet<string>(StringComparer.Ordinal);
+
+        void AddDistinct(ClipboardSnapshot snapshot)
+        {
+            if (snapshots.Count >= Settings.MaxHistoryItems)
+            {
+                return;
+            }
+
+            var sanitized = ApplySourceMetadataPolicy(snapshot);
+            var fingerprint = ClipboardHistory.CreateFingerprint(sanitized);
+            if (seenIds.Add(sanitized.Id) && seenFingerprints.Add(fingerprint))
+            {
+                snapshots.Add(sanitized);
+            }
+        }
+
+        foreach (var snapshot in History.Items)
+        {
+            AddDistinct(snapshot);
+        }
+
+        if (Settings.PersistEncryptedHistory && snapshots.Count < Settings.MaxHistoryItems)
+        {
+            foreach (var snapshot in LoadAllPersistedHistoryForExport())
+            {
+                if (!_deletedHistoryIds.Contains(snapshot.Id))
+                {
+                    AddDistinct(snapshot);
+                }
+            }
+        }
+
+        var items = snapshots
             .Select(HistoryExportItemDto.FromSnapshot)
             .ToArray();
         count = items.Length;
         return new HistoryExportDto(1, DateTimeOffset.UtcNow, items);
+    }
+
+    private IReadOnlyList<ClipboardSnapshot> LoadAllPersistedHistoryForExport()
+    {
+        return _historyStore.LoadAllStrict();
     }
 
     /// <summary>
@@ -1231,6 +1298,7 @@ public sealed class CliptonRuntime : IDisposable
     public void ClearHistory()
     {
         History.Clear();
+        _deletedHistoryIds.Clear();
         _persistedHistoryCount = 0;
         _loadedPersistedHistoryCount = 0;
         Settings.PinnedHistoryIds = [];
@@ -1286,6 +1354,7 @@ public sealed class CliptonRuntime : IDisposable
     {
         Settings.Locale = NormalizeLocale(locale);
         SaveSettings();
+        InvalidateCachedQuickMenus();
         RefreshTrayText();
     }
 
@@ -1293,13 +1362,31 @@ public sealed class CliptonRuntime : IDisposable
     {
         Settings.Theme = NormalizeTheme(theme);
         SaveSettings();
+        InvalidateCachedQuickMenus();
         RefreshTrayIcon();
         RefreshTrayText();
     }
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposeState, 1) != 0)
+        {
+            return;
+        }
+
         IsExiting = true;
+        if (_accessibilitySettings is not null)
+        {
+            try
+            {
+                _accessibilitySettings.HighContrastChanged -= OnHighContrastChanged;
+            }
+            catch (COMException exception)
+            {
+                AppDiagnostics.Log(exception, "High contrast event unsubscription");
+            }
+        }
+
         StopHistoryAccessLockTimer();
         _clipboardCaptureDelay?.Cancel();
         _clipboardCaptureDelay?.Dispose();
@@ -1307,15 +1394,53 @@ public sealed class CliptonRuntime : IDisposable
         SaveHistory(waitForCompletion: true);
         _messageWindow?.Dispose();
         _notifyIcon?.Dispose();
-        _defaultQuickMenu?.Dismiss();
-        _richQuickMenu?.Dismiss();
-        _lifetimeWindow?.Close();
+        InvalidateCachedQuickMenus();
+        TryCloseWindow(_lifetimeWindow, "lifetime window");
     }
 
     public void ExitApplication()
     {
-        IsExiting = true;
-        Application.Current.Exit();
+        try
+        {
+            Dispose();
+        }
+        finally
+        {
+            Application.Current.Exit();
+        }
+    }
+
+    private void InvalidateCachedQuickMenus()
+    {
+        var defaultQuickMenu = _defaultQuickMenu;
+        var richQuickMenu = _richQuickMenu;
+        _defaultQuickMenu = null;
+        _richQuickMenu = null;
+
+        TryCloseWindow(defaultQuickMenu, "default quick menu");
+        TryCloseWindow(richQuickMenu, "rich quick menu");
+    }
+
+    private void OnHighContrastChanged(AccessibilitySettings sender, object args)
+    {
+        if (Volatile.Read(ref _disposeState) != 0)
+        {
+            return;
+        }
+
+        _ = _dispatcherQueue?.TryEnqueue(InvalidateCachedQuickMenus);
+    }
+
+    private static void TryCloseWindow(Window? window, string description)
+    {
+        try
+        {
+            window?.Close();
+        }
+        catch (Exception exception) when (exception is COMException or InvalidOperationException)
+        {
+            AppDiagnostics.Log(exception, $"Close {description}");
+        }
     }
 
     private void StartClipboardServices()
@@ -1442,7 +1567,7 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        _pasteTargetWindow = pasteTargetWindow;
+        _pasteTargetWindow = CapturePasteTarget(pasteTargetWindow);
         if (_dispatcherQueue is null)
         {
             Volatile.Write(ref _quickMenuRequestPending, 0);
@@ -1778,6 +1903,7 @@ public sealed class CliptonRuntime : IDisposable
             Translate("Exit"),
             () => _dispatcherQueue?.TryEnqueue(async () =>
             {
+                _pasteTargetWindow = default;
                 if (await EnsureHistoryAccessUnlockedAsync(keepUnlockWindowVisible: false))
                 {
                     ShowQuickMenu();
@@ -1833,11 +1959,6 @@ public sealed class CliptonRuntime : IDisposable
     {
         var quickMenuStartTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
         AppProfiler.Mark("Quick menu requested.");
-
-        if (_pasteTargetWindow == IntPtr.Zero)
-        {
-            _pasteTargetWindow = NativeMethods.GetForegroundWindow();
-        }
 
         ScheduleClipboardRefreshForQuickMenu();
 
@@ -2866,7 +2987,9 @@ public sealed class CliptonRuntime : IDisposable
         public ClipboardSnapshot ToSnapshot()
         {
             return new ClipboardSnapshot(
-                string.IsNullOrWhiteSpace(Id) ? Guid.NewGuid().ToString("N") : Id,
+                // Export ids are untrusted file content and must never become storage
+                // filenames. Imports always receive a fresh app-owned identifier.
+                Guid.NewGuid().ToString("N"),
                 CapturedAt == default ? DateTimeOffset.UtcNow : CapturedAt,
                 Formats is { Length: > 0 } ? Formats : InferFormats(),
                 Text,
@@ -2912,11 +3035,42 @@ public sealed class CliptonRuntime : IDisposable
 
     private sealed record SnippetExportDto(int Version, DateTimeOffset ExportedAt, Snippet[] Items);
 
-    private void SendPaste(IntPtr pasteTargetWindow)
+    private static PasteTargetWindowIdentity CapturePasteTarget(IntPtr window)
     {
-        RestorePasteTarget(pasteTargetWindow);
-        WaitForPasteTargetForeground(pasteTargetWindow);
-        WaitForModifierKeyRelease();
+        if (window == IntPtr.Zero || !NativeMethods.IsWindow(window))
+        {
+            return default;
+        }
+
+        var threadId = NativeMethods.GetWindowThreadProcessId(window, out var processId);
+        return threadId == 0 || processId == 0
+            ? default
+            : new PasteTargetWindowIdentity(window, threadId, processId);
+    }
+
+    private void SendPaste(PasteTargetWindowIdentity pasteTargetWindow)
+    {
+        if (!RestorePasteTarget(pasteTargetWindow)
+            || !WaitForPasteTargetForeground(pasteTargetWindow))
+        {
+            AppDiagnostics.Warning("Paste", "Paste was canceled because the original target window could not be restored.");
+            return;
+        }
+
+        if (!WaitForModifierKeyRelease())
+        {
+            AppDiagnostics.Warning("Paste", "Paste was canceled because a modifier key remained pressed.");
+            return;
+        }
+
+        // Revalidate immediately before injecting keys. The HWND may have been destroyed
+        // and reused, or focus may have moved while clipboard work was in progress.
+        if (!IsPasteTargetForeground(pasteTargetWindow))
+        {
+            AppDiagnostics.Warning("Paste", "Paste was canceled because focus moved away from the original target window.");
+            return;
+        }
+
         NativeMethods.keybd_event(NativeMethods.VkControl, 0, 0, UIntPtr.Zero);
         NativeMethods.keybd_event(NativeMethods.VkV, 0, 0, UIntPtr.Zero);
         Thread.Sleep(20);
@@ -2926,7 +3080,7 @@ public sealed class CliptonRuntime : IDisposable
 
     // Shift/Alt/Win still held from the hotkey or Enter press would turn the
     // injected Ctrl+V into a different chord (e.g. Ctrl+Shift+V) in the target app.
-    private static void WaitForModifierKeyRelease()
+    private static bool WaitForModifierKeyRelease()
     {
         static bool IsDown(int key) => (NativeMethods.GetAsyncKeyState(key) & 0x8000) != 0;
 
@@ -2938,22 +3092,24 @@ public sealed class CliptonRuntime : IDisposable
                 && !IsDown(NativeMethods.VkLWin)
                 && !IsDown(NativeMethods.VkRWin))
             {
-                return;
+                return true;
             }
 
             Thread.Sleep(15);
         }
+
+        return false;
     }
 
-    private static void RestorePasteTarget(IntPtr pasteTargetWindow)
+    private static bool RestorePasteTarget(PasteTargetWindowIdentity pasteTargetWindow)
     {
-        if (pasteTargetWindow == IntPtr.Zero)
+        if (!IsPasteTargetCurrent(pasteTargetWindow))
         {
-            return;
+            return false;
         }
 
         var currentThread = NativeMethods.GetCurrentThreadId();
-        var targetThread = NativeMethods.GetWindowThreadProcessId(pasteTargetWindow, out _);
+        var targetThread = pasteTargetWindow.ThreadId;
         var foreground = NativeMethods.GetForegroundWindow();
         var foregroundThread = foreground == IntPtr.Zero
             ? 0
@@ -2967,10 +3123,10 @@ public sealed class CliptonRuntime : IDisposable
 
         try
         {
-            NativeMethods.BringWindowToTop(pasteTargetWindow);
-            NativeMethods.SetForegroundWindow(pasteTargetWindow);
-            NativeMethods.SetActiveWindow(pasteTargetWindow);
-            NativeMethods.SetFocus(pasteTargetWindow);
+            NativeMethods.BringWindowToTop(pasteTargetWindow.Handle);
+            NativeMethods.SetForegroundWindow(pasteTargetWindow.Handle);
+            NativeMethods.SetActiveWindow(pasteTargetWindow.Handle);
+            NativeMethods.SetFocus(pasteTargetWindow.Handle);
         }
         finally
         {
@@ -2984,25 +3140,52 @@ public sealed class CliptonRuntime : IDisposable
                 NativeMethods.AttachThreadInput(currentThread, targetThread, false);
             }
         }
+
+        return true;
     }
 
-    private static void WaitForPasteTargetForeground(IntPtr pasteTargetWindow)
+    private static bool WaitForPasteTargetForeground(PasteTargetWindowIdentity pasteTargetWindow)
     {
-        if (pasteTargetWindow == IntPtr.Zero)
-        {
-            return;
-        }
-
         var deadline = Environment.TickCount64 + 180;
         while (Environment.TickCount64 < deadline)
         {
-            if (NativeMethods.GetForegroundWindow() == pasteTargetWindow)
+            if (IsPasteTargetForeground(pasteTargetWindow))
             {
-                return;
+                return true;
             }
 
             Thread.Sleep(10);
         }
+
+        return false;
+    }
+
+    private static bool IsPasteTargetCurrent(PasteTargetWindowIdentity pasteTargetWindow)
+    {
+        if (pasteTargetWindow.IsEmpty || !NativeMethods.IsWindow(pasteTargetWindow.Handle))
+        {
+            return false;
+        }
+
+        var threadId = NativeMethods.GetWindowThreadProcessId(pasteTargetWindow.Handle, out var processId);
+        return pasteTargetWindow.Matches(pasteTargetWindow.Handle, threadId, processId);
+    }
+
+    private static bool IsPasteTargetForeground(PasteTargetWindowIdentity pasteTargetWindow)
+    {
+        if (!IsPasteTargetCurrent(pasteTargetWindow))
+        {
+            return false;
+        }
+
+        var foreground = NativeMethods.GetForegroundWindow();
+        if (foreground != pasteTargetWindow.Handle)
+        {
+            return false;
+        }
+
+        var foregroundThread = NativeMethods.GetWindowThreadProcessId(foreground, out var foregroundProcess);
+        return pasteTargetWindow.Matches(foreground, foregroundThread, foregroundProcess);
     }
 
     private static string GetKindLabel(ClipboardSnapshot item)
@@ -3936,6 +4119,19 @@ public sealed class CliptonRuntime : IDisposable
 
             return child;
         }
+    }
+}
+
+internal readonly record struct PasteTargetWindowIdentity(IntPtr Handle, uint ThreadId, uint ProcessId)
+{
+    internal bool IsEmpty => Handle == IntPtr.Zero || ThreadId == 0 || ProcessId == 0;
+
+    internal bool Matches(IntPtr handle, uint threadId, uint processId)
+    {
+        return !IsEmpty
+            && Handle == handle
+            && ThreadId == threadId
+            && ProcessId == processId;
     }
 }
 
