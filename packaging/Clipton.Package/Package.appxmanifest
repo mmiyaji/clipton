@@ -9,7 +9,7 @@
   <Identity
     Name="mmiyaji.Clipton"
     Publisher="CN=663C5D03-791A-4B2C-8509-629FA1CA125A"
-    Version="0.1.17.0" />
+    Version="0.1.18.0" />
 
   <Properties>
     <DisplayName>ms-resource:AppDisplayName</DisplayName>
