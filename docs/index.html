@@ -78,13 +78,14 @@
     .en-note { margin-top:8px; color:var(--muted); font-size:14px; }
     .chips { display:flex; flex-wrap:wrap; gap:7px; margin:22px 0 0; padding:0; list-style:none; }
     .chip { padding:5px 10px; border:1px solid var(--line); border-radius:99px; color:var(--muted); background:var(--surface); font-size:13px; }
-    .actions { display:flex; align-items:flex-end; gap:13px; flex-wrap:wrap; margin-top:28px; }
+    .actions { display:flex; align-items:center; gap:13px; flex-wrap:wrap; margin-top:28px; }
     .button { min-height:44px; padding:0 17px; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--line); border-radius:8px; color:var(--text); background:var(--surface); text-decoration:none; font-weight:600; }
     .button:hover { border-color:var(--brand); background:var(--brand-soft); }
-    .store-cta { display:flex; flex-direction:column; align-items:flex-start; gap:5px; }
     .store-badge { display:block; border-radius:4px; }
     .store-badge img { width:161px; height:44px; }
-    .store-caption { color:var(--muted); font-size:12px; }
+    .github-badge { width:161px; height:44px; display:grid; place-items:center; border:1px solid #5a5a5a; border-radius:4px; background:#202020; }
+    .github-badge img { width:110px; height:auto; }
+    .github-badge:hover { background:#303030; }
     .hero-card { padding:12px; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); box-shadow:var(--shadow); }
     .hero-card img { width:100%; border-radius:8px; }
     .hero-caption { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 3px 1px; color:var(--muted); font-size:13px; }
@@ -141,7 +142,7 @@
       .hero { min-height:auto; }
       .feature-grid,.policy-grid { grid-template-columns:1fr; }
       .feature.wide { grid-column:auto; }
-      .actions { align-items:flex-start; }
+      .actions { align-items:center; }
     }
     @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
   </style>
@@ -178,11 +179,8 @@
           <li class="chip" data-ja="ローカル保存" data-en="Local storage">ローカル保存</li><li class="chip" data-ja="暗号化" data-en="Encrypted">暗号化</li><li class="chip" data-ja="ホットキー" data-en="Global hotkey">ホットキー</li><li class="chip" data-ja="画像プレビュー" data-en="Image preview">画像プレビュー</li><li class="chip" data-ja="7 言語 UI" data-en="7 UI languages">7 言語 UI</li>
         </ul>
         <div class="actions">
-          <div class="store-cta">
-            <a class="store-badge" data-store-link href="https://apps.microsoft.com/detail/9nss9p4f6s5m?hl=ja-JP&amp;gl=JP" target="_blank" rel="noopener"><img src="./images/get-it-from-microsoft-dark.svg" alt="Get it from Microsoft" width="161" height="44"></a>
-            <span class="store-caption" data-ja="Microsoft Store から入手" data-en="Available from Microsoft Store">Microsoft Store から入手</span>
-          </div>
-          <a class="button" href="https://github.com/mmiyaji/clipton" target="_blank" rel="noopener">GitHub</a>
+          <a class="store-badge" data-store-link href="https://apps.microsoft.com/detail/9nss9p4f6s5m?hl=ja-JP&amp;gl=JP" target="_blank" rel="noopener"><img src="./images/get-it-from-microsoft-dark.svg" alt="Get it from Microsoft" width="161" height="44"></a>
+          <a class="github-badge" href="https://github.com/mmiyaji/clipton" target="_blank" rel="noopener" data-ja-label="Clipton を GitHub で見る" data-en-label="View Clipton on GitHub" aria-label="Clipton を GitHub で見る"><img src="./images/github-lockup-white.svg" alt="GitHub" width="416" height="95"></a>
         </div>
       </div>
       <div class="hero-card">
@@ -249,7 +247,7 @@
     </section>
   </main>
 
-  <footer><div class="wrap footer-row"><span>© <span id="year"></span> Ruhenheim / Clipton</span><span>Local-first clipboard manager for Windows</span></div></footer>
+  <footer><div class="wrap footer-row"><span>© <span id="year"></span> Ruhenheim / Clipton</span><span><span data-ja="作者のサイト:" data-en="Author website:">作者のサイト:</span> <a href="https://ruhenheim.org/" target="_blank" rel="noopener">ruhenheim.org</a></span></div></footer>
   <script>
     (() => {
       const copy = {
