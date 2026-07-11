@@ -55,7 +55,7 @@ clipboard, clipboard manager, clipboard history, paste, snippets, productivity, 
 
 ### Release Notes
 
-Version 0.1.20 fixes a crash that could occur when reopening Clipton from the taskbar while it was running in the system tray. The settings window now opens normally even when Windows High Contrast monitoring is unavailable.
+Version 0.1.20 improves stability.
 
 ## Japanese Listing
 
@@ -92,7 +92,7 @@ Clipton はプライバシーに配慮した日常作業向けに設計してい
 
 ### Release Notes
 
-バージョン 0.1.20 では、タスクトレイで動作中の Clipton をタスクバーから再表示すると終了することがある問題を修正しました。Windows のハイコントラスト監視を利用できない環境でも、設定画面を正常に開けるようになりました。
+バージョン 0.1.20 では、安定性を向上しました。
 
 ## Screenshot Captions
 
