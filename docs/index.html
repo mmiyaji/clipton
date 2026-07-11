@@ -17,6 +17,7 @@
   <link rel="icon" type="image/png" href="./images/clipton-icon.png">
   <link rel="canonical" href="https://clipton.ruhenheim.org/">
   <link rel="preload" as="image" href="./images/store/05-menu.png" fetchpriority="high">
+  <link rel="stylesheet" href="./vendor/glightbox/glightbox.min.css">
   <style>
     :root {
       color-scheme:light dark;
@@ -88,6 +89,10 @@
     .github-badge:hover { background:#303030; }
     .hero-card { padding:12px; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); box-shadow:var(--shadow); }
     .hero-card img { width:100%; border-radius:8px; }
+    .image-link { position:relative; display:block; overflow:hidden; border-radius:8px; cursor:zoom-in; }
+    .image-link::after { content:"＋"; position:absolute; right:10px; bottom:10px; width:30px; height:30px; display:grid; place-items:center; border:1px solid rgba(255,255,255,.55); border-radius:7px; color:#fff; background:rgba(17,24,39,.78); font-size:19px; line-height:1; opacity:0; transform:translateY(4px); transition:opacity .16s ease,transform .16s ease; }
+    .image-link:hover::after,.image-link:focus-visible::after { opacity:1; transform:translateY(0); }
+    .image-link:focus-visible { outline:3px solid var(--brand); outline-offset:3px; }
     .hero-caption { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 3px 1px; color:var(--muted); font-size:13px; }
     .status { display:inline-flex; align-items:center; gap:7px; }
     .status::before { content:""; width:8px; height:8px; border-radius:50%; background:var(--brand); }
@@ -184,7 +189,9 @@
         </div>
       </div>
       <div class="hero-card">
-        <img src="./images/store/05-menu.png" data-ja-alt="Clipton の標準メニューとリッチメニューの表示例" data-en-alt="Clipton default and rich quick menu layouts" alt="Clipton の標準メニューとリッチメニューの表示例" width="1920" height="1080" fetchpriority="high" decoding="async">
+        <a class="image-link glightbox" href="./images/store/05-menu.png" data-gallery="clipton-gallery" data-ja-title="選べるクイックメニュー" data-en-title="Choose your quick menu" data-ja-label="クイックメニューの画像を拡大" data-en-label="Enlarge the quick menu image" aria-label="クイックメニューの画像を拡大">
+          <img src="./images/store/05-menu.png" data-ja-alt="Clipton の標準メニューとリッチメニューの表示例" data-en-alt="Clipton default and rich quick menu layouts" alt="Clipton の標準メニューとリッチメニューの表示例" width="1920" height="1080" fetchpriority="high" decoding="async">
+        </a>
         <div class="hero-caption"><span data-ja="キーボード中心のクイックメニュー" data-en="A keyboard-first quick menu">キーボード中心のクイックメニュー</span><span class="status">Windows 10 / 11</span></div>
       </div>
     </div>
@@ -193,9 +200,9 @@
       <div class="wrap">
         <div class="section-head"><div class="eyebrow">Core features</div><h2 data-ja="探す、整える、貼り付ける。" data-en="Find it. Organize it. Paste it.">探す、整える、貼り付ける。</h2><p class="lead" data-ja="いつものコピー操作を変えずに、必要な履歴へすばやく戻れます。" data-en="Keep copying as usual, then return to anything you need in seconds.">いつものコピー操作を変えずに、必要な履歴へすばやく戻れます。</p></div>
         <div class="feature-grid">
-          <article class="feature wide"><img src="./images/store/01-history.png" loading="lazy" data-ja-alt="Clipton の検索できるクリップボード履歴画面" data-en-alt="Searchable clipboard history in Clipton" alt="Clipton の検索できるクリップボード履歴画面" width="1920" height="1080"><div class="feature-copy"><h3 data-ja="履歴をすぐ検索" data-en="Search history instantly">履歴をすぐ検索</h3><p data-ja="テキスト、URL、画像をローカルに記録。ホットキーで開き、文字を入力するだけで候補を絞り込めます。プレーンテキスト貼り付けや JSON 整形にも対応します。" data-en="Keep text, URLs, and images locally. Open Clipton with a hotkey and type to filter results. Paste as plain text or format JSON when needed.">テキスト、URL、画像をローカルに記録。ホットキーで開き、文字を入力するだけで候補を絞り込めます。プレーンテキスト貼り付けや JSON 整形にも対応します。</p></div></article>
-          <article class="feature"><img src="./images/store/03-snippets.png" loading="lazy" data-ja-alt="Clipton の登録単語とフォルダー管理画面" data-en-alt="Snippet and folder management in Clipton" alt="Clipton の登録単語とフォルダー管理画面" width="1920" height="1080"><div class="feature-copy"><h3 data-ja="定型文を整理" data-en="Organize reusable text">定型文を整理</h3><p data-ja="よく使う文章を登録単語として保存し、フォルダーで分類。日付やクリップボード内容などの変数をテンプレートに埋め込めます。" data-en="Save frequently used text as snippets and group it into folders. Templates can include dates, clipboard content, and other variables.">よく使う文章を登録単語として保存し、フォルダーで分類。日付やクリップボード内容などの変数をテンプレートに埋め込めます。</p></div></article>
-          <article class="feature"><img src="./images/store/04-themes.png" loading="lazy" data-ja-alt="Clipton のライト、ダーク、システム連動テーマ" data-en-alt="Light, dark, and system themes in Clipton" alt="Clipton のライト、ダーク、システム連動テーマ" width="1920" height="1080"><div class="feature-copy"><h3 data-ja="作業環境になじむ" data-en="Fits your Windows setup">作業環境になじむ</h3><p data-ja="ライト、ダーク、システム連動テーマに対応。コンパクトな標準メニューと、サムネイル付きのリッチメニューを選べます。" data-en="Choose light, dark, or system theme, plus a compact default menu or a richer layout with thumbnails.">ライト、ダーク、システム連動テーマに対応。コンパクトな標準メニューと、サムネイル付きのリッチメニューを選べます。</p></div></article>
+          <article class="feature wide"><a class="image-link glightbox" href="./images/store/01-history.png" data-gallery="clipton-gallery" data-ja-title="検索できる履歴" data-en-title="Searchable history" data-ja-label="履歴画面の画像を拡大" data-en-label="Enlarge the history screen image" aria-label="履歴画面の画像を拡大"><img src="./images/store/01-history.png" loading="lazy" data-ja-alt="Clipton の検索できるクリップボード履歴画面" data-en-alt="Searchable clipboard history in Clipton" alt="Clipton の検索できるクリップボード履歴画面" width="1920" height="1080"></a><div class="feature-copy"><h3 data-ja="履歴をすぐ検索" data-en="Search history instantly">履歴をすぐ検索</h3><p data-ja="テキスト、URL、画像をローカルに記録。ホットキーで開き、文字を入力するだけで候補を絞り込めます。プレーンテキスト貼り付けや JSON 整形にも対応します。" data-en="Keep text, URLs, and images locally. Open Clipton with a hotkey and type to filter results. Paste as plain text or format JSON when needed.">テキスト、URL、画像をローカルに記録。ホットキーで開き、文字を入力するだけで候補を絞り込めます。プレーンテキスト貼り付けや JSON 整形にも対応します。</p></div></article>
+          <article class="feature"><a class="image-link glightbox" href="./images/store/03-snippets.png" data-gallery="clipton-gallery" data-ja-title="定型文を整理" data-en-title="Organize reusable text" data-ja-label="登録単語画面の画像を拡大" data-en-label="Enlarge the snippets screen image" aria-label="登録単語画面の画像を拡大"><img src="./images/store/03-snippets.png" loading="lazy" data-ja-alt="Clipton の登録単語とフォルダー管理画面" data-en-alt="Snippet and folder management in Clipton" alt="Clipton の登録単語とフォルダー管理画面" width="1920" height="1080"></a><div class="feature-copy"><h3 data-ja="定型文を整理" data-en="Organize reusable text">定型文を整理</h3><p data-ja="よく使う文章を登録単語として保存し、フォルダーで分類。日付やクリップボード内容などの変数をテンプレートに埋め込めます。" data-en="Save frequently used text as snippets and group it into folders. Templates can include dates, clipboard content, and other variables.">よく使う文章を登録単語として保存し、フォルダーで分類。日付やクリップボード内容などの変数をテンプレートに埋め込めます。</p></div></article>
+          <article class="feature"><a class="image-link glightbox" href="./images/store/04-themes.png" data-gallery="clipton-gallery" data-ja-title="テーマを切り替え" data-en-title="Switch themes" data-ja-label="テーマ画面の画像を拡大" data-en-label="Enlarge the themes screen image" aria-label="テーマ画面の画像を拡大"><img src="./images/store/04-themes.png" loading="lazy" data-ja-alt="Clipton のライト、ダーク、システム連動テーマ" data-en-alt="Light, dark, and system themes in Clipton" alt="Clipton のライト、ダーク、システム連動テーマ" width="1920" height="1080"></a><div class="feature-copy"><h3 data-ja="作業環境になじむ" data-en="Fits your Windows setup">作業環境になじむ</h3><p data-ja="ライト、ダーク、システム連動テーマに対応。コンパクトな標準メニューと、サムネイル付きのリッチメニューを選べます。" data-en="Choose light, dark, or system theme, plus a compact default menu or a richer layout with thumbnails.">ライト、ダーク、システム連動テーマに対応。コンパクトな標準メニューと、サムネイル付きのリッチメニューを選べます。</p></div></article>
         </div>
       </div>
     </section>
@@ -212,7 +219,7 @@
             <div class="privacy-point"><div class="check">✓</div><div><b data-ja="記録するかは自分で選べる" data-en="You decide what gets recorded">記録するかは自分で選べる</b><span data-ja="一時停止、アプリ除外、マスク、削除、エクスポートを設定できます。" data-en="Pause capture, exclude apps, mask content, delete history, or export it.">一時停止、アプリ除外、マスク、削除、エクスポートを設定できます。</span></div></div>
           </div>
         </div>
-        <div class="privacy-image"><img src="./images/store/02-privacy.png" loading="lazy" data-ja-alt="Clipton の暗号化、記録停止、マスク設定画面" data-en-alt="Encryption, capture pause, and masking settings in Clipton" alt="Clipton の暗号化、記録停止、マスク設定画面" width="1920" height="1080"></div>
+        <div class="privacy-image"><a class="image-link glightbox" href="./images/store/02-privacy.png" data-gallery="clipton-gallery" data-ja-title="ローカル保存と保護" data-en-title="Local storage and protection" data-ja-label="プライバシー設定の画像を拡大" data-en-label="Enlarge the privacy settings image" aria-label="プライバシー設定の画像を拡大"><img src="./images/store/02-privacy.png" loading="lazy" data-ja-alt="Clipton の暗号化、記録停止、マスク設定画面" data-en-alt="Encryption, capture pause, and masking settings in Clipton" alt="Clipton の暗号化、記録停止、マスク設定画面" width="1920" height="1080"></a></div>
       </div>
     </section>
 
@@ -248,6 +255,7 @@
   </main>
 
   <footer><div class="wrap footer-row"><span>© <span id="year"></span> Ruhenheim / Clipton</span><span><span data-ja="作者のサイト:" data-en="Author website:">作者のサイト:</span> <a href="https://ruhenheim.org/" target="_blank" rel="noopener">ruhenheim.org</a></span></div></footer>
+  <script src="./vendor/glightbox/glightbox.min.js"></script>
   <script>
     (() => {
       const copy = {
@@ -266,6 +274,7 @@
           store: "https://apps.microsoft.com/detail/9nss9p4f6s5m?hl=en-US&gl=US"
         }
       };
+      const lightbox = typeof GLightbox === "function" ? GLightbox({ selector: ".glightbox", touchNavigation: true, loop: false, zoomable: true }) : null;
       const getSavedLanguage = () => { try { return localStorage.getItem("clipton-language"); } catch { return null; } };
       const saveLanguage = language => { try { localStorage.setItem("clipton-language", language); } catch {} };
       const applyLanguage = (language, updateUrl = true) => {
@@ -280,8 +289,10 @@
         document.querySelectorAll("[data-ja][data-en]").forEach(element => { element.textContent = element.dataset[lang]; });
         document.querySelectorAll("[data-ja-alt][data-en-alt]").forEach(element => { element.alt = element.dataset[`${lang}Alt`]; });
         document.querySelectorAll("[data-ja-label][data-en-label]").forEach(element => { element.setAttribute("aria-label", element.dataset[`${lang}Label`]); });
+        document.querySelectorAll("[data-ja-title][data-en-title]").forEach(element => { element.dataset.title = element.dataset[`${lang}Title`]; });
         document.querySelectorAll("[data-store-link]").forEach(element => { element.href = strings.store; });
         document.querySelectorAll("[data-language]").forEach(button => { button.setAttribute("aria-pressed", String(button.dataset.language === lang)); });
+        lightbox?.reload();
         saveLanguage(lang);
         if (updateUrl) {
           const url = new URL(window.location.href);
