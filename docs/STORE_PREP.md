@@ -1,12 +1,12 @@
 # Microsoft Store Preparation
 
-Last updated: 2026-07-10
+Last updated: 2026-07-12
 
 ## Current Release Candidate
 
-- App version: `0.1.19`
-- Package version: `0.1.19.0`
-- Expected Store upload artifact: `packaging/Clipton.Package/bin/x64/Release/AppPackages/Clipton.Package_0.1.19.0_x64_bundle.msixupload`
+- App version: `0.1.20`
+- Package version: `0.1.20.0`
+- Expected Store upload artifact: `packaging/Clipton.Package/bin/x64/Release/AppPackages/Clipton.Package_0.1.20.0_x64_bundle.msixupload`
 - Copy-ready English and Japanese release notes are maintained in `docs/STORE_LISTING.md`.
 - Package verification must confirm all seven shipped UI languages in both the bundle and Store upload archive.
 

@@ -1,10 +1,10 @@
 # Microsoft Store Asset Plan
 
-Last updated: 2026-07-10
+Last updated: 2026-07-12
 
 This file tracks Store submission assets for Clipton.
 
-Release target: `0.1.19`
+Release target: `0.1.20`
 
 Current app UI languages are English, Japanese, German, Spanish, French, Korean, and Simplified Chinese. This document still tracks English and Japanese Store-listing screenshots first because those are the maintained listing drafts.
 

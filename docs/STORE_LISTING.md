@@ -12,7 +12,7 @@ Official references:
 ## Product Identity
 
 - Product name: Clipton
-- Release candidate: 0.1.19
+- Release candidate: 0.1.20
 - Category: Productivity
 - Target device family: PC / Windows Desktop
 - Store listing draft languages: English, Japanese
@@ -55,7 +55,7 @@ clipboard, clipboard manager, clipboard history, paste, snippets, productivity, 
 
 ### Release Notes
 
-Version 0.1.19 strengthens clipboard-history safety and accessibility. Full exports now include encrypted history that is not currently loaded and stop instead of producing a partial backup when stored data cannot be read completely. Paste actions verify both the clipboard write and the original target window before sending Ctrl+V. Quick menu scaling, text filtering, High Contrast colors, and screen-reader automation were improved. Store packages now include all seven UI languages.
+Version 0.1.20 fixes a crash that could occur when reopening Clipton from the taskbar while it was running in the system tray. The settings window now opens normally even when Windows High Contrast monitoring is unavailable.
 
 ## Japanese Listing
 
@@ -92,7 +92,7 @@ Clipton はプライバシーに配慮した日常作業向けに設計してい
 
 ### Release Notes
 
-バージョン 0.1.19 では、履歴の安全性とアクセシビリティを強化しました。エクスポートは未読込の暗号化履歴も対象とし、保存データを完全に読めない場合は不完全なバックアップを作らず停止します。貼り付け前にクリップボード書き込みと元の対象ウィンドウを確認するようにしました。クイックメニューの高 DPI 表示、テキスト絞り込み、ハイコントラスト配色、スクリーンリーダー向け情報も改善し、Store パッケージには 7 言語の UI をすべて収録しています。
+バージョン 0.1.20 では、タスクトレイで動作中の Clipton をタスクバーから再表示すると終了することがある問題を修正しました。Windows のハイコントラスト監視を利用できない環境でも、設定画面を正常に開けるようになりました。
 
 ## Screenshot Captions
 

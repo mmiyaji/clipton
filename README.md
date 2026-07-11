@@ -60,7 +60,7 @@ Clipton reads clipboard content only to show recent clipboard history and paste 
 
 ## Store readiness
 
-The current release candidate is `0.1.19`. The WinUI packaging project produces the Store upload bundle, and `tools\ci\verify-store-package.ps1` verifies package structure plus all seven shipped UI languages. Microsoft Store submission still requires final Partner Center metadata, clean-profile installation, and WACK validation.
+The current release candidate is `0.1.20`. The WinUI packaging project produces the Store upload bundle, and `tools\ci\verify-store-package.ps1` verifies package structure plus all seven shipped UI languages. Microsoft Store submission still requires final Partner Center metadata, clean-profile installation, and WACK validation.
 
 - Store preparation checklist: [docs/STORE_PREP.md](docs/STORE_PREP.md)
 - Store listing draft: [docs/STORE_LISTING.md](docs/STORE_LISTING.md)
