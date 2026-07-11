@@ -5,6 +5,7 @@
 
 # dotenv files
 .env
+.wrangler/
 
 # User-specific files
 *.rsuser
