@@ -482,3 +482,5 @@ $RECYCLE.BIN/
 *.swp
 *.png
 !docs/images/clipton-readme-overview.png
+!docs/images/clipton-icon.png
+!docs/images/store/*.png

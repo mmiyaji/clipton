@@ -1,137 +1,222 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="ja">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Clipton</title>
+  <title>Clipton — すぐ呼び出せる Windows クリップボード履歴</title>
+  <meta name="description" content="Clipton は、コピー履歴・登録単語・画像をホットキーですぐ呼び出せる、ローカルファーストの Windows 向けクリップボード管理アプリです。">
+  <meta name="theme-color" content="#07101f">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://clipton.ruhenheim.org/">
+  <meta property="og:title" content="Clipton — すぐ呼び出せる Windows クリップボード履歴">
+  <meta property="og:description" content="コピーしたものを、必要な瞬間に。履歴、登録単語、画像をキーボード中心で再利用できます。">
+  <meta property="og:image" content="https://clipton.ruhenheim.org/images/store/01-history.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" type="image/png" href="./images/clipton-icon.png">
+  <link rel="canonical" href="https://clipton.ruhenheim.org/">
   <style>
     :root {
-      color-scheme: light dark;
-      --bg: #f6f7f9;
-      --panel: #ffffff;
-      --text: #1f2328;
-      --muted: #59636e;
-      --border: #d8dee4;
-      --accent: #0969da;
+      color-scheme: dark;
+      --bg:#07101f;
+      --bg-deep:#050b16;
+      --panel:#0d192d;
+      --panel-strong:#111f36;
+      --text:#f4f8ff;
+      --muted:#a9b7cc;
+      --line:#223451;
+      --brand:#43b5ff;
+      --brand-strong:#168ee0;
+      --mint:#54dec0;
+      --soft:#0b2940;
+      --shadow:0 24px 70px rgba(0,0,0,.34);
     }
-
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #0d1117;
-        --panel: #161b22;
-        --text: #f0f6fc;
-        --muted: #8b949e;
-        --border: #30363d;
-        --accent: #58a6ff;
-      }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; scroll-padding-top:86px; }
+    body { margin:0; background:radial-gradient(circle at 78% 4%,rgba(34,151,226,.16),transparent 30%),var(--bg); color:var(--text); font-family:"Segoe UI","Noto Sans JP",system-ui,sans-serif; line-height:1.7; }
+    img { display:block; max-width:100%; height:auto; }
+    a { color:var(--brand); }
+    a:focus-visible,button:focus-visible { outline:3px solid #fff; outline-offset:3px; }
+    .wrap { width:min(1120px,calc(100% - 40px)); margin-inline:auto; }
+    .skip { position:fixed; left:12px; top:-60px; z-index:100; padding:10px 14px; color:#07101f; background:#fff; border-radius:8px; }
+    .skip:focus { top:12px; }
+    header { position:sticky; top:0; z-index:20; border-bottom:1px solid rgba(91,126,171,.22); background:rgba(5,11,22,.86); backdrop-filter:blur(18px); }
+    nav { min-height:68px; display:flex; align-items:center; justify-content:space-between; gap:24px; }
+    .brand { display:flex; align-items:center; gap:11px; color:var(--text); text-decoration:none; font-weight:750; letter-spacing:.01em; }
+    .brand img { width:36px; height:36px; border-radius:9px; box-shadow:0 0 0 1px rgba(255,255,255,.12); }
+    .links { display:flex; align-items:center; gap:8px; }
+    .links a { padding:8px 12px; border:1px solid transparent; border-radius:9px; color:var(--muted); text-decoration:none; font-size:14px; }
+    .links a:hover { color:var(--text); border-color:var(--line); background:rgba(255,255,255,.03); }
+    .hero { min-height:640px; padding:92px 0 80px; display:grid; grid-template-columns:1fr .92fr; gap:64px; align-items:center; }
+    .eyebrow { color:var(--brand); font-size:13px; font-weight:750; letter-spacing:.1em; text-transform:uppercase; }
+    h1 { margin:14px 0 24px; font-size:clamp(42px,6.2vw,72px); line-height:1.08; letter-spacing:-.045em; }
+    h1 span { color:var(--brand); }
+    h2 { margin:0 0 14px; font-size:clamp(30px,4vw,44px); line-height:1.22; letter-spacing:-.025em; }
+    h3 { margin:16px 0 7px; font-size:21px; line-height:1.35; }
+    p { margin:0; }
+    .lead { color:var(--muted); font-size:18px; max-width:650px; }
+    .en { margin-top:8px; color:#7f91aa; font-size:14px; }
+    .chips { display:flex; flex-wrap:wrap; gap:8px; margin:24px 0 0; padding:0; list-style:none; }
+    .chip { padding:6px 11px; border:1px solid var(--line); border-radius:99px; color:#c6d3e6; background:rgba(255,255,255,.025); font-size:13px; }
+    .actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:30px; }
+    .button { min-height:48px; padding:0 19px; display:inline-flex; align-items:center; justify-content:center; gap:9px; border:1px solid var(--line); border-radius:10px; color:var(--text); background:var(--panel); text-decoration:none; font-weight:700; }
+    .button.primary { border-color:var(--brand); background:linear-gradient(135deg,var(--brand),var(--brand-strong)); color:#03111f; }
+    .button:hover { transform:translateY(-1px); filter:brightness(1.06); }
+    .hero-card { position:relative; padding:20px; border:1px solid var(--line); border-radius:24px; background:linear-gradient(145deg,rgba(17,31,54,.96),rgba(9,21,39,.95)); box-shadow:var(--shadow); }
+    .hero-card::before { content:""; position:absolute; inset:-1px; z-index:-1; border-radius:25px; background:linear-gradient(140deg,rgba(67,181,255,.58),transparent 38%,rgba(84,222,192,.24)); }
+    .hero-card img { width:100%; border-radius:14px; }
+    .hero-caption { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:14px; color:var(--muted); font-size:13px; }
+    .status { display:inline-flex; align-items:center; gap:7px; color:#bdf8e7; }
+    .status::before { content:""; width:8px; height:8px; border-radius:50%; background:var(--mint); box-shadow:0 0 13px var(--mint); }
+    section { padding:78px 0; }
+    .surface { border-block:1px solid var(--line); background:rgba(13,25,45,.62); }
+    .section-head { max-width:720px; margin-bottom:32px; }
+    .feature-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:20px; }
+    .feature { overflow:hidden; border:1px solid var(--line); border-radius:18px; background:var(--panel); box-shadow:0 10px 34px rgba(0,0,0,.12); }
+    .feature.wide { grid-column:1 / -1; display:grid; grid-template-columns:1.2fr .8fr; align-items:center; }
+    .feature img { width:100%; aspect-ratio:16/9; object-fit:cover; border-bottom:1px solid var(--line); }
+    .feature.wide img { border:0; border-right:1px solid var(--line); }
+    .feature-copy { padding:22px 24px 25px; }
+    .feature-copy p { color:var(--muted); font-size:15px; }
+    .privacy-grid { display:grid; grid-template-columns:.9fr 1.1fr; gap:44px; align-items:center; }
+    .privacy-points { display:grid; gap:12px; margin-top:26px; }
+    .privacy-point { display:grid; grid-template-columns:32px 1fr; gap:12px; padding:14px; border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,.025); }
+    .privacy-point b { display:block; }
+    .privacy-point span { color:var(--muted); font-size:14px; }
+    .check { width:28px; height:28px; display:grid; place-items:center; border-radius:8px; color:#06151d; background:var(--mint); font-weight:900; }
+    .privacy-image { padding:11px; border:1px solid var(--line); border-radius:18px; background:var(--panel); box-shadow:var(--shadow); }
+    .privacy-image img { border-radius:11px; }
+    .release { display:grid; grid-template-columns:.82fr 1.18fr; gap:44px; align-items:start; }
+    .release-box { padding:26px; border:1px solid var(--line); border-radius:16px; background:var(--panel-strong); }
+    .release-box ul { margin:14px 0 0; padding-left:22px; color:var(--muted); }
+    .release-box li+li { margin-top:8px; }
+    .version { display:inline-block; margin-bottom:12px; padding:5px 10px; border-radius:7px; color:#b9e7ff; background:var(--soft); font-family:ui-monospace,"Cascadia Code",monospace; font-size:13px; }
+    .faq { display:grid; grid-template-columns:.75fr 1.25fr; gap:44px; }
+    details { border-top:1px solid var(--line); }
+    details:last-child { border-bottom:1px solid var(--line); }
+    summary { cursor:pointer; padding:19px 2px; font-weight:700; }
+    details p { padding:0 2px 20px; color:var(--muted); }
+    .policy-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+    .policy-card { min-height:172px; padding:22px; border:1px solid var(--line); border-radius:15px; color:inherit; background:var(--panel); text-decoration:none; }
+    .policy-card:hover { border-color:var(--brand); }
+    .policy-card strong { display:block; margin-bottom:8px; color:var(--brand); font-size:18px; }
+    .policy-card span { color:var(--muted); font-size:14px; }
+    footer { padding:30px 0 48px; border-top:1px solid var(--line); color:var(--muted); font-size:14px; }
+    .footer-row { display:flex; justify-content:space-between; gap:18px; flex-wrap:wrap; }
+    @media (max-width:860px) {
+      .hero,.privacy-grid,.release,.faq { grid-template-columns:1fr; }
+      .hero { padding-top:62px; gap:42px; }
+      .feature.wide { display:block; }
+      .feature.wide img { border-right:0; border-bottom:1px solid var(--line); }
+      .policy-grid { grid-template-columns:1fr 1fr; }
+      .links a:not(.store-link) { display:none; }
     }
-
-    * {
-      box-sizing: border-box;
+    @media (max-width:600px) {
+      .wrap { width:min(100% - 28px,1120px); }
+      section { padding:58px 0; }
+      .hero { min-height:auto; }
+      .feature-grid,.policy-grid { grid-template-columns:1fr; }
+      .feature.wide { grid-column:auto; }
+      .actions .button { width:100%; }
     }
-
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-      line-height: 1.6;
-    }
-
-    main {
-      width: min(920px, calc(100% - 32px));
-      margin: 0 auto;
-      padding: 56px 0;
-    }
-
-    header {
-      margin-bottom: 32px;
-    }
-
-    h1 {
-      margin: 0 0 12px;
-      font-size: clamp(2rem, 5vw, 3.25rem);
-      line-height: 1.1;
-      letter-spacing: 0;
-    }
-
-    p {
-      margin: 0 0 16px;
-    }
-
-    .lead {
-      max-width: 720px;
-      color: var(--muted);
-      font-size: 1.08rem;
-    }
-
-    .links {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 16px;
-      margin-top: 28px;
-    }
-
-    a.card {
-      display: block;
-      min-height: 124px;
-      padding: 20px;
-      color: inherit;
-      text-decoration: none;
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-    }
-
-    a.card:hover,
-    a.card:focus-visible {
-      border-color: var(--accent);
-      outline: none;
-    }
-
-    .card strong {
-      display: block;
-      margin-bottom: 8px;
-      color: var(--accent);
-      font-size: 1.05rem;
-    }
-
-    .card span {
-      color: var(--muted);
-    }
-
-    footer {
-      margin-top: 40px;
-      color: var(--muted);
-      font-size: .95rem;
-    }
+    @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } .button:hover { transform:none; } }
   </style>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Clipton","applicationCategory":"UtilitiesApplication","operatingSystem":"Windows 10, Windows 11","softwareVersion":"0.1.19","url":"https://clipton.ruhenheim.org/","downloadUrl":"https://apps.microsoft.com/detail/9nss9p4f6s5m","offers":{"@type":"Offer","price":"0","priceCurrency":"JPY"},"author":{"@type":"Person","name":"mmiyaji"}}</script>
 </head>
 <body>
-  <main>
-    <header>
-      <h1>Clipton</h1>
-      <p class="lead">Clipton is a local-first clipboard manager for Windows. It keeps recent clipboard history, registered snippets, and quick paste commands close to the keyboard without cloud sync or telemetry.</p>
-    </header>
+  <a class="skip" href="#main">本文へ移動</a>
+  <header>
+    <nav class="wrap" aria-label="メインナビゲーション">
+      <a class="brand" href="#top"><img src="./images/clipton-icon.png" alt=""><span>Clipton</span></a>
+      <div class="links">
+        <a href="#features">特徴</a>
+        <a href="#release">変更履歴</a>
+        <a href="#faq">FAQ</a>
+        <a href="#policy">ポリシー</a>
+        <a class="store-link" href="https://apps.microsoft.com/detail/9nss9p4f6s5m?hl=ja-JP&amp;gl=JP" target="_blank" rel="noopener">Microsoft Store ↗</a>
+      </div>
+    </nav>
+  </header>
 
-    <section class="links" aria-label="Clipton documents">
-      <a class="card" href="./privacy/">
-        <strong>Privacy Policy</strong>
-        <span>How Clipton handles clipboard content and local data.</span>
-      </a>
-      <a class="card" href="./terms/">
-        <strong>Terms of Use</strong>
-        <span>Usage terms for the Clipton Windows app.</span>
-      </a>
-      <a class="card" href="https://github.com/mmiyaji/clipton">
-        <strong>GitHub Repository</strong>
-        <span>Source code, issues, releases, and project documentation.</span>
-      </a>
+  <main id="main">
+    <div class="wrap hero" id="top">
+      <div>
+        <div class="eyebrow">Clipboard manager for Windows</div>
+        <h1>コピーしたものを、<br><span>必要な瞬間に。</span></h1>
+        <p class="lead">Clipton は、クリップボード履歴・登録単語・画像をホットキーですぐ呼び出せる Windows アプリです。検索して、選んで、そのまま貼り付け。作業の流れを止めません。</p>
+        <p class="en" lang="en">Find and paste your clipboard history without leaving the keyboard.</p>
+        <ul class="chips">
+          <li class="chip">ローカル保存</li><li class="chip">暗号化</li><li class="chip">ホットキー</li><li class="chip">画像プレビュー</li><li class="chip">7 言語 UI</li>
+        </ul>
+        <div class="actions">
+          <a class="button primary" href="https://apps.microsoft.com/detail/9nss9p4f6s5m?hl=ja-JP&amp;gl=JP" target="_blank" rel="noopener">Microsoft Store から入手</a>
+          <a class="button" href="https://github.com/mmiyaji/clipton" target="_blank" rel="noopener">GitHub</a>
+        </div>
+      </div>
+      <div class="hero-card">
+        <img src="./images/store/05-menu.png" alt="Clipton の標準メニューとリッチメニューの表示例" width="1440" height="810">
+        <div class="hero-caption"><span>キーボード中心のクイックメニュー</span><span class="status">Windows 10 / 11</span></div>
+      </div>
+    </div>
+
+    <section id="features" class="surface">
+      <div class="wrap">
+        <div class="section-head"><div class="eyebrow">Core features</div><h2>探す、整える、貼り付ける。</h2><p class="lead">いつものコピー操作を変えずに、必要な履歴へすばやく戻れます。</p></div>
+        <div class="feature-grid">
+          <article class="feature wide"><img src="./images/store/01-history.png" loading="lazy" alt="Clipton の検索できるクリップボード履歴画面" width="1440" height="810"><div class="feature-copy"><h3>履歴をすぐ検索</h3><p>テキスト、URL、画像をローカルに記録。ホットキーで開き、文字を入力するだけで候補を絞り込めます。プレーンテキスト貼り付けや JSON 整形にも対応します。</p></div></article>
+          <article class="feature"><img src="./images/store/03-snippets.png" loading="lazy" alt="Clipton の登録単語とフォルダー管理画面" width="1440" height="810"><div class="feature-copy"><h3>定型文を整理</h3><p>よく使う文章を登録単語として保存し、フォルダーで分類。日付やクリップボード内容などの変数をテンプレートに埋め込めます。</p></div></article>
+          <article class="feature"><img src="./images/store/04-themes.png" loading="lazy" alt="Clipton のライト、ダーク、システム連動テーマ" width="1440" height="810"><div class="feature-copy"><h3>作業環境になじむ</h3><p>ライト、ダーク、システム連動テーマに対応。コンパクトな標準メニューと、サムネイル付きのリッチメニューを選べます。</p></div></article>
+        </div>
+      </div>
     </section>
 
-    <footer>
-      <p>Copyright &copy; 2026 mmiyaji.</p>
-    </footer>
+    <section id="privacy">
+      <div class="wrap privacy-grid">
+        <div>
+          <div class="eyebrow">Local first privacy</div>
+          <h2>履歴は、この PC の中に。</h2>
+          <p class="lead">Clipton は日常のクリップボードを扱うからこそ、保存先と制御を明確にしています。</p>
+          <div class="privacy-points">
+            <div class="privacy-point"><div class="check">✓</div><div><b>Windows のユーザー単位で暗号化</b><span>保存履歴は OS のデータ保護機能で暗号化されます。</span></div></div>
+            <div class="privacy-point"><div class="check">✓</div><div><b>クラウド同期・広告なし</b><span>現在のバージョンにテレメトリ、広告 SDK、第三者共有はありません。</span></div></div>
+            <div class="privacy-point"><div class="check">✓</div><div><b>記録するかは自分で選べる</b><span>一時停止、アプリ除外、マスク、削除、エクスポートを設定できます。</span></div></div>
+          </div>
+        </div>
+        <div class="privacy-image"><img src="./images/store/02-privacy.png" loading="lazy" alt="Clipton の暗号化、記録停止、マスク設定画面" width="1440" height="810"></div>
+      </div>
+    </section>
+
+    <section id="release" class="surface">
+      <div class="wrap release">
+        <div><div class="eyebrow">Latest release</div><h2>安全性とアクセシビリティを強化。</h2><p class="lead">高 DPI、ハイコントラスト、スクリーンリーダーへの対応を整え、日々の操作をより確実にしました。</p></div>
+        <div class="release-box"><span class="version">Version 0.1.19</span><strong>主な変更</strong><ul><li>未読込の暗号化履歴も含めた、欠落のないエクスポート</li><li>貼り付け前にクリップボード書き込みと対象ウィンドウを確認</li><li>クイックメニューの高 DPI 表示とテキスト絞り込みを改善</li><li>ハイコントラスト配色とスクリーンリーダー向け情報を改善</li><li>Store パッケージに 7 言語の UI を収録</li></ul><div class="actions"><a class="button" href="https://github.com/mmiyaji/clipton/blob/main/CHANGELOG.md" target="_blank" rel="noopener">変更履歴を見る</a></div></div>
+      </div>
+    </section>
+
+    <section id="faq">
+      <div class="wrap faq">
+        <div><div class="eyebrow">FAQ</div><h2>よくある質問</h2><p class="lead">導入前に知っておきたいことをまとめました。</p></div>
+        <div>
+          <details><summary>対応している Windows は？</summary><p>Windows 10 バージョン 2004（10.0.19041.0）以降、および Windows 11 に対応しています。</p></details>
+          <details><summary>クリップボード履歴はクラウドへ送信されますか？</summary><p>送信されません。履歴はこのデバイス内に保存され、Windows のユーザー単位データ保護で暗号化されます。</p></details>
+          <details><summary>履歴を残さずに使えますか？</summary><p>はい。記録の一時停止や永続化の無効化ができ、対象アプリや機密文字列のマスクも設定できます。</p></details>
+          <details><summary>問い合わせや不具合報告はどこからできますか？</summary><p><a href="https://github.com/mmiyaji/clipton/issues" target="_blank" rel="noopener">GitHub Issues</a> からご連絡ください。</p></details>
+        </div>
+      </div>
+    </section>
+
+    <section id="policy" class="surface">
+      <div class="wrap">
+        <div class="section-head"><div class="eyebrow">Policy &amp; support</div><h2>ポリシーとサポート</h2></div>
+        <div class="policy-grid">
+          <a class="policy-card" href="./privacy/"><strong>プライバシーポリシー</strong><span>クリップボード内容とローカルデータの取り扱いについて。</span></a>
+          <a class="policy-card" href="./terms/"><strong>利用規約</strong><span>Clipton Windows アプリの利用条件について。</span></a>
+          <a class="policy-card" href="https://github.com/mmiyaji/clipton/issues" target="_blank" rel="noopener"><strong>サポート</strong><span>不具合報告、機能要望、ソースコードは GitHub で確認できます。</span></a>
+        </div>
+      </div>
+    </section>
   </main>
+
+  <footer><div class="wrap footer-row"><span>© <span id="year"></span> Ruhenheim / Clipton</span><span>Local-first clipboard manager for Windows</span></div></footer>
+  <script>document.getElementById('year').textContent=new Date().getFullYear();</script>
 </body>
 </html>
