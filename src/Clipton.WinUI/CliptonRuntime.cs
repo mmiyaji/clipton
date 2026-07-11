@@ -222,6 +222,26 @@ public sealed class CliptonRuntime : IDisposable
     /// <summary>True once shutdown has started.</summary>
     public bool IsExiting { get; private set; }
 
+    /// <summary>Raised when Windows reports a High Contrast setting change.</summary>
+    public event EventHandler? HighContrastChanged;
+
+    /// <summary>Current High Contrast state, or false when the Windows API is unavailable.</summary>
+    public bool IsHighContrast
+    {
+        get
+        {
+            try
+            {
+                return _accessibilitySettings?.HighContrast ?? false;
+            }
+            catch (COMException exception)
+            {
+                AppDiagnostics.Log(exception, "Read high contrast state");
+                return false;
+            }
+        }
+    }
+
     public bool IsHistoryAccessLockConfigured =>
         HistoryAccessLockCredential.HasCredential(Settings.HistoryAccessLockPinSalt, Settings.HistoryAccessLockPinHash);
 
@@ -1423,12 +1443,18 @@ public sealed class CliptonRuntime : IDisposable
 
     private void OnHighContrastChanged(AccessibilitySettings sender, object args)
     {
+        NotifyHighContrastChanged();
+    }
+
+    internal void NotifyHighContrastChanged()
+    {
         if (Volatile.Read(ref _disposeState) != 0)
         {
             return;
         }
 
         _ = _dispatcherQueue?.TryEnqueue(InvalidateCachedQuickMenus);
+        HighContrastChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private static void TryCloseWindow(Window? window, string description)

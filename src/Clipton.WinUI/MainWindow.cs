@@ -52,7 +52,6 @@ public sealed class MainWindow : Window
     private const string DonationBannerUrl = "https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png";
     private const string SnippetVariablesUrl = "https://mmiyaji.github.io/clipton/snippet-variables/";
     private readonly CliptonRuntime _runtime;
-    private readonly AccessibilitySettings _accessibilitySettings = new();
     private readonly Grid _root = new();
     private readonly SemaphoreSlim _dialogGate = new(1, 1);
     private readonly NavigationView _navigationView = new();
@@ -258,7 +257,6 @@ public sealed class MainWindow : Window
         _brandHeader = BuildBrandHeader();
         _hotkeyPill = Pill(_hotkeyText);
         _windowProc = WindowProc;
-        _accessibilitySettings.HighContrastChanged += OnHighContrastChanged;
         TrackDescriptionText(
             _hotkeyText,
             _generalDescriptionText,
@@ -285,9 +283,10 @@ public sealed class MainWindow : Window
         SizeWindow();
         RefreshTexts();
         RefreshItems();
+        _runtime.HighContrastChanged += OnHighContrastChanged;
         Closed += (_, _) =>
         {
-            _accessibilitySettings.HighContrastChanged -= OnHighContrastChanged;
+            _runtime.HighContrastChanged -= OnHighContrastChanged;
             RestoreWindowProc();
             _runtime.OnMainWindowClosed(this);
         };
@@ -5123,7 +5122,7 @@ public sealed class MainWindow : Window
 
     private void ApplyTheme()
     {
-        if (_accessibilitySettings.HighContrast)
+        if (_runtime.IsHighContrast)
         {
             _root.RequestedTheme = ElementTheme.Default;
             _root.Background = SystemThemeColors.Resolve(
@@ -5158,7 +5157,7 @@ public sealed class MainWindow : Window
         SelectPage(_selectedPageIndex);
     }
 
-    private void OnHighContrastChanged(AccessibilitySettings sender, object args)
+    private void OnHighContrastChanged(object? sender, EventArgs args)
     {
         _ = DispatcherQueue.TryEnqueue(ApplyTheme);
     }
@@ -5181,7 +5180,7 @@ public sealed class MainWindow : Window
 
     private bool IsDark => string.Equals(_runtime.EffectiveTheme, "dark", StringComparison.OrdinalIgnoreCase);
 
-    private ElementTheme DialogTheme => _accessibilitySettings.HighContrast
+    private ElementTheme DialogTheme => _runtime.IsHighContrast
         ? ElementTheme.Default
         : IsDark ? ElementTheme.Dark : ElementTheme.Light;
 
@@ -5808,7 +5807,7 @@ public sealed class MainWindow : Window
             return;
         }
 
-        if (_accessibilitySettings.HighContrast)
+        if (_runtime.IsHighContrast)
         {
             var defaultColor = unchecked((int)0xFFFFFFFF);
             _ = DwmSetWindowAttribute(hwnd, 35, ref defaultColor, sizeof(int));
@@ -5826,7 +5825,7 @@ public sealed class MainWindow : Window
         _ = DwmSetWindowAttribute(hwnd, 36, ref textColor, sizeof(int));
     }
 
-    private Brush CardBackground() => _accessibilitySettings.HighContrast
+    private Brush CardBackground() => _runtime.IsHighContrast
         ? SystemThemeColors.Resolve(
             "SystemColorWindowColorBrush",
             UIColorType.Background,
@@ -5846,7 +5845,7 @@ public sealed class MainWindow : Window
 
     private Brush WarningBrush() => HighContrastForegroundOr(IsDark ? "#FFD86B" : "#9A6700");
 
-    private Brush HighContrastForegroundOr(string fallback) => _accessibilitySettings.HighContrast
+    private Brush HighContrastForegroundOr(string fallback) => _runtime.IsHighContrast
         ? SystemThemeColors.Resolve(
             "SystemColorWindowTextColorBrush",
             UIColorType.Foreground,

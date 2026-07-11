@@ -173,6 +173,22 @@ public sealed class RuntimeSafetyRegressionTests
         Assert.Equal("final-item", persisted.Id);
     }
 
+    [Fact]
+    public void HighContrastNotification_IsForwardedUntilRuntimeIsDisposed()
+    {
+        var root = CreateTestRoot();
+        var runtime = new CliptonRuntime(root, isSafeMode: true);
+        var notificationCount = 0;
+        runtime.HighContrastChanged += (_, _) => notificationCount++;
+
+        runtime.NotifyHighContrastChanged();
+        runtime.Dispose();
+        runtime.NotifyHighContrastChanged();
+
+        Assert.Equal(1, notificationCount);
+        Assert.False(runtime.IsHighContrast);
+    }
+
     private static ClipboardSnapshot TextSnapshot(string id, string text)
     {
         return new ClipboardSnapshot(id, DateTimeOffset.UtcNow, [ClipboardFormatKind.Text], text: text);
