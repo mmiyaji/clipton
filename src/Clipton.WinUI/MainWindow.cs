@@ -73,6 +73,8 @@ public sealed class MainWindow : Window
     private readonly List<Border> _cards = [];
     private readonly List<Border> _rowSeparators = [];
     private readonly List<NavigationViewItem> _navItems = [];
+    private readonly NavigationViewItemHeader _navClipboardHeader = new();
+    private readonly NavigationViewItemHeader _navSettingsHeader = new();
     private readonly Dictionary<ToggleSwitch, TextBlock> _toggleStateLabels = [];
     private readonly List<(TextBlock TextBlock, string Key)> _localizedTextBlocks = [];
     private readonly List<(FrameworkElement Element, string TitleKey, string DescriptionKey)> _settingAutomationTargets = [];
@@ -965,10 +967,21 @@ public sealed class MainWindow : Window
         _navigationView.PaneFooter = _navigationPaneFooter;
         foreach (var index in Enumerable.Range(0, 7))
         {
-            var item = CreateNavItem(index);
-            _navItems.Add(item);
-            _navigationView.MenuItems.Add(item);
+            _navItems.Add(CreateNavItem(index));
         }
+
+        // Page indexes stay fixed; only the sidebar placement is grouped:
+        // everyday pages, then settings pages, with donation and about pinned to the footer.
+        _navigationView.MenuItems.Add(_navClipboardHeader);
+        _navigationView.MenuItems.Add(_navItems[1]);
+        _navigationView.MenuItems.Add(_navItems[4]);
+        _navigationView.MenuItems.Add(new NavigationViewItemSeparator());
+        _navigationView.MenuItems.Add(_navSettingsHeader);
+        _navigationView.MenuItems.Add(_navItems[0]);
+        _navigationView.MenuItems.Add(_navItems[2]);
+        _navigationView.MenuItems.Add(_navItems[3]);
+        _navigationView.FooterMenuItems.Add(_navItems[5]);
+        _navigationView.FooterMenuItems.Add(_navItems[6]);
 
         _contentScroller.MinWidth = ContentMinWidth;
         _contentScroller.Padding = new Thickness(36, 30, 36, 16);
@@ -5503,6 +5516,8 @@ public sealed class MainWindow : Window
 
     private void UpdateNavButtonContents()
     {
+        _navClipboardHeader.Content = _runtime.Translate("NavGroupClipboard");
+        _navSettingsHeader.Content = _runtime.Translate("NavGroupSettings");
         SetNavItemContent(0, "\uE80F", "General");
         SetNavItemContent(1, "\uE81C", "History");
         SetNavItemContent(2, "\uE713", "HistorySettings");
