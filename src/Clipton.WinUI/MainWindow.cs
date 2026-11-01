@@ -4636,15 +4636,17 @@ public sealed class MainWindow : Window
             XamlRoot = _root.XamlRoot,
             RequestedTheme = DialogTheme
         };
-        if (critical)
+        if (critical && !_runtime.IsHighContrast)
         {
-            dialog.Opened += (_, _) =>
+            var colors = CriticalColors();
+            var style = new Style(typeof(Button))
             {
-                if (FindDialogButton(dialog, "PrimaryButton") is { } primaryButton)
-                {
-                    ApplyCriticalColors(primaryButton);
-                }
+                BasedOn = Application.Current.Resources["DefaultButtonStyle"] as Style
             };
+            style.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(colors.Hover)));
+            style.Setters.Add(new Setter(Control.BorderBrushProperty, new SolidColorBrush(colors.Border)));
+            style.Setters.Add(new Setter(Control.ForegroundProperty, new SolidColorBrush(colors.Text)));
+            dialog.PrimaryButtonStyle = style;
         }
 
         return await ShowContentDialogAsync(dialog) == ContentDialogResult.Primary;
@@ -5763,41 +5765,36 @@ public sealed class MainWindow : Window
             return;
         }
 
-        var dark = IsDark;
-        var tint = dark ? (R: (byte)0xFF, G: (byte)0xB4, B: (byte)0xB8) : (R: (byte)0xA4, G: (byte)0x26, B: (byte)0x2C);
-        var text = dark ? ColorHelper.FromArgb(0xFF, 0xFF, 0xB4, 0xB8) : ColorHelper.FromArgb(0xFF, 0x9B, 0x30, 0x38);
-        var border = dark ? ColorHelper.FromArgb(0x48, 0xFF, 0xB4, 0xB8) : ColorHelper.FromArgb(0x40, 0x9B, 0x30, 0x38);
-        var (rest, hover, pressed) = dark ? ((byte)0x14, (byte)0x20, (byte)0x2C) : ((byte)0x0C, (byte)0x18, (byte)0x24);
-        button.Resources["ButtonBackground"] = new SolidColorBrush(ColorHelper.FromArgb(rest, tint.R, tint.G, tint.B));
-        button.Resources["ButtonBackgroundPointerOver"] = new SolidColorBrush(ColorHelper.FromArgb(hover, tint.R, tint.G, tint.B));
-        button.Resources["ButtonBackgroundPressed"] = new SolidColorBrush(ColorHelper.FromArgb(pressed, tint.R, tint.G, tint.B));
-        button.Resources["ButtonBorderBrush"] = new SolidColorBrush(border);
-        button.Resources["ButtonBorderBrushPointerOver"] = new SolidColorBrush(border);
-        button.Resources["ButtonBorderBrushPressed"] = new SolidColorBrush(border);
-        button.Resources["ButtonForeground"] = new SolidColorBrush(text);
-        button.Resources["ButtonForegroundPointerOver"] = new SolidColorBrush(text);
-        button.Resources["ButtonForegroundPressed"] = new SolidColorBrush(text);
+        var colors = CriticalColors();
+        button.Resources["ButtonBackground"] = new SolidColorBrush(colors.Normal);
+        button.Resources["ButtonBackgroundPointerOver"] = new SolidColorBrush(colors.Hover);
+        button.Resources["ButtonBackgroundPressed"] = new SolidColorBrush(colors.Pressed);
+        button.Resources["ButtonBorderBrush"] = new SolidColorBrush(colors.Border);
+        button.Resources["ButtonBorderBrushPointerOver"] = new SolidColorBrush(colors.Border);
+        button.Resources["ButtonBorderBrushPressed"] = new SolidColorBrush(colors.Border);
+        button.Resources["ButtonForeground"] = new SolidColorBrush(colors.Text);
+        button.Resources["ButtonForegroundPointerOver"] = new SolidColorBrush(colors.Text);
+        button.Resources["ButtonForegroundPressed"] = new SolidColorBrush(colors.Text);
     }
 
-    private static Button? FindDialogButton(DependencyObject root, string name)
+    private (Windows.UI.Color Normal, Windows.UI.Color Hover, Windows.UI.Color Pressed, Windows.UI.Color Border, Windows.UI.Color Text) CriticalColors()
     {
-        var count = VisualTreeHelper.GetChildrenCount(root);
-        for (var index = 0; index < count; index++)
+        if (IsDark)
         {
-            var child = VisualTreeHelper.GetChild(root, index);
-            if (child is Button button && button.Name == name)
-            {
-                return button;
-            }
-
-            var nested = FindDialogButton(child, name);
-            if (nested is not null)
-            {
-                return nested;
-            }
+            return (
+                ColorHelper.FromArgb(0x2A, 0xFF, 0x6B, 0x74),
+                ColorHelper.FromArgb(0x40, 0xFF, 0x6B, 0x74),
+                ColorHelper.FromArgb(0x54, 0xFF, 0x6B, 0x74),
+                ColorHelper.FromArgb(0x99, 0xFF, 0x8A, 0x92),
+                ColorHelper.FromArgb(0xFF, 0xFF, 0x9C, 0xA3));
         }
 
-        return null;
+        return (
+            ColorHelper.FromArgb(0x14, 0xC4, 0x2B, 0x31),
+            ColorHelper.FromArgb(0x24, 0xC4, 0x2B, 0x31),
+            ColorHelper.FromArgb(0x34, 0xC4, 0x2B, 0x31),
+            ColorHelper.FromArgb(0x70, 0xC4, 0x2B, 0x31),
+            ColorHelper.FromArgb(0xFF, 0xA8, 0x1F, 0x26));
     }
 
     private bool IsDark => string.Equals(_runtime.EffectiveTheme, "dark", StringComparison.OrdinalIgnoreCase);
