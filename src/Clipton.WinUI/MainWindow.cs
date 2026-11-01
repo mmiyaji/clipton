@@ -86,6 +86,14 @@ public sealed class MainWindow : Window
     private readonly StackPanel _navigationPaneFooter = new() { Padding = new Thickness(8, 10, 8, 0), Spacing = 12 };
     private readonly Border _hotkeyPill;
     private readonly Border _captureStatusPill;
+    private readonly FontIcon _captureStatusIcon = new()
+    {
+        Glyph = "",
+        FontFamily = new FontFamily("Segoe Fluent Icons"),
+        FontSize = 13,
+        VerticalAlignment = VerticalAlignment.Center
+    };
+    private readonly List<Button> _criticalButtons = [];
     private readonly TextBlock _generalHeaderText = Header();
     private readonly TextBlock _generalDescriptionText = Description();
     private readonly TextBlock _historyHeaderText = Header();
@@ -273,7 +281,13 @@ public sealed class MainWindow : Window
         _runtime = runtime;
         _brandHeader = BuildBrandHeader();
         _hotkeyPill = Pill(_hotkeyText);
-        _captureStatusPill = Pill(_captureStatusText);
+        _captureStatusPill = Pill(new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Children = { _captureStatusIcon, _captureStatusText }
+        });
+        _captureStatusPill.BorderThickness = new Thickness(1);
         ConfigureAutomationIds();
         _windowProc = WindowProc;
         TrackDescriptionText(
@@ -677,7 +691,7 @@ public sealed class MainWindow : Window
         SetCommandButton(_exportHistoryButton, "\uEDE1", t("Export"));
         SetCommandButton(_importHistoryButton, "\uE896", t("Import"));
         SetCommandButton(_clearButton, "\uE74D", t("ClearHistory"));
-        _clearButton.Foreground = ErrorBrush();
+        ApplyCritical(_clearButton);
         SetCommandButton(_maskDefinitionsButton, "\uE713", t("MaskDefinitions"));
         _historySearchBox.PlaceholderText = t("SearchPlaceholder");
         SetCommandButton(_advancedHistorySearchButton, "\uE71C", t("AdvancedSearch"));
@@ -692,6 +706,7 @@ public sealed class MainWindow : Window
         SetCommandButton(_saveSnippetButton, "\uE70F", t("EditSnippet"));
         SetCommandButton(_pasteSnippetButton, "\uE77F", t("Paste"));
         SetCommandButton(_deleteSnippetButton, "\uE74D", t("Delete"));
+        ApplyCritical(_deleteSnippetButton);
         _snippetSearchBox.PlaceholderText = t("SnippetSearchPlaceholder");
         SetIconButton(_clearSnippetSearchButton, "\uE711", t("ClearSearch"));
         _snippetPreviewBox.PlaceholderText = t("SnippetPreviewPlaceholder");
@@ -705,9 +720,11 @@ public sealed class MainWindow : Window
         AutomationProperties.SetName(_donationLinkButton, t("DonationOpenBuyMeACoffee"));
         RefreshStoreUpdateTexts();
         RefreshSettingControlAutomation();
-        SetCommandButton(_exitApplicationButton, "\uE8BB", t("ExitApplication"));
+        SetCommandButton(_exitApplicationButton, "\uE7E8", t("ExitApplication"));
+        ApplyCritical(_exitApplicationButton);
         SetCommandButton(_openLogsButton, "\uE838", t("OpenLogs"));
         SetCommandButton(_clearLogsButton, "\uE74D", t("ClearLogs"));
+        ApplyCritical(_clearLogsButton);
         SetCommandButton(_openDataDirectoryButton, "\uE838", t("OpenFolder"));
         SetCommandButton(_changeDataDirectoryButton, "\uE8B7", t("Change"));
         SetCommandButton(_resetDataDirectoryButton, "\uE777", t("UseDefault"));
@@ -756,6 +773,7 @@ public sealed class MainWindow : Window
         SetComboBoxText(_historyAccessLockTimeoutBox, "60", string.Format(t("Minutes"), 60));
         SetCommandButton(_historyAccessLockPinButton, "\uE72E", _runtime.IsHistoryAccessLockConfigured ? t("ChangePin") : t("SetPin"));
         SetCommandButton(_historyAccessLockResetButton, "\uE777", t("ResetPin"));
+        ApplyCritical(_historyAccessLockResetButton);
         SetCommandButton(_historyAccessLockNowButton, "\uE785", t("LockNow"));
         SetCommandButton(_saveExcludedCaptureAppsButton, "\uE74E", t("Save"));
         UpdateExcludedCaptureApplicationsEditorVisibility();
@@ -2685,8 +2703,8 @@ public sealed class MainWindow : Window
         _aboutPage.Children.Add(Card(documents));
 
         _exitApplicationButton.HorizontalAlignment = HorizontalAlignment.Left;
-        _exitApplicationButton.Click += (_, _) => _runtime.ExitApplication();
-        _aboutPage.Children.Add(SettingCard("\uE8BB", "ExitApplication", "ExitApplicationDescription", _exitApplicationButton));
+        _exitApplicationButton.Click += async (_, _) => await ConfirmAndExitApplicationAsync();
+        _aboutPage.Children.Add(SettingCard("\uE7E8", "ExitApplication", "ExitApplicationDescription", _exitApplicationButton));
     }
 
     private UIElement BuildStoreUpdateCard()
@@ -3229,7 +3247,8 @@ public sealed class MainWindow : Window
                     _runtime.Translate("ConfirmDisablePersistHistoryTitle"),
                     _runtime.Translate("ConfirmDisablePersistHistoryMessage"),
                     _runtime.Translate("DisablePersistHistory"),
-                    _runtime.Translate("Cancel"));
+                    _runtime.Translate("Cancel"),
+                critical: true);
                 if (!confirmed)
                 {
                     _loading = true;
@@ -3409,7 +3428,8 @@ public sealed class MainWindow : Window
             _runtime.Translate("ConfirmResetHistoryAccessLockTitle"),
             _runtime.Translate("ConfirmResetHistoryAccessLockMessage"),
             _runtime.Translate("ResetPinAndClearHistory"),
-            _runtime.Translate("Cancel"));
+            _runtime.Translate("Cancel"),
+                critical: true);
         if (!confirmed)
         {
             return;
@@ -3526,7 +3546,29 @@ public sealed class MainWindow : Window
 
     private async Task ResetDataDirectoryAsync()
     {
-        await SaveDataDirectoryAsync(null);
+        var confirmed = await ConfirmDialogAsync(
+            _runtime.Translate("ConfirmResetDataDirectoryTitle"),
+            _runtime.Translate("ConfirmResetDataDirectoryMessage"),
+            _runtime.Translate("ResetToDefaults"),
+            _runtime.Translate("Cancel"));
+        if (confirmed)
+        {
+            await SaveDataDirectoryAsync(null);
+        }
+    }
+
+    private async Task ConfirmAndExitApplicationAsync()
+    {
+        var confirmed = await ConfirmDialogAsync(
+            _runtime.Translate("ConfirmExitTitle"),
+            _runtime.Translate("ConfirmExitMessage"),
+            _runtime.Translate("ExitApplication"),
+            _runtime.Translate("Cancel"),
+            critical: true);
+        if (confirmed)
+        {
+            _runtime.ExitApplication();
+        }
     }
 
     private async Task SaveDataDirectoryAsync(string? path)
@@ -3555,7 +3597,8 @@ public sealed class MainWindow : Window
             _runtime.Translate("ConfirmClearHistoryTitle"),
             _runtime.Translate("ConfirmClearHistoryMessage"),
             _runtime.Translate("ClearHistory"),
-            _runtime.Translate("Cancel"));
+            _runtime.Translate("Cancel"),
+                critical: true);
         if (!confirmed)
         {
             return;
@@ -3570,7 +3613,8 @@ public sealed class MainWindow : Window
             _runtime.Translate("ConfirmClearLogsTitle"),
             _runtime.Translate("ConfirmClearLogsMessage"),
             _runtime.Translate("ClearLogs"),
-            _runtime.Translate("Cancel"));
+            _runtime.Translate("Cancel"),
+                critical: true);
         if (!confirmed)
         {
             return;
@@ -3594,7 +3638,8 @@ public sealed class MainWindow : Window
                 _runtime.Translate("ConfirmDeleteSnippetTitle"),
                 string.Format(_runtime.Translate("ConfirmDeleteSnippetMessage"), selected.DisplayName),
                 _runtime.Translate("Delete"),
-                _runtime.Translate("Cancel"));
+                _runtime.Translate("Cancel"),
+                critical: true);
             if (!confirmed)
             {
                 return;
@@ -3631,7 +3676,8 @@ public sealed class MainWindow : Window
                 _runtime.Translate("ConfirmDeleteHistoryItemTitle"),
                 _runtime.Translate("ConfirmDeleteHistoryItemMessage"),
                 _runtime.Translate("Delete"),
-                _runtime.Translate("Cancel"));
+                _runtime.Translate("Cancel"),
+                critical: true);
             if (!confirmed)
             {
                 return;
@@ -4569,7 +4615,7 @@ public sealed class MainWindow : Window
         _runtime.ExitApplication();
     }
 
-    private async Task<bool> ConfirmDialogAsync(string title, string message, string primaryText, string closeText)
+    private async Task<bool> ConfirmDialogAsync(string title, string message, string primaryText, string closeText, bool critical = false)
     {
         if (_root.XamlRoot is null)
         {
@@ -4590,6 +4636,17 @@ public sealed class MainWindow : Window
             XamlRoot = _root.XamlRoot,
             RequestedTheme = DialogTheme
         };
+        if (critical)
+        {
+            dialog.Opened += (_, _) =>
+            {
+                if (FindDialogButton(dialog, "PrimaryButton") is { } primaryButton)
+                {
+                    ApplyCriticalColors(primaryButton);
+                }
+            };
+        }
+
         return await ShowContentDialogAsync(dialog) == ContentDialogResult.Primary;
     }
 
@@ -5655,8 +5712,92 @@ public sealed class MainWindow : Window
 
         _historySearchIcon.Foreground = brush;
         _quickMenuPasteOptionsSearchIcon.Foreground = brush;
-        _clearButton.Foreground = ErrorBrush();
         _captureStatusText.Foreground = WarningBrush();
+        _captureStatusIcon.Foreground = WarningBrush();
+        if (_runtime.IsHighContrast)
+        {
+            _captureStatusPill.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            _captureStatusPill.BorderBrush = WarningBrush();
+        }
+        else
+        {
+            _captureStatusPill.Background = new SolidColorBrush(IsDark
+                ? ColorHelper.FromArgb(0x26, 0xFF, 0xD8, 0x6B)
+                : ColorHelper.FromArgb(0x1F, 0x9A, 0x67, 0x00));
+            _captureStatusPill.BorderBrush = new SolidColorBrush(IsDark
+                ? ColorHelper.FromArgb(0x66, 0xFF, 0xD8, 0x6B)
+                : ColorHelper.FromArgb(0x66, 0x9A, 0x67, 0x00));
+        }
+
+        foreach (var button in _criticalButtons)
+        {
+            ApplyCriticalColors(button);
+        }
+    }
+
+    private void ApplyCritical(Button button)
+    {
+        if (!_criticalButtons.Contains(button))
+        {
+            _criticalButtons.Add(button);
+        }
+
+        ApplyCriticalColors(button);
+    }
+
+    private void ApplyCriticalColors(Button button)
+    {
+        string[] keys =
+        [
+            "ButtonBackground", "ButtonBackgroundPointerOver", "ButtonBackgroundPressed",
+            "ButtonBorderBrush", "ButtonBorderBrushPointerOver", "ButtonBorderBrushPressed",
+            "ButtonForeground", "ButtonForegroundPointerOver", "ButtonForegroundPressed"
+        ];
+        if (_runtime.IsHighContrast)
+        {
+            foreach (var key in keys)
+            {
+                button.Resources.Remove(key);
+            }
+
+            return;
+        }
+
+        var dark = IsDark;
+        var tint = dark ? (R: (byte)0xFF, G: (byte)0xB4, B: (byte)0xB8) : (R: (byte)0xA4, G: (byte)0x26, B: (byte)0x2C);
+        var text = dark ? ColorHelper.FromArgb(0xFF, 0xFF, 0xB4, 0xB8) : ColorHelper.FromArgb(0xFF, 0x9B, 0x30, 0x38);
+        var border = dark ? ColorHelper.FromArgb(0x48, 0xFF, 0xB4, 0xB8) : ColorHelper.FromArgb(0x40, 0x9B, 0x30, 0x38);
+        var (rest, hover, pressed) = dark ? ((byte)0x14, (byte)0x20, (byte)0x2C) : ((byte)0x0C, (byte)0x18, (byte)0x24);
+        button.Resources["ButtonBackground"] = new SolidColorBrush(ColorHelper.FromArgb(rest, tint.R, tint.G, tint.B));
+        button.Resources["ButtonBackgroundPointerOver"] = new SolidColorBrush(ColorHelper.FromArgb(hover, tint.R, tint.G, tint.B));
+        button.Resources["ButtonBackgroundPressed"] = new SolidColorBrush(ColorHelper.FromArgb(pressed, tint.R, tint.G, tint.B));
+        button.Resources["ButtonBorderBrush"] = new SolidColorBrush(border);
+        button.Resources["ButtonBorderBrushPointerOver"] = new SolidColorBrush(border);
+        button.Resources["ButtonBorderBrushPressed"] = new SolidColorBrush(border);
+        button.Resources["ButtonForeground"] = new SolidColorBrush(text);
+        button.Resources["ButtonForegroundPointerOver"] = new SolidColorBrush(text);
+        button.Resources["ButtonForegroundPressed"] = new SolidColorBrush(text);
+    }
+
+    private static Button? FindDialogButton(DependencyObject root, string name)
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var index = 0; index < count; index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is Button button && button.Name == name)
+            {
+                return button;
+            }
+
+            var nested = FindDialogButton(child, name);
+            if (nested is not null)
+            {
+                return nested;
+            }
+        }
+
+        return null;
     }
 
     private bool IsDark => string.Equals(_runtime.EffectiveTheme, "dark", StringComparison.OrdinalIgnoreCase);
@@ -6216,10 +6357,10 @@ public sealed class MainWindow : Window
     {
         var text = DescriptionText(
             key,
-            fontSize: 13,
+            fontSize: 15,
             fontWeight: Microsoft.UI.Text.FontWeights.SemiBold,
             wrapping: TextWrapping.NoWrap);
-        text.Margin = new Thickness(1, 6, 0, -8);
+        text.Margin = new Thickness(1, 14, 0, -6);
         return text;
     }
 
