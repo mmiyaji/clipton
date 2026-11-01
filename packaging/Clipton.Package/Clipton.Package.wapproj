@@ -33,6 +33,7 @@
 
   <ItemGroup>
     <Content Include="Images\Square44x44Logo.png" />
+    <Content Include="Images\Square44x44Logo.*.png" />
     <Content Include="Images\Square150x150Logo.png" />
     <Content Include="Images\Square310x310Logo.png" />
     <Content Include="Images\StoreLogo.png" />

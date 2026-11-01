@@ -17,6 +17,7 @@ using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
+using Windows.Foundation;
 using Windows.Services.Store;
 using Windows.Storage.Pickers;
 using Windows.Storage.Streams;
@@ -33,7 +34,7 @@ public sealed class MainWindow : Window
     private const double SettingsPageMaxWidth = 920;
     private const double SidebarExpandedWidth = 248;
     private const double SidebarCollapsedWidth = 72;
-    private const double ContentMinWidth = 680;
+    private const double ContentMinWidth = 520;
     private const double SidebarAutoCollapseWidth = 1040;
     private const double SidebarAutoExpandWidth = 1120;
     private const double SettingControlHeight = 36;
@@ -72,16 +73,30 @@ public sealed class MainWindow : Window
     private readonly List<Border> _cards = [];
     private readonly List<Border> _rowSeparators = [];
     private readonly List<NavigationViewItem> _navItems = [];
+    private readonly NavigationViewItemHeader _navClipboardHeader = new();
+    private readonly NavigationViewItemHeader _navSettingsHeader = new();
+    private readonly NavigationViewItemHeader _navSupportHeader = new();
     private readonly Dictionary<ToggleSwitch, TextBlock> _toggleStateLabels = [];
     private readonly List<(TextBlock TextBlock, string Key)> _localizedTextBlocks = [];
     private readonly List<(FrameworkElement Element, string TitleKey, string DescriptionKey)> _settingAutomationTargets = [];
+    private readonly List<(Grid Grid, FrameworkElement Texts, FrameworkElement Action)> _settingCardLayouts = [];
     private readonly List<TextBlock> _descriptionTextBlocks = [];
     private readonly TextBlock _titleText = Header(20);
     private readonly TextBlock _hotkeyText = Description();
+    private readonly TextBlock _captureStatusText = Description();
     private readonly UIElement _brandHeader;
     private readonly Image _appLogoImage = new() { Width = 32, Height = 32 };
     private readonly StackPanel _navigationPaneFooter = new() { Padding = new Thickness(8, 10, 8, 0), Spacing = 12 };
     private readonly Border _hotkeyPill;
+    private readonly Border _captureStatusPill;
+    private readonly FontIcon _captureStatusIcon = new()
+    {
+        Glyph = "",
+        FontFamily = new FontFamily("Segoe Fluent Icons"),
+        FontSize = 13,
+        VerticalAlignment = VerticalAlignment.Center
+    };
+    private readonly List<Button> _criticalButtons = [];
     private readonly TextBlock _generalHeaderText = Header();
     private readonly TextBlock _generalDescriptionText = Description();
     private readonly TextBlock _historyHeaderText = Header();
@@ -109,13 +124,22 @@ public sealed class MainWindow : Window
     private readonly ComboBox _quickMenuPlainTextShortcutBox = new();
     private readonly ComboBox _quickMenuMaskShortcutBox = new();
     private readonly ComboBox _quickMenuCapturedAtShortcutBox = new();
-    private readonly Dictionary<string, (CheckBox CheckBox, string LabelKey)> _quickMenuPasteOptionChecks = [];
+    private readonly Dictionary<string, (ToggleSwitch Toggle, string LabelKey, FrameworkElement Row)> _quickMenuPasteOptionToggles = [];
+    private readonly List<(string TitleKey, Expander Expander, IReadOnlyList<(string Id, string LabelKey)> Options)> _quickMenuPasteOptionGroups = [];
+    private readonly Dictionary<Expander, bool> _quickMenuPasteOptionExpansionBeforeSearch = [];
+    private readonly Grid _quickMenuPasteOptionsSearchHost = new();
+    private readonly TextBox _quickMenuPasteOptionsSearchBox = new();
+    private readonly FontIcon _quickMenuPasteOptionsSearchIcon = new();
+    private readonly TextBlock _quickMenuPasteOptionsStatusText = Description();
+    private readonly Button _resetQuickMenuPasteOptionsButton = new();
+    private bool _quickMenuPasteOptionSearchActive;
     private readonly ToggleSwitch _quickMenuShowCapturedAtToggle = CompactToggle();
     private readonly ToggleSwitch _quickMenuShowShortcutHintsToggle = CompactToggle();
     private readonly ToggleSwitch _startupToggle = CompactToggle();
     private readonly ToggleSwitch _hideSettingsWindowOnStartupToggle = CompactToggle();
     private readonly ToggleSwitch _pauseCaptureToggle = CompactToggle();
     private readonly ToggleSwitch _diagnosticLoggingToggle = CompactToggle();
+    private readonly ToggleSwitch _autoCheckStoreUpdatesToggle = CompactToggle();
     private readonly ToggleSwitch _persistHistoryToggle = CompactToggle();
     private readonly ToggleSwitch _saveSourceMetadataToggle = CompactToggle();
     private readonly TextBox _excludedCaptureAppsBox = new();
@@ -163,6 +187,8 @@ public sealed class MainWindow : Window
     private readonly FontIcon _historySearchIcon = new();
     private readonly Button _advancedHistorySearchButton = new();
     private readonly Button _clearHistorySearchButton = new();
+    private readonly Button _clearHistoryFiltersButton = new();
+    private readonly TextBlock _historyFilterSummaryText = Description();
     private readonly StackPanel _historyAdvancedSearchPanel = new() { Spacing = 10 };
     private readonly ToggleButton _historyTypeTextFilter = new();
     private readonly ToggleButton _historyTypeRichFilter = new();
@@ -182,6 +208,8 @@ public sealed class MainWindow : Window
     private readonly TextBlock _snippetSelectionTitleText = Header(16);
     private readonly TextBlock _snippetSelectionMetaText = Description();
     private readonly TextBox _snippetPreviewBox = new();
+    private readonly Grid _snippetLayoutGrid = new() { ColumnSpacing = 16 };
+    private Border? _snippetDetailsCard;
     private readonly Button _newSnippetButton = new();
     private readonly Button _exportSnippetsButton = new();
     private readonly Button _importSnippetsButton = new();
@@ -190,6 +218,7 @@ public sealed class MainWindow : Window
     private readonly Button _deleteSnippetButton = new();
     private readonly Button _termsButton = new();
     private readonly Button _privacyButton = new();
+    private readonly Button _licensesButton = new();
     private readonly Button _donationButton = new();
     private readonly TextBlock _donationFallbackText = new();
     private readonly HyperlinkButton _donationLinkButton = new();
@@ -236,6 +265,7 @@ public sealed class MainWindow : Window
     private IntPtr _hwnd;
     private IntPtr _originalWndProc;
     private bool _hiddenToTray;
+    private bool _openingNewSnippetEditor;
     private bool _maskDefinitionsExpanded;
     private bool _excludedCaptureAppsEditorExpanded;
     private bool _onboardingDialogOpen;
@@ -250,15 +280,27 @@ public sealed class MainWindow : Window
     private bool _storeUpdateInstalling;
     private bool _storeUpdateAvailable = IsDebugStoreUpdateAvailableForced();
     private bool _storeUpdateCheckCompleted;
+    private readonly ClickCooldown _checkStoreUpdateCooldown = new(TimeSpan.FromSeconds(3));
+    private readonly ClickCooldown _installStoreUpdateCooldown = new(TimeSpan.FromSeconds(3));
 
     public MainWindow(CliptonRuntime runtime)
     {
         _runtime = runtime;
+        _storeUpdateAvailable |= runtime.StoreUpdateAvailable;
         _brandHeader = BuildBrandHeader();
         _hotkeyPill = Pill(_hotkeyText);
+        _captureStatusPill = Pill(new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Children = { _captureStatusIcon, _captureStatusText }
+        });
+        _captureStatusPill.BorderThickness = new Thickness(1);
+        ConfigureAutomationIds();
         _windowProc = WindowProc;
         TrackDescriptionText(
             _hotkeyText,
+            _captureStatusText,
             _generalDescriptionText,
             _historyDescriptionText,
             _historySettingsDescriptionText,
@@ -275,6 +317,8 @@ public sealed class MainWindow : Window
             _dataDirectoryText,
             _excludedCaptureAppsStatusText,
             _historyAccessLockStatusText,
+            _quickMenuPasteOptionsStatusText,
+            _historyFilterSummaryText,
             _maskDefinitionsErrorText,
             _maskTestResultText);
         Title = "Clipton";
@@ -284,9 +328,11 @@ public sealed class MainWindow : Window
         RefreshTexts();
         RefreshItems();
         _runtime.HighContrastChanged += OnHighContrastChanged;
+        _runtime.StoreUpdateAvailabilityChanged += OnStoreUpdateAvailabilityChanged;
         Closed += (_, _) =>
         {
             _runtime.HighContrastChanged -= OnHighContrastChanged;
+            _runtime.StoreUpdateAvailabilityChanged -= OnStoreUpdateAvailabilityChanged;
             RestoreWindowProc();
             _runtime.OnMainWindowClosed(this);
         };
@@ -324,14 +370,101 @@ public sealed class MainWindow : Window
 
     public async Task ShowNewSnippetEditorAsync()
     {
-        if (!await EnsureHistoryAccessUnlockedAsync(showWindow: true))
+        if (_openingNewSnippetEditor)
         {
             return;
         }
 
-        SelectPage(4);
-        ShowSettingsWindow();
-        await OpenSnippetEditorAsync(null, _selectedSnippetFolder, string.Empty, string.Empty);
+        _openingNewSnippetEditor = true;
+        try
+        {
+            if (!await EnsureHistoryAccessUnlockedAsync(showWindow: true))
+            {
+                return;
+            }
+
+            SelectPage(4);
+            ShowSettingsWindow();
+            AppDiagnostics.Info("Snippet editor", $"Window activated; root loaded={_root.IsLoaded}, XamlRoot available={_root.XamlRoot is not null}.");
+            await WaitForRootLoadedAsync();
+            AppDiagnostics.Info("Snippet editor", $"Window root ready; XamlRoot available={_root.XamlRoot is not null}.");
+            await OpenSnippetEditorAsync(null, _selectedSnippetFolder, string.Empty, string.Empty);
+        }
+        finally
+        {
+            _openingNewSnippetEditor = false;
+        }
+    }
+
+    public async Task ShowHistorySnippetEditorAsync(string historyId)
+    {
+        if (_openingNewSnippetEditor)
+        {
+            return;
+        }
+
+        _openingNewSnippetEditor = true;
+        try
+        {
+            if (!await EnsureHistoryAccessUnlockedAsync(showWindow: true))
+            {
+                return;
+            }
+
+            var plainText = _runtime.GetHistoryPlainText(historyId);
+            if (string.IsNullOrWhiteSpace(plainText))
+            {
+                return;
+            }
+
+            SelectPage(4);
+            ShowSettingsWindow();
+            await WaitForRootLoadedAsync();
+            await OpenSnippetEditorAsync(null, "History", CreateSnippetName(plainText), plainText);
+        }
+        catch (Exception ex)
+        {
+            AppDiagnostics.Log(ex, "History snippet editor failed to open.");
+        }
+        finally
+        {
+            _openingNewSnippetEditor = false;
+        }
+    }
+
+    private async Task WaitForRootLoadedAsync()
+    {
+        if (_root.IsLoaded && _root.XamlRoot is not null)
+        {
+            return;
+        }
+
+        var loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        RoutedEventHandler handler = (_, _) => loaded.TrySetResult();
+        TypedEventHandler<object, WindowEventArgs> closedHandler = (_, _) => closed.TrySetResult();
+        _root.Loaded += handler;
+        Closed += closedHandler;
+
+        // Loaded may have fired between the initial check and event subscription.
+        if (_root.IsLoaded && _root.XamlRoot is not null)
+        {
+            loaded.TrySetResult();
+        }
+
+        try
+        {
+            await WindowReadinessWaiter.WaitAsync(
+                loaded.Task,
+                closed.Task,
+                () => _root.IsLoaded && _root.XamlRoot is not null,
+                TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            _root.Loaded -= handler;
+            Closed -= closedHandler;
+        }
     }
 
     public async Task<bool> RequestHistoryAccessUnlockAsync(bool showWindow)
@@ -568,18 +701,14 @@ public sealed class MainWindow : Window
         SetCommandButton(_exportHistoryButton, "\uEDE1", t("Export"));
         SetCommandButton(_importHistoryButton, "\uE896", t("Import"));
         SetCommandButton(_clearButton, "\uE74D", t("ClearHistory"));
+        ApplyCritical(_clearButton);
         SetCommandButton(_maskDefinitionsButton, "\uE713", t("MaskDefinitions"));
         _historySearchBox.PlaceholderText = t("SearchPlaceholder");
-        SetIconButton(_advancedHistorySearchButton, "\uE71C", t("AdvancedSearch"));
+        SetCommandButton(_advancedHistorySearchButton, "\uE71C", t("AdvancedSearch"));
         UpdateAdvancedHistorySearchButtonState();
         SetCommandButton(_clearHistorySearchButton, "\uE711", t("ClearSearch"));
-        SetHistoryFilterToggle(_historyTypeTextFilter, t("FormatText"));
-        SetHistoryFilterToggle(_historyTypeRichFilter, t("FormatRichText"));
-        SetHistoryFilterToggle(_historyTypeHtmlFilter, t("FormatHtml"));
-        SetHistoryFilterToggle(_historyTypeImageFilter, t("Image"));
-        SetHistoryFilterToggle(_historyTypeFileFilter, t("FormatFileDrop"));
-        SetHistoryFilterToggle(_historyPinnedFilter, t("PinnedHistory"));
-        SetHistoryFilterToggle(_historyUrlFilter, t("SearchFilterUrl"));
+        SetCommandButton(_clearHistoryFiltersButton, "\uE711", t("ClearSearch"));
+        RefreshHistoryFilterToggleVisuals();
         _loadMoreHistoryButton.Content = string.Format(t("LoadMoreHistory"), 0);
         SetCommandButton(_newSnippetButton, "\uE710", t("NewSnippet"));
         SetCommandButton(_exportSnippetsButton, "\uEDE1", t("Export"));
@@ -587,6 +716,7 @@ public sealed class MainWindow : Window
         SetCommandButton(_saveSnippetButton, "\uE70F", t("EditSnippet"));
         SetCommandButton(_pasteSnippetButton, "\uE77F", t("Paste"));
         SetCommandButton(_deleteSnippetButton, "\uE74D", t("Delete"));
+        ApplyCritical(_deleteSnippetButton);
         _snippetSearchBox.PlaceholderText = t("SnippetSearchPlaceholder");
         SetIconButton(_clearSnippetSearchButton, "\uE711", t("ClearSearch"));
         _snippetPreviewBox.PlaceholderText = t("SnippetPreviewPlaceholder");
@@ -594,15 +724,18 @@ public sealed class MainWindow : Window
         AutomationProperties.SetName(_snippetPreviewBox, t("SnippetPreviewPlaceholder"));
         _termsButton.Content = t("TermsOfUse");
         _privacyButton.Content = t("PrivacyPolicy");
+        _licensesButton.Content = t("ThirdPartyLicenses");
         _donationFallbackText.Text = t("BuyMeACoffee");
         _donationLinkButton.Content = t("DonationOpenBuyMeACoffee");
         AutomationProperties.SetName(_donationButton, t("BuyMeACoffee"));
         AutomationProperties.SetName(_donationLinkButton, t("DonationOpenBuyMeACoffee"));
         RefreshStoreUpdateTexts();
         RefreshSettingControlAutomation();
-        SetCommandButton(_exitApplicationButton, "\uE8BB", t("ExitApplication"));
+        SetCommandButton(_exitApplicationButton, "\uE7E8", t("ExitApplication"));
+        ApplyCritical(_exitApplicationButton);
         SetCommandButton(_openLogsButton, "\uE838", t("OpenLogs"));
         SetCommandButton(_clearLogsButton, "\uE74D", t("ClearLogs"));
+        ApplyCritical(_clearLogsButton);
         SetCommandButton(_openDataDirectoryButton, "\uE838", t("OpenFolder"));
         SetCommandButton(_changeDataDirectoryButton, "\uE8B7", t("Change"));
         SetCommandButton(_resetDataDirectoryButton, "\uE777", t("UseDefault"));
@@ -615,6 +748,9 @@ public sealed class MainWindow : Window
         AutomationProperties.SetName(_maskDefinitionsSaveButton, t("Save"));
         _captureHotkeyButton.Content = t("CaptureHotkey");
         _resetHotkeyButton.Content = t("ResetHotkey");
+        SetCommandButton(_resetQuickMenuPasteOptionsButton, "\uE777", t("UseDefault"));
+        _quickMenuPasteOptionsSearchBox.PlaceholderText = $"{t("Search")} — {t("QuickMenuPasteOptionsSection")}";
+        AutomationProperties.SetName(_quickMenuPasteOptionsSearchBox, _quickMenuPasteOptionsSearchBox.PlaceholderText);
         SetComboBoxText(_themeBox, "system", t("ThemeSystem"));
         SetComboBoxText(_themeBox, "light", t("ThemeLight"));
         SetComboBoxText(_themeBox, "dark", t("ThemeDark"));
@@ -648,6 +784,7 @@ public sealed class MainWindow : Window
         SetComboBoxText(_historyAccessLockTimeoutBox, "60", string.Format(t("Minutes"), 60));
         SetCommandButton(_historyAccessLockPinButton, "\uE72E", _runtime.IsHistoryAccessLockConfigured ? t("ChangePin") : t("SetPin"));
         SetCommandButton(_historyAccessLockResetButton, "\uE777", t("ResetPin"));
+        ApplyCritical(_historyAccessLockResetButton);
         SetCommandButton(_historyAccessLockNowButton, "\uE785", t("LockNow"));
         SetCommandButton(_saveExcludedCaptureAppsButton, "\uE74E", t("Save"));
         UpdateExcludedCaptureApplicationsEditorVisibility();
@@ -656,6 +793,7 @@ public sealed class MainWindow : Window
         _hideSettingsWindowOnStartupToggle.IsOn = _runtime.Settings.HideSettingsWindowOnStartup;
         _pauseCaptureToggle.IsOn = _runtime.Settings.PauseCapture;
         _diagnosticLoggingToggle.IsOn = _runtime.Settings.DiagnosticLoggingEnabled;
+        _autoCheckStoreUpdatesToggle.IsOn = _runtime.Settings.AutoCheckStoreUpdates;
         _persistHistoryToggle.IsOn = _runtime.Settings.PersistEncryptedHistory;
         _saveSourceMetadataToggle.IsOn = _runtime.Settings.SaveHistorySourceMetadata;
         _historyAccessLockToggle.IsOn = _runtime.Settings.HistoryAccessLockEnabled && _runtime.IsHistoryAccessLockConfigured;
@@ -671,6 +809,7 @@ public sealed class MainWindow : Window
         _quickMenuShowCapturedAtToggle.IsOn = _runtime.Settings.QuickMenuShowCapturedAt;
         _quickMenuShowShortcutHintsToggle.IsOn = _runtime.Settings.QuickMenuShowShortcutHints;
         _startupToggle.IsEnabled = !_runtime.IsSafeMode;
+        UpdateCaptureStatus();
         RefreshToggleStateLabels();
         RefreshLocalizedTextBlocks();
         EnsureHotkeyComboItem(_runtime.Settings.Hotkey);
@@ -690,6 +829,106 @@ public sealed class MainWindow : Window
         UpdateHistorySearchStatus();
         UpdateMaskTestPreview();
         _loading = false;
+    }
+
+    private void ConfigureAutomationIds()
+    {
+        SetAutomationId(_navigationView, "MainNavigation");
+        SetAutomationId(_contentScroller, "SettingsContentScroller");
+        SetAutomationId(_hotkeyBox, "HotkeyComboBox");
+        SetAutomationId(_captureHotkeyButton, "ChangeHotkeyButton");
+        SetAutomationId(_resetHotkeyButton, "ResetHotkeyButton");
+        SetAutomationId(_themeBox, "ThemeComboBox");
+        SetAutomationId(_localeBox, "LanguageComboBox");
+        SetAutomationId(_startupToggle, "StartupToggle");
+        SetAutomationId(_hideSettingsWindowOnStartupToggle, "BackgroundStartupToggle");
+        SetAutomationId(_quickMenuTopLevelHistoryItemsBox, "QuickMenuTopLevelCountComboBox");
+        SetAutomationId(_quickMenuDisplayModeBox, "QuickMenuDisplayModeComboBox");
+        SetAutomationId(_quickMenuImagePreviewSizeBox, "QuickMenuImagePreviewSizeComboBox");
+        SetAutomationId(_quickMenuShowCapturedAtToggle, "QuickMenuCapturedAtToggle");
+        SetAutomationId(_quickMenuShowShortcutHintsToggle, "QuickMenuShortcutHintsToggle");
+        SetAutomationId(_quickMenuSearchShortcutBox, "QuickMenuSearchShortcutComboBox");
+        SetAutomationId(_quickMenuPlainTextShortcutBox, "QuickMenuPlainTextShortcutComboBox");
+        SetAutomationId(_quickMenuMaskShortcutBox, "QuickMenuMaskShortcutComboBox");
+        SetAutomationId(_quickMenuCapturedAtShortcutBox, "QuickMenuCapturedAtShortcutComboBox");
+        SetAutomationId(_pauseCaptureToggle, "PauseCaptureToggle");
+        SetAutomationId(_diagnosticLoggingToggle, "DiagnosticLoggingToggle");
+        SetAutomationId(_autoCheckStoreUpdatesToggle, "AutoCheckStoreUpdatesToggle");
+        SetAutomationId(_persistHistoryToggle, "PersistHistoryToggle");
+        SetAutomationId(_saveSourceMetadataToggle, "SaveSourceMetadataToggle");
+        SetAutomationId(_historyAccessLockToggle, "HistoryAccessLockToggle");
+        SetAutomationId(_historyAccessLockTimeoutBox, "HistoryAccessLockTimeoutComboBox");
+        SetAutomationId(_historyAccessLockPinButton, "HistoryAccessLockPinButton");
+        SetAutomationId(_historyAccessLockResetButton, "HistoryAccessLockResetButton");
+        SetAutomationId(_historyAccessLockNowButton, "HistoryAccessLockNowButton");
+        SetAutomationId(_maskSensitiveContentToggle, "MaskSensitiveContentToggle");
+        SetAutomationId(_maskDefinitionsButton, "MaskDefinitionsButton");
+        SetAutomationId(_maskPrefixBox, "MaskVisiblePrefixComboBox");
+        SetAutomationId(_maskPatternsBox, "MaskPatternsTextBox");
+        SetAutomationId(_maskTestBox, "MaskTestTextBox");
+        SetAutomationId(_maskDefinitionsResetButton, "ResetMaskDefinitionsButton");
+        SetAutomationId(_maskDefinitionsSaveButton, "SaveMaskDefinitionsButton");
+        SetAutomationId(_maskEmailToggle, "MaskEmailToggle");
+        SetAutomationId(_maskCreditCardToggle, "MaskCreditCardToggle");
+        SetAutomationId(_maskSecretKeywordToggle, "MaskSecretKeywordToggle");
+        SetAutomationId(_maskBearerTokenToggle, "MaskBearerTokenToggle");
+        SetAutomationId(_maskLongTokenToggle, "MaskLongTokenToggle");
+        SetAutomationId(_maskShortAlphanumericCodeToggle, "MaskShortCodeToggle");
+        SetAutomationId(_maskPhoneNumberToggle, "MaskPhoneNumberToggle");
+        SetAutomationId(_maskCustomPatternToggle, "MaskCustomPatternToggle");
+        SetAutomationId(_excludedCaptureAppsBox, "ExcludedCaptureAppsTextBox");
+        SetAutomationId(_toggleExcludedCaptureAppsEditorButton, "EditExcludedCaptureAppsButton");
+        SetAutomationId(_saveExcludedCaptureAppsButton, "SaveExcludedCaptureAppsButton");
+        SetAutomationId(_openLogsButton, "OpenLogsButton");
+        SetAutomationId(_clearLogsButton, "ClearLogsButton");
+        SetAutomationId(_maxHistoryItemsBox, "MaxHistoryItemsComboBox");
+        SetAutomationId(_clipboardCaptureDelayBox, "ClipboardCaptureDelayComboBox");
+        SetAutomationId(_historySearchBox, "HistorySearchBox");
+        SetAutomationId(_advancedHistorySearchButton, "HistoryFiltersButton");
+        SetAutomationId(_clearHistorySearchButton, "ClearHistorySearchButton");
+        SetAutomationId(_clearHistoryFiltersButton, "ClearHistoryFiltersButton");
+        SetAutomationId(_historyTypeTextFilter, "HistoryFilterText");
+        SetAutomationId(_historyTypeRichFilter, "HistoryFilterRichText");
+        SetAutomationId(_historyTypeHtmlFilter, "HistoryFilterHtml");
+        SetAutomationId(_historyTypeImageFilter, "HistoryFilterImage");
+        SetAutomationId(_historyTypeFileFilter, "HistoryFilterFile");
+        SetAutomationId(_historyPinnedFilter, "HistoryFilterPinned");
+        SetAutomationId(_historyUrlFilter, "HistoryFilterUrl");
+        SetAutomationId(_registerFromHistoryButton, "RegisterHistoryButton");
+        SetAutomationId(_exportHistoryButton, "ExportHistoryButton");
+        SetAutomationId(_importHistoryButton, "ImportHistoryButton");
+        SetAutomationId(_clearButton, "ClearHistoryButton");
+        SetAutomationId(_historyListView, "HistoryList");
+        SetAutomationId(_loadMoreHistoryButton, "LoadMoreHistoryButton");
+        SetAutomationId(_resetQuickMenuPasteOptionsButton, "ResetQuickMenuPasteOptionsButton");
+        SetAutomationId(_quickMenuPasteOptionsSearchBox, "QuickMenuPasteOptionsSearchBox");
+        SetAutomationId(_quickMenuPasteOptionsStatusText, "QuickMenuPasteOptionsStatus");
+        SetAutomationId(_snippetSearchBox, "SnippetSearchBox");
+        SetAutomationId(_clearSnippetSearchButton, "ClearSnippetSearchButton");
+        SetAutomationId(_snippetTree, "SnippetTree");
+        SetAutomationId(_snippetPreviewBox, "SnippetPreviewTextBox");
+        SetAutomationId(_newSnippetButton, "NewSnippetButton");
+        SetAutomationId(_saveSnippetButton, "EditSnippetButton");
+        SetAutomationId(_pasteSnippetButton, "PasteSnippetButton");
+        SetAutomationId(_deleteSnippetButton, "DeleteSnippetButton");
+        SetAutomationId(_exportSnippetsButton, "ExportSnippetsButton");
+        SetAutomationId(_importSnippetsButton, "ImportSnippetsButton");
+        SetAutomationId(_checkStoreUpdateButton, "CheckStoreUpdateButton");
+        SetAutomationId(_installStoreUpdateButton, "InstallStoreUpdateButton");
+        SetAutomationId(_termsButton, "TermsButton");
+        SetAutomationId(_privacyButton, "PrivacyButton");
+        SetAutomationId(_licensesButton, "ThirdPartyLicensesButton");
+        SetAutomationId(_donationButton, "DonationButton");
+        SetAutomationId(_donationLinkButton, "DonationLinkButton");
+        SetAutomationId(_openDataDirectoryButton, "OpenDataDirectoryButton");
+        SetAutomationId(_changeDataDirectoryButton, "ChangeDataDirectoryButton");
+        SetAutomationId(_resetDataDirectoryButton, "ResetDataDirectoryButton");
+        SetAutomationId(_exitApplicationButton, "ExitApplicationButton");
+    }
+
+    private static void SetAutomationId(DependencyObject element, string automationId)
+    {
+        AutomationProperties.SetAutomationId(element, automationId);
     }
 
     private void BuildUi()
@@ -733,16 +972,31 @@ public sealed class MainWindow : Window
             _sidebarCollapsed = true;
             UpdateNavigationPaneFooterVisibility();
         };
+        _navigationPaneFooter.Children.Add(_captureStatusPill);
         _navigationPaneFooter.Children.Add(_hotkeyPill);
         _hotkeyText.Margin = new Thickness(8, 0, 8, 4);
         _navigationPaneFooter.Children.Add(_brandHeader);
         _navigationView.PaneFooter = _navigationPaneFooter;
         foreach (var index in Enumerable.Range(0, 7))
         {
-            var item = CreateNavItem(index);
-            _navItems.Add(item);
-            _navigationView.MenuItems.Add(item);
+            _navItems.Add(CreateNavItem(index));
         }
+
+        // Page indexes stay fixed; only the sidebar placement is grouped:
+        // settings pages, then clipboard pages, then donation and about. The pane footer is
+        // reserved for the hotkey and brand block, so nothing goes into FooterMenuItems.
+        _navigationView.MenuItems.Add(_navSettingsHeader);
+        _navigationView.MenuItems.Add(_navItems[0]);
+        _navigationView.MenuItems.Add(_navItems[2]);
+        _navigationView.MenuItems.Add(_navItems[3]);
+        _navigationView.MenuItems.Add(new NavigationViewItemSeparator());
+        _navigationView.MenuItems.Add(_navClipboardHeader);
+        _navigationView.MenuItems.Add(_navItems[1]);
+        _navigationView.MenuItems.Add(_navItems[4]);
+        _navigationView.MenuItems.Add(new NavigationViewItemSeparator());
+        _navigationView.MenuItems.Add(_navSupportHeader);
+        _navigationView.MenuItems.Add(_navItems[5]);
+        _navigationView.MenuItems.Add(_navItems[6]);
 
         _contentScroller.MinWidth = ContentMinWidth;
         _contentScroller.Padding = new Thickness(36, 30, 36, 16);
@@ -888,7 +1142,39 @@ public sealed class MainWindow : Window
     private UIElement BuildQuickMenuPasteOptionsPanel()
     {
         var panel = new StackPanel { Spacing = 14 };
-        panel.Children.Add(DescriptionText("QuickMenuPasteOptionsDescription", fontSize: 12, wrapping: TextWrapping.Wrap));
+        var introduction = new Grid { ColumnSpacing = 16 };
+        introduction.ColumnDefinitions.Add(new ColumnDefinition());
+        introduction.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var introductionText = new StackPanel { Spacing = 4 };
+        introductionText.Children.Add(DescriptionText("QuickMenuPasteOptionsDescription", fontSize: 12, wrapping: TextWrapping.Wrap));
+        introductionText.Children.Add(_quickMenuPasteOptionsStatusText);
+        introduction.Children.Add(introductionText);
+        _resetQuickMenuPasteOptionsButton.HorizontalAlignment = HorizontalAlignment.Right;
+        _resetQuickMenuPasteOptionsButton.VerticalAlignment = VerticalAlignment.Center;
+        _resetQuickMenuPasteOptionsButton.Click += (_, _) => ResetQuickMenuPasteOptionsToDefaults();
+        Grid.SetColumn(_resetQuickMenuPasteOptionsButton, 1);
+        introduction.Children.Add(_resetQuickMenuPasteOptionsButton);
+        panel.Children.Add(introduction);
+
+        _quickMenuPasteOptionsSearchHost.Height = SearchControlHeight;
+        _quickMenuPasteOptionsSearchBox.Height = SearchControlHeight;
+        _quickMenuPasteOptionsSearchBox.MinHeight = SearchControlHeight;
+        _quickMenuPasteOptionsSearchBox.Padding = new Thickness(34, 4, 4, 0);
+        _quickMenuPasteOptionsSearchBox.VerticalContentAlignment = VerticalAlignment.Center;
+        _quickMenuPasteOptionsSearchBox.HorizontalAlignment = HorizontalAlignment.Stretch;
+        _quickMenuPasteOptionsSearchBox.TextChanged += (_, _) => FilterQuickMenuPasteOptions();
+        _quickMenuPasteOptionsSearchIcon.Glyph = "\uE721";
+        _quickMenuPasteOptionsSearchIcon.FontFamily = new FontFamily("Segoe Fluent Icons");
+        _quickMenuPasteOptionsSearchIcon.FontSize = 14;
+        _quickMenuPasteOptionsSearchIcon.Foreground = DescriptionBrush();
+        _quickMenuPasteOptionsSearchIcon.IsHitTestVisible = false;
+        _quickMenuPasteOptionsSearchIcon.HorizontalAlignment = HorizontalAlignment.Left;
+        _quickMenuPasteOptionsSearchIcon.VerticalAlignment = VerticalAlignment.Center;
+        _quickMenuPasteOptionsSearchIcon.Margin = new Thickness(12, 0, 0, 0);
+        _quickMenuPasteOptionsSearchHost.Children.Add(_quickMenuPasteOptionsSearchBox);
+        _quickMenuPasteOptionsSearchHost.Children.Add(_quickMenuPasteOptionsSearchIcon);
+        panel.Children.Add(_quickMenuPasteOptionsSearchHost);
+
         panel.Children.Add(BuildQuickMenuPasteOptionGroup(
             "QuickMenuPasteOptionsCommonGroup",
             [
@@ -932,14 +1218,6 @@ public sealed class MainWindow : Window
     private UIElement BuildQuickMenuPasteOptionGroup(string titleKey, IReadOnlyList<(string Id, string LabelKey)> options)
     {
         var group = new StackPanel { Spacing = 0 };
-        var header = DescriptionText(
-            titleKey,
-            fontSize: 13,
-            fontWeight: Microsoft.UI.Text.FontWeights.SemiBold,
-            wrapping: TextWrapping.NoWrap);
-        header.Margin = new Thickness(0, 0, 0, 4);
-        group.Children.Add(header);
-
         for (var i = 0; i < options.Count; i++)
         {
             group.Children.Add(QuickMenuPasteOptionRow(options[i].Id, options[i].LabelKey));
@@ -949,7 +1227,24 @@ public sealed class MainWindow : Window
             }
         }
 
-        return group;
+        var expander = new Expander
+        {
+            Header = _runtime.Translate(titleKey),
+            Content = group,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            IsExpanded = titleKey is "QuickMenuPasteOptionsCommonGroup"
+        };
+        SetAutomationId(expander, titleKey switch
+        {
+            "QuickMenuPasteOptionsCommonGroup" => "QuickMenuOptionsCommonGroup",
+            "QuickMenuPasteOptionsTextGroup" => "QuickMenuOptionsTextGroup",
+            "QuickMenuPasteOptionsImageGroup" => "QuickMenuOptionsImageGroup",
+            "QuickMenuPasteOptionsFileGroup" => "QuickMenuOptionsFileGroup",
+            _ => $"QuickMenuOptions{_quickMenuPasteOptionGroups.Count}Group"
+        });
+        _quickMenuPasteOptionGroups.Add((titleKey, expander, options));
+        return expander;
     }
 
     private UIElement QuickMenuPasteOptionRow(string optionId, string labelKey)
@@ -964,17 +1259,13 @@ public sealed class MainWindow : Window
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.Children.Add(LocalizedText(labelKey, wrapping: TextWrapping.Wrap));
 
-        var checkBox = new CheckBox
-        {
-            MinWidth = 0,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        checkBox.Checked += (_, _) => SaveQuickMenuPasteOption(checkBox, optionId);
-        checkBox.Unchecked += (_, _) => SaveQuickMenuPasteOption(checkBox, optionId);
-        _quickMenuPasteOptionChecks[optionId] = (checkBox, labelKey);
-        Grid.SetColumn(checkBox, 1);
-        row.Children.Add(checkBox);
+        var toggle = CompactToggle();
+        SetAutomationId(toggle, $"QuickMenuOption_{optionId.Replace("-", "_", StringComparison.Ordinal)}");
+        toggle.Toggled += (_, _) => SaveQuickMenuPasteOption(toggle, optionId);
+        _quickMenuPasteOptionToggles[optionId] = (toggle, labelKey, row);
+        var toggleHost = ToggleActionHost(toggle);
+        Grid.SetColumn(toggleHost, 1);
+        row.Children.Add(toggleHost);
         return row;
     }
 
@@ -1136,6 +1427,16 @@ public sealed class MainWindow : Window
         primaryActions.Children.Add(_registerFromHistoryButton);
         dataActions.Children.Add(_exportHistoryButton);
         dataActions.Children.Add(_importHistoryButton);
+        var destructiveActionSeparator = new Border
+        {
+            Width = 1,
+            Height = 24,
+            Margin = new Thickness(4, 0, 4, 0),
+            Background = RowSeparatorBrush(),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        _rowSeparators.Add(destructiveActionSeparator);
+        dataActions.Children.Add(destructiveActionSeparator);
         dataActions.Children.Add(_clearButton);
         actions.Children.Add(primaryActions);
         Grid.SetColumn(dataActions, 1);
@@ -1342,11 +1643,10 @@ public sealed class MainWindow : Window
         _historySearchHost.Children.Add(_historySearchBox);
         _historySearchHost.Children.Add(_historySearchIcon);
 
-        _advancedHistorySearchButton.Width = SearchControlHeight;
         _advancedHistorySearchButton.MinWidth = SearchControlHeight;
         _advancedHistorySearchButton.Height = SearchControlHeight;
         _advancedHistorySearchButton.MinHeight = SearchControlHeight;
-        _advancedHistorySearchButton.Padding = new Thickness(0);
+        _advancedHistorySearchButton.Padding = new Thickness(12, 0, 12, 0);
         _advancedHistorySearchButton.Opacity = 0.72;
         _advancedHistorySearchButton.Click += (_, _) => ToggleAdvancedHistorySearch();
         _clearHistorySearchButton.MinHeight = SearchControlHeight;
@@ -1381,6 +1681,16 @@ public sealed class MainWindow : Window
         _historyAdvancedSearchPanel.Visibility = Visibility.Collapsed;
         _historyAdvancedSearchPanel.Margin = new Thickness(2, 4, 0, 0);
 
+        var filterActions = new Grid { ColumnSpacing = 8 };
+        filterActions.ColumnDefinitions.Add(new ColumnDefinition());
+        filterActions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _historyFilterSummaryText.VerticalAlignment = VerticalAlignment.Center;
+        filterActions.Children.Add(_historyFilterSummaryText);
+        _clearHistoryFiltersButton.Click += (_, _) => ClearHistoryFilters();
+        _clearHistoryFiltersButton.Visibility = Visibility.Collapsed;
+        Grid.SetColumn(_clearHistoryFiltersButton, 1);
+        filterActions.Children.Add(_clearHistoryFiltersButton);
+
         var typeRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         typeRow.Children.Add(DescriptionText("SearchFilterFormat", fontSize: 12));
         typeRow.Children.Add(_historyTypeTextFilter);
@@ -1402,10 +1712,12 @@ public sealed class MainWindow : Window
             button.VerticalAlignment = VerticalAlignment.Center;
             button.HorizontalContentAlignment = HorizontalAlignment.Center;
             button.VerticalContentAlignment = VerticalAlignment.Center;
+            button.UseSystemFocusVisuals = true;
             button.Checked += (_, _) => ApplyAdvancedHistoryFiltersFromUi();
             button.Unchecked += (_, _) => ApplyAdvancedHistoryFiltersFromUi();
         }
 
+        _historyAdvancedSearchPanel.Children.Add(filterActions);
         _historyAdvancedSearchPanel.Children.Add(typeRow);
         _historyAdvancedSearchPanel.Children.Add(optionRow);
     }
@@ -1938,6 +2250,11 @@ public sealed class MainWindow : Window
         ApplyHistorySearch(string.Empty);
     }
 
+    private void ClearHistoryFilters()
+    {
+        ApplyHistorySearch(BuildHistorySearchTextBoxValue(_historySearchQuery));
+    }
+
     private void UpdateHistoryActionButtons()
     {
         var locked = _runtime.RequiresHistoryAccessUnlock;
@@ -1945,6 +2262,9 @@ public sealed class MainWindow : Window
         _registerFromHistoryButton.IsEnabled = !locked
             && _selectedHistoryId is not null
             && !string.IsNullOrWhiteSpace(_runtime.History.Find(_selectedHistoryId)?.Text);
+        _registerFromHistoryButton.Visibility = _registerFromHistoryButton.IsEnabled
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         _exportHistoryButton.IsEnabled = hasHistory;
         _clearButton.IsEnabled = hasHistory;
         _importHistoryButton.IsEnabled = !locked;
@@ -1996,6 +2316,8 @@ public sealed class MainWindow : Window
         {
             _updatingHistorySearchFilters = false;
         }
+
+        RefreshHistoryFilterToggleVisuals();
     }
 
     private string BuildHistorySearchQueryFromFilters(string currentQuery)
@@ -2047,6 +2369,8 @@ public sealed class MainWindow : Window
         {
             _updatingHistorySearchFilters = false;
         }
+
+        RefreshHistoryFilterToggleVisuals();
     }
 
     private ToggleButton? CheckedHistoryTypeFilter()
@@ -2284,9 +2608,8 @@ public sealed class MainWindow : Window
     private void BuildSnippetPage()
     {
         _snippetPage.Children.Add(PageHeader(_snippetHeaderText, _snippetDescriptionText));
-        var grid = new Grid { ColumnSpacing = 16 };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(320) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        _snippetLayoutGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(320) });
+        _snippetLayoutGrid.ColumnDefinitions.Add(new ColumnDefinition());
         _snippetTree.SelectionMode = TreeViewSelectionMode.Single;
         _snippetTree.MinHeight = 180;
         _snippetTree.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -2323,7 +2646,7 @@ public sealed class MainWindow : Window
                 SetSelectedSnippetFolder(folder);
             }
         };
-        grid.Children.Add(Card(BuildSnippetListPanel()));
+        _snippetLayoutGrid.Children.Add(Card(BuildSnippetListPanel()));
 
         var details = new StackPanel { Spacing = 12 };
         var detailsHeader = new Grid { ColumnSpacing = 12 };
@@ -2371,10 +2694,10 @@ public sealed class MainWindow : Window
         buttons.Children.Add(_pasteSnippetButton);
         buttons.Children.Add(_deleteSnippetButton);
         details.Children.Add(buttons);
-        var detailsCard = Card(details);
-        Grid.SetColumn(detailsCard, 1);
-        grid.Children.Add(detailsCard);
-        _snippetPage.Children.Add(grid);
+        _snippetDetailsCard = Card(details);
+        Grid.SetColumn(_snippetDetailsCard, 1);
+        _snippetLayoutGrid.Children.Add(_snippetDetailsCard);
+        _snippetPage.Children.Add(_snippetLayoutGrid);
     }
 
     private void BuildAboutPage()
@@ -2390,6 +2713,7 @@ public sealed class MainWindow : Window
         info.Children.Add(InfoLinkRow("Author", AuthorUrl, AuthorUrl));
         info.Children.Add(InfoLinkRow("StorePage", "Microsoft Store", MicrosoftStoreUrl));
         _aboutPage.Children.Add(Card(info));
+        _aboutPage.Children.Add(SectionHeader("AppUpdateSection"));
         _aboutPage.Children.Add(BuildStoreUpdateCard());
 
         var documents = new StackPanel { Spacing = 10 };
@@ -2397,16 +2721,63 @@ public sealed class MainWindow : Window
             fontSize: 14,
             wrapping: TextWrapping.Wrap));
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Spacing = 8 };
-        _termsButton.Click += (_, _) => OpenExternalUrl(TermsUrl);
-        _privacyButton.Click += (_, _) => OpenExternalUrl(PrivacyUrl);
+        _termsButton.Click += async (_, _) => await ShowLegalDocumentAsync("TermsOfUse", LegalDocuments.Terms, TermsUrl);
+        _privacyButton.Click += async (_, _) => await ShowLegalDocumentAsync("PrivacyPolicy", LegalDocuments.Privacy, PrivacyUrl);
+        _licensesButton.Click += async (_, _) => await ShowLegalDocumentAsync("ThirdPartyLicenses", LegalDocuments.ThirdPartyNotices, null);
         buttons.Children.Add(_termsButton);
         buttons.Children.Add(_privacyButton);
+        buttons.Children.Add(_licensesButton);
         documents.Children.Add(buttons);
         _aboutPage.Children.Add(Card(documents));
 
         _exitApplicationButton.HorizontalAlignment = HorizontalAlignment.Left;
-        _exitApplicationButton.Click += (_, _) => _runtime.ExitApplication();
-        _aboutPage.Children.Add(SettingCard("\uE8BB", "ExitApplication", "ExitApplicationDescription", _exitApplicationButton));
+        _exitApplicationButton.Click += async (_, _) => await ConfirmAndExitApplicationAsync();
+        _aboutPage.Children.Add(SettingCard("\uE7E8", "ExitApplication", "ExitApplicationDescription", _exitApplicationButton));
+    }
+
+    private async Task ShowLegalDocumentAsync(string titleKey, string documentName, string? webUrl)
+    {
+        if (_root.XamlRoot is null)
+        {
+            return;
+        }
+
+        var language = _runtime.EffectiveLocale.Split('-')[0];
+        var markdown = LegalDocuments.Load(documentName, language);
+        if (markdown is null)
+        {
+            if (webUrl is not null)
+            {
+                OpenExternalUrl(webUrl);
+            }
+
+            return;
+        }
+
+        var viewer = new ScrollViewer
+        {
+            Content = LegalDocuments.BuildView(markdown),
+            MaxHeight = 440,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Padding = new Thickness(0, 0, 12, 0)
+        };
+        var dialog = new ContentDialog
+        {
+            Title = _runtime.Translate(titleKey),
+            Content = viewer,
+            CloseButtonText = _runtime.Translate("Close"),
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = _root.XamlRoot,
+            RequestedTheme = DialogTheme
+        };
+        dialog.Resources["ContentDialogMaxWidth"] = 760.0;
+        if (webUrl is not null)
+        {
+            dialog.PrimaryButtonText = _runtime.Translate("OpenInBrowser");
+            dialog.PrimaryButtonClick += (_, _) => OpenExternalUrl(webUrl);
+        }
+
+        await ShowContentDialogAsync(dialog);
     }
 
     private UIElement BuildStoreUpdateCard()
@@ -2414,7 +2785,13 @@ public sealed class MainWindow : Window
         var content = new Grid { ColumnSpacing = 14, VerticalAlignment = VerticalAlignment.Center };
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
         content.ColumnDefinitions.Add(new ColumnDefinition());
-        content.Children.Add(IconCircle("\uE895"));
+        var updateIcon = IconCircle("\uE895");
+        if (updateIcon is FrameworkElement updateIconElement)
+        {
+            updateIconElement.VerticalAlignment = VerticalAlignment.Top;
+        }
+
+        content.Children.Add(updateIcon);
 
         var body = new StackPanel { Spacing = 9 };
         body.Children.Add(LocalizedText("StoreUpdate", fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
@@ -2426,8 +2803,26 @@ public sealed class MainWindow : Window
         body.Children.Add(status);
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Spacing = 8 };
-        _checkStoreUpdateButton.Click += async (_, _) => await CheckStoreUpdatesAsync(userInitiated: true);
-        _installStoreUpdateButton.Click += async (_, _) => await InstallStoreUpdatesAsync();
+        _checkStoreUpdateButton.Click += async (_, _) =>
+        {
+            if (!_checkStoreUpdateButton.IsEnabled || !_checkStoreUpdateCooldown.TryEnter())
+            {
+                return;
+            }
+
+            _checkStoreUpdateButton.IsEnabled = false;
+            await CheckStoreUpdatesAsync(userInitiated: true);
+        };
+        _installStoreUpdateButton.Click += async (_, _) =>
+        {
+            if (!_installStoreUpdateButton.IsEnabled || !_installStoreUpdateCooldown.TryEnter())
+            {
+                return;
+            }
+
+            _installStoreUpdateButton.IsEnabled = false;
+            await InstallStoreUpdatesAsync();
+        };
         _installStoreUpdateButton.Visibility = Visibility.Collapsed;
         _changelogLinkButton.Padding = new Thickness(0);
         _changelogLinkButton.VerticalAlignment = VerticalAlignment.Center;
@@ -2438,9 +2833,43 @@ public sealed class MainWindow : Window
         actions.Children.Add(_changelogLinkButton);
         body.Children.Add(actions);
 
+        var autoCheckSeparator = new Border { Height = 1, Margin = new Thickness(0, 4, 0, 2), Background = RowSeparatorBrush() };
+        _rowSeparators.Add(autoCheckSeparator);
+        body.Children.Add(autoCheckSeparator);
+        var autoCheckRow = new Grid { ColumnSpacing = 12 };
+        autoCheckRow.ColumnDefinitions.Add(new ColumnDefinition());
+        autoCheckRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var autoCheckText = new StackPanel { Spacing = 2 };
+        autoCheckText.Children.Add(LocalizedText("AutoCheckStoreUpdates", fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
+        autoCheckText.Children.Add(DescriptionText("AutoCheckStoreUpdatesDescription", fontSize: 12, wrapping: TextWrapping.Wrap));
+        _autoCheckStoreUpdatesToggle.VerticalAlignment = VerticalAlignment.Center;
+        _autoCheckStoreUpdatesToggle.IsEnabled = CanUseStoreUpdates;
+        _autoCheckStoreUpdatesToggle.Toggled += (_, _) =>
+        {
+            if (_loading) return;
+            _runtime.SetAutoCheckStoreUpdates(_autoCheckStoreUpdatesToggle.IsOn);
+        };
+        Grid.SetColumn(_autoCheckStoreUpdatesToggle, 1);
+        autoCheckRow.Children.Add(autoCheckText);
+        autoCheckRow.Children.Add(_autoCheckStoreUpdatesToggle);
+        body.Children.Add(autoCheckRow);
+
         Grid.SetColumn(body, 1);
         content.Children.Add(body);
-        SetStoreUpdateStatus("StoreUpdateStatusIdle", isBusy: false, canCheck: true, canInstall: false);
+        if (_runtime.StoreUpdateLastCheckedAt is { } lastChecked && !IsDebugStoreUpdateAvailableForced())
+        {
+            SetStoreUpdateStatus(
+                _storeUpdateAvailable ? "StoreUpdateStatusAvailable" : "StoreUpdateStatusNotAvailable",
+                isBusy: false,
+                canCheck: true,
+                canInstall: _storeUpdateAvailable,
+                FormatStoreUpdateCheckedAt(lastChecked));
+        }
+        else
+        {
+            SetStoreUpdateStatus("StoreUpdateStatusIdle", isBusy: false, canCheck: true, canInstall: false);
+        }
+
         return Card(content);
     }
 
@@ -2535,7 +2964,7 @@ public sealed class MainWindow : Window
 
     private async Task EnsureStoreUpdateCheckStartedAsync()
     {
-        if (_storeUpdateCheckStarted)
+        if (_storeUpdateCheckStarted || !_runtime.Settings.AutoCheckStoreUpdates)
         {
             return;
         }
@@ -2594,6 +3023,7 @@ public sealed class MainWindow : Window
             InitializeStoreContextWindow(context);
             _storePackageUpdates = (await context.GetAppAndOptionalStorePackageUpdatesAsync()).ToArray();
             _storeUpdateAvailable = _storePackageUpdates.Count > 0;
+            _runtime.ReportStoreUpdateAvailability(_storeUpdateAvailable);
             await DelayStoreUpdateResultIfNeededAsync(checkStartedTimestamp, userInitiated);
             SetStoreUpdateStatus(
                 _storeUpdateAvailable ? "StoreUpdateStatusAvailable" : "StoreUpdateStatusNotAvailable",
@@ -2615,6 +3045,12 @@ public sealed class MainWindow : Window
         finally
         {
             _storeUpdateChecking = false;
+            if (userInitiated)
+            {
+                _checkStoreUpdateCooldown.Restart();
+                ScheduleStoreUpdateButtonRefresh(_checkStoreUpdateCooldown);
+            }
+
             if (!string.Equals(_storeUpdateStatusKey, "StoreUpdateStatusChecking", StringComparison.Ordinal))
             {
                 _storeUpdateCheckCompleted = true;
@@ -2623,6 +3059,12 @@ public sealed class MainWindow : Window
             RefreshStoreUpdateTexts();
             UpdateStoreUpdateButtons();
         }
+    }
+
+    private void ScheduleStoreUpdateButtonRefresh(ClickCooldown cooldown)
+    {
+        _ = Task.Delay(cooldown.Duration + TimeSpan.FromMilliseconds(100))
+            .ContinueWith(_ => DispatcherQueue.TryEnqueue(UpdateStoreUpdateButtons), TaskScheduler.Default);
     }
 
     private static async Task DelayStoreUpdateResultIfNeededAsync(long startedTimestamp, bool userInitiated)
@@ -2665,12 +3107,26 @@ public sealed class MainWindow : Window
         SetStoreUpdateStatus("StoreUpdateStatusInstalling", isBusy: true, canCheck: false, canInstall: false);
         try
         {
+            _runtime.PrepareForUpdate();
             var context = StoreContext.GetDefault();
             InitializeStoreContextWindow(context);
             var result = await context.RequestDownloadAndInstallStorePackageUpdatesAsync(_storePackageUpdates);
-            _storePackageUpdates = [];
-            _storeUpdateAvailable = false;
-            SetStoreUpdateStatus("StoreUpdateStatusInstallResult", isBusy: false, canCheck: true, canInstall: false, result.OverallState.ToString());
+            if (result.OverallState == StorePackageUpdateState.Completed)
+            {
+                _storePackageUpdates = [];
+                _storeUpdateAvailable = false;
+                _runtime.ReportStoreUpdateAvailability(false);
+                SetStoreUpdateStatus("StoreUpdateResultCompleted", isBusy: false, canCheck: true, canInstall: false);
+            }
+            else
+            {
+                SetStoreUpdateStatus(
+                    GetStoreUpdateResultKey(result.OverallState),
+                    isBusy: false,
+                    canCheck: true,
+                    canInstall: _storePackageUpdates.Count > 0);
+            }
+
             UpdateNavButtonContents();
         }
         catch (Exception exception)
@@ -2681,9 +3137,57 @@ public sealed class MainWindow : Window
         finally
         {
             _storeUpdateInstalling = false;
+            _installStoreUpdateCooldown.Restart();
+            ScheduleStoreUpdateButtonRefresh(_installStoreUpdateCooldown);
             UpdateStoreUpdateButtons();
         }
     }
+
+    private static string GetStoreUpdateResultKey(StorePackageUpdateState state) => state switch
+    {
+        StorePackageUpdateState.Canceled => "StoreUpdateResultCanceled",
+        StorePackageUpdateState.ErrorLowBattery => "StoreUpdateResultLowBattery",
+        StorePackageUpdateState.ErrorWiFiRecommended or StorePackageUpdateState.ErrorWiFiRequired => "StoreUpdateResultWiFi",
+        _ => "StoreUpdateResultFailed"
+    };
+
+    private InfoBadge CreateUpdateBadge()
+    {
+        Brush background = new SolidColorBrush(ColorHelper.FromArgb(0xFF, 0x32, 0x84, 0xF5));
+        Brush foreground = new SolidColorBrush(Colors.White);
+        if (_runtime.IsHighContrast
+            && Application.Current.Resources.TryGetValue("SystemColorHighlightColorBrush", out var highlight) && highlight is Brush highlightBrush
+            && Application.Current.Resources.TryGetValue("SystemColorHighlightTextColorBrush", out var highlightText) && highlightText is Brush highlightTextBrush)
+        {
+            background = highlightBrush;
+            foreground = highlightTextBrush;
+        }
+
+        var badge = new InfoBadge();
+        if (Application.Current.Resources.TryGetValue("AttentionDotInfoBadgeStyle", out var style) && style is Style badgeStyle)
+        {
+            badge.Style = badgeStyle;
+        }
+
+        badge.Width = 24;
+        badge.Height = 24;
+        badge.MinWidth = 24;
+        badge.MinHeight = 24;
+        badge.MaxHeight = 24;
+        badge.Padding = new Thickness(2);
+        badge.Background = background;
+        badge.Foreground = foreground;
+        badge.Template = (ControlTemplate)XamlReader.Load(UpdateBadgeTemplate);
+        return badge;
+    }
+
+    private const string UpdateBadgeTemplate =
+        "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='InfoBadge'>" +
+        "<Grid><Ellipse Fill='{TemplateBinding Background}' />" +
+        "<Viewbox Margin='{TemplateBinding Padding}' Stretch='Uniform'><Canvas Width='960' Height='960'>" +
+        "<Path Fill='{TemplateBinding Foreground}' Data='M480-344.46 317.23-507.23l37.16-36.38L454-444v-352h52v352l99.61-99.61 37.16 36.38L480-344.46ZM276.03-212q-27.03 0-45.53-18.65T212-276.31v-60.46h52v60.46q0 4.62 3.85 8.46 3.84 3.85 8.46 3.85h407.38q4.62 0 8.46-3.85 3.85-3.84 3.85-8.46v-60.46h52v60.46q0 27.01-18.66 45.66Q710.68-212 683.65-212H276.03Z'>" +
+        "<Path.RenderTransform><TranslateTransform Y='960' /></Path.RenderTransform></Path>" +
+        "</Canvas></Viewbox></Grid></ControlTemplate>";
 
     private void InitializeStoreContextWindow(StoreContext context)
     {
@@ -2704,9 +3208,30 @@ public sealed class MainWindow : Window
 #endif
     }
 
-    private string FormatStoreUpdateCheckedAt()
+    private string FormatStoreUpdateCheckedAt(DateTimeOffset? checkedAt = null)
     {
-        return DateTimeOffset.Now.ToString("HH:mm", System.Globalization.CultureInfo.CurrentCulture);
+        return (checkedAt ?? DateTimeOffset.Now).ToString("HH:mm", System.Globalization.CultureInfo.CurrentCulture);
+    }
+
+    private void OnStoreUpdateAvailabilityChanged(object? sender, EventArgs e)
+    {
+        _ = DispatcherQueue.TryEnqueue(() =>
+        {
+            var available = _runtime.StoreUpdateAvailable;
+            if (_storeUpdateChecking || _storeUpdateInstalling || available == _storeUpdateAvailable)
+            {
+                return;
+            }
+
+            _storeUpdateAvailable = available;
+            SetStoreUpdateStatus(
+                available ? "StoreUpdateStatusAvailable" : "StoreUpdateStatusNotAvailable",
+                isBusy: false,
+                canCheck: true,
+                canInstall: available,
+                FormatStoreUpdateCheckedAt(_runtime.StoreUpdateLastCheckedAt));
+            UpdateNavButtonContents();
+        });
     }
 
     private void SetStoreUpdateStatus(string key, bool isBusy, bool canCheck, bool canInstall, string? detail = null)
@@ -2742,8 +3267,10 @@ public sealed class MainWindow : Window
     {
         var canCheck = _checkStoreUpdateButton.Tag is bool check && check;
         var canInstall = _installStoreUpdateButton.Tag is bool install && install;
-        _checkStoreUpdateButton.IsEnabled = canCheck && !_storeUpdateChecking && !_storeUpdateInstalling;
-        _installStoreUpdateButton.IsEnabled = canInstall && !_storeUpdateChecking && !_storeUpdateInstalling;
+        _checkStoreUpdateButton.IsEnabled = canCheck && !_storeUpdateChecking && !_storeUpdateInstalling
+            && !_checkStoreUpdateCooldown.IsCoolingDown;
+        _installStoreUpdateButton.IsEnabled = canInstall && !_storeUpdateChecking && !_storeUpdateInstalling
+            && !_installStoreUpdateCooldown.IsCoolingDown;
         _installStoreUpdateButton.Visibility = canInstall ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -2949,7 +3476,8 @@ public sealed class MainWindow : Window
                     _runtime.Translate("ConfirmDisablePersistHistoryTitle"),
                     _runtime.Translate("ConfirmDisablePersistHistoryMessage"),
                     _runtime.Translate("DisablePersistHistory"),
-                    _runtime.Translate("Cancel"));
+                    _runtime.Translate("Cancel"),
+                critical: true);
                 if (!confirmed)
                 {
                     _loading = true;
@@ -2987,6 +3515,7 @@ public sealed class MainWindow : Window
             }
 
             RefreshItems();
+            UpdateCaptureStatus();
         }
         finally
         {
@@ -3128,7 +3657,8 @@ public sealed class MainWindow : Window
             _runtime.Translate("ConfirmResetHistoryAccessLockTitle"),
             _runtime.Translate("ConfirmResetHistoryAccessLockMessage"),
             _runtime.Translate("ResetPinAndClearHistory"),
-            _runtime.Translate("Cancel"));
+            _runtime.Translate("Cancel"),
+                critical: true);
         if (!confirmed)
         {
             return;
@@ -3189,6 +3719,13 @@ public sealed class MainWindow : Window
                 : _runtime.Translate("HistoryAccessLockStatusDisabled");
     }
 
+    private void UpdateCaptureStatus()
+    {
+        var t = _runtime.Translate;
+        _captureStatusText.Text = $"{t("PauseCapture")}: {t("ToggleOn")}";
+        UpdateNavigationPaneFooterVisibility();
+    }
+
     private void ChangeQuickMenuTopLevelHistoryItems()
     {
         if (_loading || _quickMenuTopLevelHistoryItemsBox.SelectedItem is not ComboBoxItem selected || selected.Tag is not string tag)
@@ -3238,7 +3775,29 @@ public sealed class MainWindow : Window
 
     private async Task ResetDataDirectoryAsync()
     {
-        await SaveDataDirectoryAsync(null);
+        var confirmed = await ConfirmDialogAsync(
+            _runtime.Translate("ConfirmResetDataDirectoryTitle"),
+            _runtime.Translate("ConfirmResetDataDirectoryMessage"),
+            _runtime.Translate("ResetToDefaults"),
+            _runtime.Translate("Cancel"));
+        if (confirmed)
+        {
+            await SaveDataDirectoryAsync(null);
+        }
+    }
+
+    private async Task ConfirmAndExitApplicationAsync()
+    {
+        var confirmed = await ConfirmDialogAsync(
+            _runtime.Translate("ConfirmExitTitle"),
+            _runtime.Translate("ConfirmExitMessage"),
+            _runtime.Translate("ExitApplication"),
+            _runtime.Translate("Cancel"),
+            critical: true);
+        if (confirmed)
+        {
+            _runtime.ExitApplication();
+        }
     }
 
     private async Task SaveDataDirectoryAsync(string? path)
@@ -3267,7 +3826,8 @@ public sealed class MainWindow : Window
             _runtime.Translate("ConfirmClearHistoryTitle"),
             _runtime.Translate("ConfirmClearHistoryMessage"),
             _runtime.Translate("ClearHistory"),
-            _runtime.Translate("Cancel"));
+            _runtime.Translate("Cancel"),
+                critical: true);
         if (!confirmed)
         {
             return;
@@ -3282,7 +3842,8 @@ public sealed class MainWindow : Window
             _runtime.Translate("ConfirmClearLogsTitle"),
             _runtime.Translate("ConfirmClearLogsMessage"),
             _runtime.Translate("ClearLogs"),
-            _runtime.Translate("Cancel"));
+            _runtime.Translate("Cancel"),
+                critical: true);
         if (!confirmed)
         {
             return;
@@ -3306,7 +3867,8 @@ public sealed class MainWindow : Window
                 _runtime.Translate("ConfirmDeleteSnippetTitle"),
                 string.Format(_runtime.Translate("ConfirmDeleteSnippetMessage"), selected.DisplayName),
                 _runtime.Translate("Delete"),
-                _runtime.Translate("Cancel"));
+                _runtime.Translate("Cancel"),
+                critical: true);
             if (!confirmed)
             {
                 return;
@@ -3343,7 +3905,8 @@ public sealed class MainWindow : Window
                 _runtime.Translate("ConfirmDeleteHistoryItemTitle"),
                 _runtime.Translate("ConfirmDeleteHistoryItemMessage"),
                 _runtime.Translate("Delete"),
-                _runtime.Translate("Cancel"));
+                _runtime.Translate("Cancel"),
+                critical: true);
             if (!confirmed)
             {
                 return;
@@ -3448,23 +4011,117 @@ public sealed class MainWindow : Window
 
     private void RefreshQuickMenuPasteOptionChecks()
     {
-        foreach (var (optionId, entry) in _quickMenuPasteOptionChecks)
+        foreach (var (optionId, entry) in _quickMenuPasteOptionToggles)
         {
             var label = _runtime.Translate(entry.LabelKey);
-            entry.CheckBox.IsChecked = _runtime.IsQuickMenuPasteOptionEnabled(optionId);
-            AutomationProperties.SetName(entry.CheckBox, label);
-            ToolTipService.SetToolTip(entry.CheckBox, label);
+            entry.Toggle.IsOn = _runtime.IsQuickMenuPasteOptionEnabled(optionId);
+            AutomationProperties.SetName(entry.Toggle, label);
+            AutomationProperties.SetHelpText(entry.Toggle, label);
+            ToolTipService.SetToolTip(entry.Toggle, label);
+        }
+
+        var enabledCount = _quickMenuPasteOptionToggles.Count(entry => entry.Value.Toggle.IsOn);
+        _quickMenuPasteOptionsStatusText.Text = $"{enabledCount} / {_quickMenuPasteOptionToggles.Count} {_runtime.Translate("ToggleOn")}";
+        foreach (var group in _quickMenuPasteOptionGroups)
+        {
+            var groupEnabledCount = group.Options.Count(option => _runtime.IsQuickMenuPasteOptionEnabled(option.Id));
+            group.Expander.Header = $"{_runtime.Translate(group.TitleKey)} · {groupEnabledCount} / {group.Options.Count} {_runtime.Translate("ToggleOn")}";
+        }
+
+        var disabled = QuickMenuPasteOptionSettings.NormalizeDisabledOptionIds(
+            _runtime.Settings.QuickMenuPasteOptions?.DisabledOptionIds);
+        _resetQuickMenuPasteOptionsButton.IsEnabled = !disabled.ToHashSet(StringComparer.Ordinal)
+            .SetEquals(QuickMenuPasteOptionIds.OptionalByDefault);
+        FilterQuickMenuPasteOptions();
+    }
+
+    private void FilterQuickMenuPasteOptions()
+    {
+        var query = _quickMenuPasteOptionsSearchBox.Text?.Trim() ?? string.Empty;
+        var searchActive = !string.IsNullOrWhiteSpace(query);
+        if (searchActive && !_quickMenuPasteOptionSearchActive)
+        {
+            _quickMenuPasteOptionExpansionBeforeSearch.Clear();
+            foreach (var group in _quickMenuPasteOptionGroups)
+            {
+                _quickMenuPasteOptionExpansionBeforeSearch[group.Expander] = group.Expander.IsExpanded;
+            }
+        }
+
+        var visibleCount = 0;
+        foreach (var group in _quickMenuPasteOptionGroups)
+        {
+            var groupVisibleCount = 0;
+            var groupMatches = searchActive
+                && _runtime.Translate(group.TitleKey).Contains(query, StringComparison.OrdinalIgnoreCase);
+            foreach (var option in group.Options)
+            {
+                var entry = _quickMenuPasteOptionToggles[option.Id];
+                var visible = !searchActive || groupMatches
+                    || _runtime.Translate(entry.LabelKey).Contains(query, StringComparison.OrdinalIgnoreCase);
+                entry.Row.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+                if (visible)
+                {
+                    groupVisibleCount++;
+                    visibleCount++;
+                }
+            }
+
+            group.Expander.Visibility = groupVisibleCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (searchActive && groupVisibleCount > 0)
+            {
+                group.Expander.IsExpanded = true;
+            }
+            else if (!searchActive && _quickMenuPasteOptionSearchActive
+                && _quickMenuPasteOptionExpansionBeforeSearch.TryGetValue(group.Expander, out var wasExpanded))
+            {
+                group.Expander.IsExpanded = wasExpanded;
+            }
+        }
+
+        if (searchActive)
+        {
+            _quickMenuPasteOptionsStatusText.Text = $"{string.Format(_runtime.Translate("SearchResults"), query)}: {visibleCount} / {_quickMenuPasteOptionToggles.Count}";
+        }
+        else
+        {
+            var enabledCount = _quickMenuPasteOptionToggles.Count(entry => entry.Value.Toggle.IsOn);
+            _quickMenuPasteOptionsStatusText.Text = $"{enabledCount} / {_quickMenuPasteOptionToggles.Count} {_runtime.Translate("ToggleOn")}";
+        }
+
+        _quickMenuPasteOptionSearchActive = searchActive;
+        if (!searchActive)
+        {
+            _quickMenuPasteOptionExpansionBeforeSearch.Clear();
         }
     }
 
-    private void SaveQuickMenuPasteOption(CheckBox checkBox, string optionId)
+    private void SaveQuickMenuPasteOption(ToggleSwitch toggle, string optionId)
     {
         if (_loading)
         {
             return;
         }
 
-        _runtime.SetQuickMenuPasteOptionEnabled(optionId, checkBox.IsChecked == true);
+        _runtime.SetQuickMenuPasteOptionEnabled(optionId, toggle.IsOn);
+        RefreshQuickMenuPasteOptionChecks();
+        RefreshItems();
+    }
+
+    private void ResetQuickMenuPasteOptionsToDefaults()
+    {
+        _runtime.ResetQuickMenuPasteOptionsToDefaults();
+        var wasLoading = _loading;
+        _loading = true;
+        try
+        {
+            RefreshQuickMenuPasteOptionChecks();
+        }
+        finally
+        {
+            _loading = wasLoading;
+        }
+
         RefreshItems();
     }
 
@@ -4187,7 +4844,7 @@ public sealed class MainWindow : Window
         _runtime.ExitApplication();
     }
 
-    private async Task<bool> ConfirmDialogAsync(string title, string message, string primaryText, string closeText)
+    private async Task<bool> ConfirmDialogAsync(string title, string message, string primaryText, string closeText, bool critical = false)
     {
         if (_root.XamlRoot is null)
         {
@@ -4208,6 +4865,19 @@ public sealed class MainWindow : Window
             XamlRoot = _root.XamlRoot,
             RequestedTheme = DialogTheme
         };
+        if (critical && !_runtime.IsHighContrast)
+        {
+            var colors = CriticalColors();
+            var style = new Style(typeof(Button))
+            {
+                BasedOn = Application.Current.Resources["DefaultButtonStyle"] as Style
+            };
+            style.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(colors.Hover)));
+            style.Setters.Add(new Setter(Control.BorderBrushProperty, new SolidColorBrush(colors.Border)));
+            style.Setters.Add(new Setter(Control.ForegroundProperty, new SolidColorBrush(colors.Text)));
+            dialog.PrimaryButtonStyle = style;
+        }
+
         return await ShowContentDialogAsync(dialog) == ContentDialogResult.Primary;
     }
 
@@ -4507,12 +5177,17 @@ public sealed class MainWindow : Window
 
     private UIElement SnippetTreeRow(string glyph, string title, string subtitle, SnippetItemViewModel? item = null)
     {
+        var accessibleName = item?.DisplayName
+            ?? (string.IsNullOrWhiteSpace(subtitle) ? title : $"{title} {subtitle}");
         var row = new Grid
         {
             ColumnSpacing = 10,
             Padding = new Thickness(2, 4, 2, 4),
             Tag = item
         };
+        AutomationProperties.SetName(row, accessibleName);
+        AutomationProperties.SetAutomationId(row, SnippetTreeAutomationId(item is null ? "Folder" : "Item", title, subtitle));
+        row.Loaded += (_, _) => ApplySnippetTreeItemAutomation(row, accessibleName);
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
         row.ColumnDefinitions.Add(new ColumnDefinition());
         row.Children.Add(new FontIcon
@@ -4546,16 +5221,41 @@ public sealed class MainWindow : Window
 
         if (item is not null)
         {
-            AutomationProperties.SetName(row, item.DisplayName);
             row.Tapped += (_, _) => SelectSnippet(item);
             row.DoubleTapped += (_, _) => _runtime.PasteSnippet(item.Folder, item.Name);
         }
-        else
-        {
-            AutomationProperties.SetName(row, string.IsNullOrWhiteSpace(subtitle) ? title : $"{title} {subtitle}");
-        }
 
         return row;
+    }
+
+    private static void ApplySnippetTreeItemAutomation(DependencyObject element, string accessibleName)
+    {
+        DependencyObject? current = element;
+        while (current is not null && current is not TreeViewItem)
+        {
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        if (current is not TreeViewItem container)
+        {
+            return;
+        }
+
+        AutomationProperties.SetName(container, accessibleName);
+        AutomationProperties.SetAutomationId(
+            container,
+            AutomationProperties.GetAutomationId(element));
+    }
+
+    private static string SnippetTreeAutomationId(string kind, string title, string subtitle)
+    {
+        var value = Regex.Replace($"{subtitle}_{title}", @"[^\p{L}\p{Nd}_]+", "_").Trim('_');
+        if (value.Length > 64)
+        {
+            value = value[..64];
+        }
+
+        return $"Snippet{kind}_{value}";
     }
 
     private void SelectSnippetTreeNode(SnippetItemViewModel selected)
@@ -4646,7 +5346,7 @@ public sealed class MainWindow : Window
             PrimaryButtonText = _runtime.Translate("Save"),
             CloseButtonText = _runtime.Translate("Cancel"),
             DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = _root.XamlRoot,
+            XamlRoot = _root.XamlRoot ?? throw new InvalidOperationException("The snippet editor cannot open before its window has a XamlRoot."),
             RequestedTheme = DialogTheme
         };
         void UpdateSaveState()
@@ -4969,7 +5669,7 @@ public sealed class MainWindow : Window
         _snippetPage.Visibility = index == 4 ? Visibility.Visible : Visibility.Collapsed;
         _donationPage.Visibility = index == 5 ? Visibility.Visible : Visibility.Collapsed;
         _aboutPage.Visibility = index == 6 ? Visibility.Visible : Visibility.Collapsed;
-        if (index == 6)
+        if (index == 6 && CanUseStoreUpdates)
         {
             _ = EnsureStoreUpdateCheckStartedAsync();
         }
@@ -5006,6 +5706,9 @@ public sealed class MainWindow : Window
     private void UpdateNavigationPaneFooterVisibility()
     {
         var hideExpandedFooter = _sidebarCollapsed;
+        _captureStatusPill.Visibility = hideExpandedFooter || !_runtime.Settings.PauseCapture
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         _hotkeyPill.Visibility = hideExpandedFooter ? Visibility.Collapsed : Visibility.Visible;
         _titleText.Visibility = hideExpandedFooter ? Visibility.Collapsed : Visibility.Visible;
         _navigationPaneFooter.Visibility = Visibility.Visible;
@@ -5029,6 +5732,9 @@ public sealed class MainWindow : Window
 
     private void UpdateNavButtonContents()
     {
+        _navClipboardHeader.Content = _runtime.Translate("NavGroupClipboard");
+        _navSettingsHeader.Content = _runtime.Translate("NavGroupSettings");
+        _navSupportHeader.Content = _runtime.Translate("NavGroupSupport");
         SetNavItemContent(0, "\uE80F", "General");
         SetNavItemContent(1, "\uE81C", "History");
         SetNavItemContent(2, "\uE713", "HistorySettings");
@@ -5040,11 +5746,23 @@ public sealed class MainWindow : Window
 
     private NavigationViewItem CreateNavItem(int index)
     {
-        return new NavigationViewItem
+        var item = new NavigationViewItem
         {
             Tag = index,
             UseSystemFocusVisuals = true
         };
+        SetAutomationId(item, index switch
+        {
+            0 => "NavGeneral",
+            1 => "NavHistory",
+            2 => "NavHistorySettings",
+            3 => "NavAdvanced",
+            4 => "NavSnippets",
+            5 => "NavDonation",
+            6 => "NavAbout",
+            _ => $"NavItem{index}"
+        });
+        return item;
     }
 
     private void SetNavItemContent(int index, string glyph, string labelKey)
@@ -5068,7 +5786,7 @@ public sealed class MainWindow : Window
             FontFamily = new FontFamily("Segoe Fluent Icons"),
             FontSize = 16
         };
-        item.InfoBadge = hasStoreUpdateBadge ? new InfoBadge() : null;
+        item.InfoBadge = hasStoreUpdateBadge ? CreateUpdateBadge() : null;
         AutomationProperties.SetName(item, accessibleLabel);
         ToolTipService.SetToolTip(item, accessibleLabel);
     }
@@ -5113,11 +5831,62 @@ public sealed class MainWindow : Window
         ToolTipService.SetToolTip(button, label);
     }
 
-    private static void SetHistoryFilterToggle(ToggleButton button, string label)
+    private void RefreshHistoryFilterToggleVisuals()
     {
-        button.Content = label;
+        SetHistoryFilterToggle(_historyTypeTextFilter, _runtime.Translate("FormatText"));
+        SetHistoryFilterToggle(_historyTypeRichFilter, _runtime.Translate("FormatRichText"));
+        SetHistoryFilterToggle(_historyTypeHtmlFilter, _runtime.Translate("FormatHtml"));
+        SetHistoryFilterToggle(_historyTypeImageFilter, _runtime.Translate("Image"));
+        SetHistoryFilterToggle(_historyTypeFileFilter, _runtime.Translate("FormatFileDrop"));
+        SetHistoryFilterToggle(_historyPinnedFilter, _runtime.Translate("PinnedHistory"));
+        SetHistoryFilterToggle(_historyUrlFilter, _runtime.Translate("SearchFilterUrl"));
+        var activeCount = ActiveHistoryFilterCount();
+        var filterLabel = _runtime.Translate("AdvancedSearch");
+        _historyFilterSummaryText.Text = $"{filterLabel}: {activeCount}";
+        _historyFilterSummaryText.Visibility = activeCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+        _clearHistoryFiltersButton.Visibility = activeCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+        SetCommandButton(
+            _advancedHistorySearchButton,
+            "\uE71C",
+            activeCount > 0 ? $"{filterLabel} ({activeCount})" : filterLabel);
+        UpdateAdvancedHistorySearchButtonState();
+    }
+
+    private int ActiveHistoryFilterCount()
+    {
+        var count = CheckedHistoryTypeFilter() is null ? 0 : 1;
+        if (_historyPinnedFilter.IsChecked == true) count++;
+        if (_historyUrlFilter.IsChecked == true) count++;
+        return count;
+    }
+
+    private void SetHistoryFilterToggle(ToggleButton button, string label)
+    {
+        button.Content = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Children =
+            {
+                new FontIcon
+                {
+                    Glyph = "\uE73E",
+                    FontFamily = new FontFamily("Segoe Fluent Icons"),
+                    FontSize = 12,
+                    Visibility = button.IsChecked == true ? Visibility.Visible : Visibility.Collapsed
+                },
+                new TextBlock
+                {
+                    Text = label,
+                    VerticalAlignment = VerticalAlignment.Center
+                }
+            }
+        };
         AutomationProperties.SetName(button, label);
-        ToolTipService.SetToolTip(button, label);
+        var state = _runtime.Translate(button.IsChecked == true ? "ToggleOn" : "ToggleOff");
+        var helpText = $"{label}: {state}";
+        AutomationProperties.SetHelpText(button, helpText);
+        ToolTipService.SetToolTip(button, helpText);
     }
 
     private void ApplyTheme()
@@ -5176,9 +5945,93 @@ public sealed class MainWindow : Window
         }
 
         _historySearchIcon.Foreground = brush;
+        _quickMenuPasteOptionsSearchIcon.Foreground = brush;
+        _captureStatusText.Foreground = WarningBrush();
+        _captureStatusIcon.Foreground = WarningBrush();
+        if (_runtime.IsHighContrast)
+        {
+            _captureStatusPill.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            _captureStatusPill.BorderBrush = WarningBrush();
+        }
+        else
+        {
+            _captureStatusPill.Background = new SolidColorBrush(IsDark
+                ? ColorHelper.FromArgb(0x26, 0xFF, 0xD8, 0x6B)
+                : ColorHelper.FromArgb(0x1F, 0x9A, 0x67, 0x00));
+            _captureStatusPill.BorderBrush = new SolidColorBrush(IsDark
+                ? ColorHelper.FromArgb(0x66, 0xFF, 0xD8, 0x6B)
+                : ColorHelper.FromArgb(0x66, 0x9A, 0x67, 0x00));
+        }
+
+        foreach (var button in _criticalButtons)
+        {
+            ApplyCriticalColors(button);
+        }
+    }
+
+    private void ApplyCritical(Button button)
+    {
+        if (!_criticalButtons.Contains(button))
+        {
+            _criticalButtons.Add(button);
+        }
+
+        ApplyCriticalColors(button);
+    }
+
+    private void ApplyCriticalColors(Button button)
+    {
+        string[] keys =
+        [
+            "ButtonBackground", "ButtonBackgroundPointerOver", "ButtonBackgroundPressed",
+            "ButtonBorderBrush", "ButtonBorderBrushPointerOver", "ButtonBorderBrushPressed",
+            "ButtonForeground", "ButtonForegroundPointerOver", "ButtonForegroundPressed"
+        ];
+        if (_runtime.IsHighContrast)
+        {
+            foreach (var key in keys)
+            {
+                button.Resources.Remove(key);
+            }
+
+            return;
+        }
+
+        var colors = CriticalColors();
+        button.Resources["ButtonBackground"] = new SolidColorBrush(colors.Normal);
+        button.Resources["ButtonBackgroundPointerOver"] = new SolidColorBrush(colors.Hover);
+        button.Resources["ButtonBackgroundPressed"] = new SolidColorBrush(colors.Pressed);
+        button.Resources["ButtonBorderBrush"] = new SolidColorBrush(colors.Border);
+        button.Resources["ButtonBorderBrushPointerOver"] = new SolidColorBrush(colors.Border);
+        button.Resources["ButtonBorderBrushPressed"] = new SolidColorBrush(colors.Border);
+        button.Resources["ButtonForeground"] = new SolidColorBrush(colors.Text);
+        button.Resources["ButtonForegroundPointerOver"] = new SolidColorBrush(colors.Text);
+        button.Resources["ButtonForegroundPressed"] = new SolidColorBrush(colors.Text);
+    }
+
+    private (Windows.UI.Color Normal, Windows.UI.Color Hover, Windows.UI.Color Pressed, Windows.UI.Color Border, Windows.UI.Color Text) CriticalColors()
+    {
+        if (IsDark)
+        {
+            return (
+                ColorHelper.FromArgb(0x2A, 0xFF, 0x6B, 0x74),
+                ColorHelper.FromArgb(0x40, 0xFF, 0x6B, 0x74),
+                ColorHelper.FromArgb(0x54, 0xFF, 0x6B, 0x74),
+                ColorHelper.FromArgb(0x99, 0xFF, 0x8A, 0x92),
+                ColorHelper.FromArgb(0xFF, 0xFF, 0x9C, 0xA3));
+        }
+
+        return (
+            ColorHelper.FromArgb(0x14, 0xC4, 0x2B, 0x31),
+            ColorHelper.FromArgb(0x24, 0xC4, 0x2B, 0x31),
+            ColorHelper.FromArgb(0x34, 0xC4, 0x2B, 0x31),
+            ColorHelper.FromArgb(0x70, 0xC4, 0x2B, 0x31),
+            ColorHelper.FromArgb(0xFF, 0xA8, 0x1F, 0x26));
     }
 
     private bool IsDark => string.Equals(_runtime.EffectiveTheme, "dark", StringComparison.OrdinalIgnoreCase);
+
+    private bool CanUseStoreUpdates => _runtime.CanUseStoreUpdates;
 
     private ElementTheme DialogTheme => _runtime.IsHighContrast
         ? ElementTheme.Default
@@ -5222,6 +6075,68 @@ public sealed class MainWindow : Window
         {
             page.Width = width;
         }
+
+        UpdateResponsiveLayouts(width);
+    }
+
+    private void UpdateResponsiveLayouts(double availableWidth)
+    {
+        var compact = availableWidth < 680;
+        foreach (var layout in _settingCardLayouts)
+        {
+            layout.Grid.ColumnDefinitions.Clear();
+            layout.Grid.RowDefinitions.Clear();
+            if (compact)
+            {
+                layout.Grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
+                layout.Grid.ColumnDefinitions.Add(new ColumnDefinition());
+                layout.Grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                layout.Grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                Grid.SetColumn(layout.Texts, 1);
+                Grid.SetRow(layout.Texts, 0);
+                Grid.SetColumn(layout.Action, 1);
+                Grid.SetRow(layout.Action, 1);
+                layout.Action.Margin = new Thickness(0, 8, 0, 0);
+                Grid.SetRowSpan((FrameworkElement)layout.Grid.Children[0], 2);
+            }
+            else
+            {
+                layout.Grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
+                layout.Grid.ColumnDefinitions.Add(new ColumnDefinition());
+                layout.Grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                Grid.SetColumn(layout.Texts, 1);
+                Grid.SetRow(layout.Texts, 0);
+                Grid.SetColumn(layout.Action, 2);
+                Grid.SetRow(layout.Action, 0);
+                layout.Action.Margin = new Thickness(0);
+                Grid.SetRowSpan((FrameworkElement)layout.Grid.Children[0], 1);
+            }
+        }
+
+        if (_snippetDetailsCard is null)
+        {
+            return;
+        }
+
+        _snippetLayoutGrid.ColumnDefinitions.Clear();
+        _snippetLayoutGrid.RowDefinitions.Clear();
+        if (compact)
+        {
+            _snippetLayoutGrid.ColumnDefinitions.Add(new ColumnDefinition());
+            _snippetLayoutGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            _snippetLayoutGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            Grid.SetColumn(_snippetDetailsCard, 0);
+            Grid.SetRow(_snippetDetailsCard, 1);
+            _snippetDetailsCard.Margin = new Thickness(0, 16, 0, 0);
+        }
+        else
+        {
+            _snippetLayoutGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(320) });
+            _snippetLayoutGrid.ColumnDefinitions.Add(new ColumnDefinition());
+            Grid.SetColumn(_snippetDetailsCard, 1);
+            Grid.SetRow(_snippetDetailsCard, 0);
+            _snippetDetailsCard.Margin = new Thickness(0);
+        }
     }
 
     private UIElement SettingCard(string glyph, string titleKey, string descriptionKey, FrameworkElement control)
@@ -5248,6 +6163,7 @@ public sealed class MainWindow : Window
         grid.Children.Add(texts);
         Grid.SetColumn(actionControl, 2);
         grid.Children.Add(actionControl);
+        _settingCardLayouts.Add((grid, texts, actionControl));
         return Card(grid);
     }
 
@@ -5669,10 +6585,10 @@ public sealed class MainWindow : Window
     {
         var text = DescriptionText(
             key,
-            fontSize: 13,
+            fontSize: 15,
             fontWeight: Microsoft.UI.Text.FontWeights.SemiBold,
             wrapping: TextWrapping.NoWrap);
-        text.Margin = new Thickness(1, 6, 0, -8);
+        text.Margin = new Thickness(1, 14, 0, -6);
         return text;
     }
 

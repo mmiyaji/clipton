@@ -17,6 +17,7 @@ public sealed class ImagePasteOptionTests
             DateTimeOffset.UtcNow,
             [ClipboardFormatKind.Image],
             imagePng: CreatePngBytes(8, 4)));
+        runtime.SetQuickMenuPasteOptionEnabled(QuickMenuPasteOptionIds.PasteImageResizeHalf, enabled: true);
 
         var optionIds = runtime.CreateHistoryContextOptions("image-1")
             .Select(option => option.Id)
@@ -58,14 +59,34 @@ public sealed class ImagePasteOptionTests
     }
 
     [Fact]
-    public void EncodePng_ReturnsEmptyBytesForUndecodableImage()
+    public void DecodeImageToPng_RejectsUndecodableImage()
     {
-        var method = typeof(ClipboardBridge).GetMethod("EncodePng", BindingFlags.NonPublic | BindingFlags.Static)
-            ?? throw new InvalidOperationException("EncodePng was not found.");
+        Assert.Null(NativeClipboardReader.DecodeImageToPng([1, 2, 3, 4]));
+    }
 
-        var encoded = (byte[])method.Invoke(null, [new byte[] { 1, 2, 3, 4 }])!;
+    [Fact]
+    public void DecodeImageToPng_RejectsOversizedPngDimensionsBeforeDecode()
+    {
+        var oversized = CreatePngHeader(width: 40_000, height: 40_000);
+        var zeroWidth = CreatePngHeader(width: 0, height: 10);
+        var allowed = CreatePngHeader(width: 100, height: 100);
 
-        Assert.Empty(encoded);
+        Assert.False(NativeClipboardReader.HasReasonablePngDimensions(oversized));
+        Assert.False(NativeClipboardReader.HasReasonablePngDimensions(zeroWidth));
+        Assert.True(NativeClipboardReader.HasReasonablePngDimensions(allowed));
+        Assert.Null(NativeClipboardReader.DecodeImageToPng(oversized));
+    }
+
+    private static byte[] CreatePngHeader(uint width, uint height)
+    {
+        var png = new byte[24];
+        png[0] = 137; png[1] = 80; png[2] = 78; png[3] = 71;
+        png[4] = 13; png[5] = 10; png[6] = 26; png[7] = 10;
+        png[11] = 13;
+        png[12] = (byte)'I'; png[13] = (byte)'H'; png[14] = (byte)'D'; png[15] = (byte)'R';
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(png.AsSpan(16, 4), width);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(png.AsSpan(20, 4), height);
+        return png;
     }
 
     private static string CreateTestRoot()

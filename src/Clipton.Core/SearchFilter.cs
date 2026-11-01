@@ -143,6 +143,10 @@ public sealed class SearchFilter
         return _terms.All(term => text.Contains(term, StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>Matches terms across fields without copying a potentially large body into a combined string.</summary>
+    public bool MatchesTextFields(params string?[] fields) =>
+        _terms.All(term => fields.Any(field => field?.Contains(term, StringComparison.OrdinalIgnoreCase) == true));
+
     /// <summary>Tests the captured timestamp against parsed bounds.</summary>
     public bool MatchesDate(DateTimeOffset capturedAt)
     {
