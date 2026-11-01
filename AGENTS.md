@@ -26,7 +26,8 @@ dotnet run --project src\Clipton.WinUI\Clipton.WinUI.csproj
 - 変更後は `dotnet test Clipton.slnx` を通してから報告する。
 - 利用者向けの変更は `CHANGELOG.md` に記載する。
 - `artifacts/` と `.env` はコミットしない。作業用の一時ファイルは `artifacts/` 以下に置く。
-- コミットは利用者の確認を取ってから行う。
+- 区切りのよいところで適宜コミットする。
+- push は利用者の許可を得てから行う。「リリースしてください」の指示には push の許可を含むものとする。
 
 ## TODO の管理
 
