@@ -20,7 +20,7 @@ Clipton does not upload clipboard content, settings, snippets, or usage data to 
 
 The current version has no cloud sync, analytics, telemetry, crash reporting, advertising SDK, or third-party data sharing.
 
-When Clipton is installed from the Microsoft Store, it can ask the Microsoft Store whether a newer version is available, shortly after startup and about every 12 hours. This request is handled by Windows and the Microsoft Store, and Clipton does not add clipboard content, settings, snippets, or usage data to it. Automatic checks can be turned off in the About page, and updates are installed only when the user chooses to.
+When Clipton is installed from the Microsoft Store, it can ask the Microsoft Store whether a newer version is available, at startup and periodically while it is running. This request is handled by Windows and the Microsoft Store, and Clipton does not add clipboard content, settings, snippets, or usage data to it. Automatic checks can be turned off in the About page, and updates are installed only when the user chooses to.
 
 ## User Control
 
