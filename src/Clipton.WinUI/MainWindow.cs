@@ -75,6 +75,7 @@ public sealed class MainWindow : Window
     private readonly List<NavigationViewItem> _navItems = [];
     private readonly NavigationViewItemHeader _navClipboardHeader = new();
     private readonly NavigationViewItemHeader _navSettingsHeader = new();
+    private readonly NavigationViewItemHeader _navSupportHeader = new();
     private readonly Dictionary<ToggleSwitch, TextBlock> _toggleStateLabels = [];
     private readonly List<(TextBlock TextBlock, string Key)> _localizedTextBlocks = [];
     private readonly List<(FrameworkElement Element, string TitleKey, string DescriptionKey)> _settingAutomationTargets = [];
@@ -982,6 +983,7 @@ public sealed class MainWindow : Window
         _navigationView.MenuItems.Add(_navItems[1]);
         _navigationView.MenuItems.Add(_navItems[4]);
         _navigationView.MenuItems.Add(new NavigationViewItemSeparator());
+        _navigationView.MenuItems.Add(_navSupportHeader);
         _navigationView.MenuItems.Add(_navItems[5]);
         _navigationView.MenuItems.Add(_navItems[6]);
 
@@ -5520,6 +5522,7 @@ public sealed class MainWindow : Window
     {
         _navClipboardHeader.Content = _runtime.Translate("NavGroupClipboard");
         _navSettingsHeader.Content = _runtime.Translate("NavGroupSettings");
+        _navSupportHeader.Content = _runtime.Translate("NavGroupSupport");
         SetNavItemContent(0, "\uE80F", "General");
         SetNavItemContent(1, "\uE81C", "History");
         SetNavItemContent(2, "\uE713", "HistorySettings");
