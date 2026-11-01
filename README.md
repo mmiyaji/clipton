@@ -1,6 +1,6 @@
 # Clipton
 
-Clipton is a local-first clipboard manager for Windows. It keeps recent clipboard history, registered text snippets, and quick paste commands close to the keyboard while avoiding cloud sync, telemetry, and network dependencies.
+Clipton is a local-first clipboard manager for Windows. It keeps recent clipboard history, registered text snippets, and quick paste commands close to the keyboard while avoiding cloud sync and telemetry. The only network access is the optional Microsoft Store update check.
 
 ![Clipton overview with quick menu, clipboard history, and snippet editor screenshots](docs/images/clipton-readme-overview.png)
 
@@ -14,9 +14,11 @@ Clipton is a local-first clipboard manager for Windows. It keeps recent clipboar
 - Paste history items in their original clipboard format when possible.
 - Registered snippets with folder support.
 - Register snippets directly from history.
+- Microsoft Store update checks and installation from the About page. Automatic checks are on by default and can be turned off.
+- Terms of use, privacy policy, and third-party licenses can be read in the app.
 - Configurable hotkey, startup registration, light/dark/system theme, language, and saved history limit.
 - Pause capture, clear history, sensitive-content masking, PIN lock, and encrypted local history.
-- Local-only privacy posture: no cloud sync, telemetry, crash reporting, ads, or third-party data sharing.
+- Local-only privacy posture: no cloud sync, telemetry, crash reporting, ads, or third-party data sharing. The Store package asks the Microsoft Store whether an update exists and sends no clipboard data.
 - UI strings for English, Japanese, German, Spanish, French, Korean, and Simplified Chinese.
 - Unit tests for history, hotkeys, settings, localization completeness, clipboard bridge behavior, encrypted persistence, and quick menu theme palettes.
 
@@ -58,10 +60,20 @@ Clipton reads clipboard content only to show recent clipboard history and paste 
 - Privacy policy: <https://mmiyaji.github.io/clipton/privacy/>
 - Terms of use: <https://mmiyaji.github.io/clipton/terms/>
 
+## Portable build
+
+The default build relies on the Windows App SDK runtime that the Store package depends on. `-p:CliptonPortable=true` bundles the .NET runtime and the Windows App SDK instead, so the executable runs without a shared runtime:
+
+```powershell
+dotnet publish src\Clipton.WinUI -c Release -r win-x64 -p:CliptonPortable=true -p:Platform=x64 -o <output>
+```
+
+The Store package and development builds are unchanged. Third-party licenses are listed in [docs/THIRD_PARTY_NOTICES.en.md](docs/THIRD_PARTY_NOTICES.en.md) and shipped as `THIRD-PARTY-NOTICES.txt`.
+
 ## Store readiness
 
-The current release candidate is `0.1.20`. The WinUI packaging project produces the Store upload bundle, and `tools\ci\verify-store-package.ps1` verifies package structure plus all seven shipped UI languages. Microsoft Store submission still requires final Partner Center metadata, clean-profile installation, and WACK validation.
+The current release is `1.0.0`. The WinUI packaging project produces the Store upload bundle, and `tools\ci\verify-store-package.ps1` verifies package structure plus all seven shipped UI languages. Microsoft Store submission still requires final Partner Center metadata, clean-profile installation, and WACK validation.
 
 - Store preparation checklist: [docs/STORE_PREP.md](docs/STORE_PREP.md)
 - Store listing draft: [docs/STORE_LISTING.md](docs/STORE_LISTING.md)
-- Store screenshot assets: [artifacts/store](artifacts/store)
+- Store screenshots and trailer are generated into the untracked `artifacts/store/` folder; see [docs/STORE_ASSETS.md](docs/STORE_ASSETS.md)

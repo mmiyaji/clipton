@@ -1,6 +1,6 @@
 # Microsoft Store Listing Draft
 
-Last updated: 2026-07-10
+Last updated: 2026-11-01
 
 Use this document as the source text for Partner Center Store listings.
 
@@ -12,7 +12,7 @@ Official references:
 ## Product Identity
 
 - Product name: Clipton
-- Release candidate: 0.1.20
+- Release: 1.0.0
 - Category: Productivity
 - Target device family: PC / Windows Desktop
 - Store listing draft languages: English, Japanese
@@ -32,7 +32,7 @@ Clipton is a local-first clipboard manager for Windows. It keeps recent clipboar
 
 Use Clipton to search recent clipboard items, paste in the original format, paste text as plain text, preview images, organize older history into folders, and keep frequently used messages as registered snippets. Choose the compact default quick menu or the richer thumbnail menu, and use light, dark, or system theme mode.
 
-Clipton is designed for privacy-sensitive daily work. Clipboard history is stored locally, encrypted with Windows user-scoped data protection, and can be paused, cleared, exported, PIN-locked, or disabled from settings. The current version does not include cloud sync, telemetry, crash reporting, advertising SDKs, or third-party data sharing.
+Clipton is designed for privacy-sensitive daily work. Clipboard history is stored locally, encrypted with Windows user-scoped data protection, and can be paused, cleared, exported, PIN-locked, or disabled from settings. The current version does not include cloud sync, telemetry, crash reporting, advertising SDKs, or third-party data sharing. The only network access is the optional Microsoft Store update check, which can be turned off in settings and sends no clipboard data.
 
 ### Feature Bullets
 
@@ -48,6 +48,8 @@ Clipton is designed for privacy-sensitive daily work. Clipboard history is store
 - Store encrypted clipboard history locally.
 - Configure hotkey, startup, light/dark/system theme, language, and saved history count.
 - Use the app in English, Japanese, German, Spanish, French, Korean, or Simplified Chinese.
+- Check for updates automatically and install them from the About page.
+- Read the terms, privacy policy, and third-party licenses in the app.
 
 ### Keywords
 
@@ -55,7 +57,7 @@ clipboard, clipboard manager, clipboard history, paste, snippets, productivity, 
 
 ### Release Notes
 
-Version 0.1.20 improves stability.
+Clipton 1.0: update checks and installation from the About page, a settings sidebar organized into groups, clearer destructive actions with a confirmation before exit, terms, privacy policy, and license notices inside the app, and improved clipboard capture reliability and quick-menu performance with large histories.
 
 ## Japanese Listing
 
@@ -69,7 +71,7 @@ Clipton は Windows 向けのローカル重視クリップボード管理アプ
 
 履歴検索、元の形式での貼り付け、プレーンテキスト貼り付け、画像プレビュー、古い履歴のフォルダ整理、よく使う文章の登録単語化に対応しています。クイックメニューはコンパクトな標準表示と、サムネイルを使うリッチ表示から選べます。ライト、ダーク、システム連動のテーマにも対応しています。
 
-Clipton はプライバシーに配慮した日常作業向けに設計しています。クリップボード履歴はローカルに保存され、Windows のユーザー単位データ保護で暗号化されます。記録の一時停止、履歴消去、エクスポート、PIN ロック、永続化の無効化も設定から行えます。現在のバージョンにはクラウド同期、テレメトリ、クラッシュレポート、広告 SDK、第三者へのデータ共有はありません。
+Clipton はプライバシーに配慮した日常作業向けに設計しています。クリップボード履歴はローカルに保存され、Windows のユーザー単位データ保護で暗号化されます。記録の一時停止、履歴消去、エクスポート、PIN ロック、永続化の無効化も設定から行えます。現在のバージョンにはクラウド同期、テレメトリ、クラッシュレポート、広告 SDK、第三者へのデータ共有はありません。ネットワーク通信は Microsoft Store の更新確認のみで、設定でオフにでき、クリップボードの内容は送信されません。
 
 ### Feature Bullets
 
@@ -85,6 +87,8 @@ Clipton はプライバシーに配慮した日常作業向けに設計してい
 - 履歴をローカルに暗号化保存。
 - ホットキー、起動、ライト/ダーク/システムテーマ、言語、保存履歴数を設定。
 - 英語、日本語、ドイツ語、スペイン語、フランス語、韓国語、中国語（簡体字）の UI に対応。
+- 更新を自動確認し、情報ページからインストール。
+- 利用規約、プライバシーポリシー、サードパーティライセンスをアプリ内で確認。
 
 ### Keywords
 
@@ -92,7 +96,7 @@ Clipton はプライバシーに配慮した日常作業向けに設計してい
 
 ### Release Notes
 
-バージョン 0.1.20 では、安定性を向上しました。
+Clipton 1.0: 情報ページからの更新確認とインストール、グループ分けした設定サイドバー、終了前の確認など影響の大きい操作の強調、利用規約・プライバシーポリシー・ライセンス表記のアプリ内表示を追加し、クリップボード取得の信頼性と大量の履歴を表示するクイックメニューの性能を改善しました。
 
 ## Screenshot Captions
 

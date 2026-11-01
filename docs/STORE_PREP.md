@@ -1,12 +1,12 @@
 # Microsoft Store Preparation
 
-Last updated: 2026-07-12
+Last updated: 2026-11-01
 
 ## Current Release Candidate
 
-- App version: `0.1.20`
-- Package version: `0.1.20.0`
-- Expected Store upload artifact: `packaging/Clipton.Package/bin/x64/Release/AppPackages/Clipton.Package_0.1.20.0_x64_bundle.msixupload`
+- App version: `1.0.0`
+- Package version: `1.0.0.0`
+- Expected Store upload artifact: `packaging/Clipton.Package/bin/x64/Release/AppPackages/Clipton.Package_1.0.0.0_x64_bundle.msixupload`
 - Copy-ready English and Japanese release notes are maintained in `docs/STORE_LISTING.md`.
 - Package verification must confirm all seven shipped UI languages in both the bundle and Store upload archive.
 
@@ -15,7 +15,7 @@ Last updated: 2026-07-12
 - Use `packaging/Clipton.Package/Clipton.Package.wapproj` as the Windows Application Packaging Project.
 - Generate a Release `.msixupload` or `.appxupload` package for Partner Center.
 - Declare only required capabilities. The packaged WinUI desktop app currently requires `runFullTrust` for the global hotkey, tray resident behavior, and clipboard integration.
-- Keep `internetClient` absent until network features exist.
+- Keep `internetClient` absent. Update checks use the Windows Store APIs (`StoreContext`) and do not need it; add it only if Clipton itself starts making HTTP requests, and update the privacy policy first.
 - Move persistent app data to user-writable app data locations only.
 - Add Store metadata. English and Japanese listing drafts are maintained in `docs/STORE_LISTING.md`.
 - Keep package resources for the app display name and description in every shipped UI language.
@@ -73,20 +73,7 @@ Current source uses the packaged `StartupTask` API when Clipton has package iden
 
 ## Current Store Assets
 
-Legacy draft generated PC mockups:
-
-- `artifacts/store/01-quick-menu-en.png`
-- `artifacts/store/02-history-en.png`
-- `artifacts/store/03-snippets-en.png`
-- `artifacts/store/04-settings-en.png`
-- `artifacts/store/05-privacy-en.png`
-- `artifacts/store/01-quick-menu-ja.png`
-- `artifacts/store/02-history-ja.png`
-- `artifacts/store/03-snippets-ja.png`
-- `artifacts/store/04-settings-ja.png`
-- `artifacts/store/05-privacy-ja.png`
-
-All generated mockups are 1920 x 1080 PNG files.
+Generated Store mockups and the trailer are no longer committed. They are produced into the untracked `artifacts/store/` folder (see `docs/STORE_ASSETS.md`); generated PC mockups are 1920 x 1080 PNG files.
 
 Do not treat these generated files as final Partner Center screenshots until they are replaced or verified against the latest Microsoft screenshot guidance. Final screenshots should be actual app UI captures without extra marketing text.
 

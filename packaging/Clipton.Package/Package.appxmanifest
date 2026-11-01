@@ -9,7 +9,7 @@
   <Identity
     Name="mmiyaji.Clipton"
     Publisher="CN=663C5D03-791A-4B2C-8509-629FA1CA125A"
-    Version="0.1.20.0" />
+    Version="1.0.0.0" />
 
   <Properties>
     <DisplayName>ms-resource:AppDisplayName</DisplayName>
@@ -42,7 +42,7 @@
       <uap:VisualElements
         DisplayName="ms-resource:AppDisplayName"
         Description="ms-resource:AppDescription"
-        BackgroundColor="#2060A0"
+        BackgroundColor="transparent"
         Square44x44Logo="Images\Square44x44Logo.png"
         Square150x150Logo="Images\Square150x150Logo.png">
         <uap:DefaultTile

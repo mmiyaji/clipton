@@ -1,10 +1,10 @@
 # Microsoft Store Asset Plan
 
-Last updated: 2026-07-12
+Last updated: 2026-11-01
 
 This file tracks Store submission assets for Clipton.
 
-Release target: `0.1.20`
+Release target: `1.0.0`
 
 Current app UI languages are English, Japanese, German, Spanish, French, Korean, and Simplified Chinese. This document still tracks English and Japanese Store-listing screenshots first because those are the maintained listing drafts.
 
@@ -30,9 +30,8 @@ References:
 
 ## Asset Folders
 
-- Final Partner Center screenshots: `artifacts/store/final/`
-- Draft/generated mockups: `artifacts/store/`
-- Demo video deliverables: `artifacts/store/video/`
+- Partner Center screenshots, draft mockups, and demo video deliverables are generated into `artifacts/store/`. The folder is not tracked by Git (`artifacts/` is ignored).
+- Website screenshots: `docs/images/store/`
 - Store text source: `docs/STORE_LISTING.md`
 
 Important: existing generated screenshots in `artifacts/store/` are useful as layout drafts, but they include marketing-style overlay text. Do not submit them as final screenshots unless they are replaced with actual app UI captures that follow Microsoft guidance.
