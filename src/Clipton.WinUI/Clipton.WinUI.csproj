@@ -35,6 +35,19 @@
     <SatelliteResourceLanguages>en;ja;de;es;fr;ko;zh-Hans</SatelliteResourceLanguages>
   </PropertyGroup>
 
+  <!-- Opt-in portable build (-p:CliptonPortable=true): bundles the .NET runtime and the Windows App SDK
+       so the executable runs without any shared runtime. Store/MSIX and development builds are unchanged. -->
+  <PropertyGroup Condition="'$(CliptonPortable)' == 'true'">
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <WindowsAppSdkDeploymentManagerInitialize>false</WindowsAppSdkDeploymentManagerInitialize>
+    <DefineConstants>$(DefineConstants);CLIPTON_PORTABLE</DefineConstants>
+    <OutputPath>bin\$(Platform)\$(Configuration)\portable\</OutputPath>
+    <IntermediateOutputPath>obj\$(Platform)\$(Configuration)\portable\</IntermediateOutputPath>
+    <PublishReadyToRun Condition="'$(Configuration)' != 'Debug'">true</PublishReadyToRun>
+  </PropertyGroup>
+
   <PropertyGroup Condition="'$(CliptonAutomationWindows)' == 'true'">
     <DefineConstants>$(DefineConstants);CLIPTON_AUTOMATION_WINDOWS</DefineConstants>
   </PropertyGroup>
@@ -56,5 +69,12 @@
     <EmbeddedResource Include="..\..\docs\THIRD_PARTY_NOTICES.en.md" WithCulture="false" LogicalName="Legal.THIRD_PARTY_NOTICES.en.md" />
     <Content Include="..\..\docs\THIRD_PARTY_NOTICES.en.md" Link="THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!-- dotnet publish does not carry the app's PRI index into the output folder; without it the XAML runtime fails at startup. -->
+  <Target Name="CliptonPortablePublishPri" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(CliptonPortable)' == 'true'">
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(OutDir)Clipton.pri" RelativePath="Clipton.pri" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
 
 </Project>
