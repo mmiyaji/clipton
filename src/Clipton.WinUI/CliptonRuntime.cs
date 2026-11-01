@@ -918,6 +918,17 @@ public sealed class CliptonRuntime : IDisposable
         }
     }
 
+    /// <summary>Persists pending history before the Store replaces or restarts the running package.</summary>
+    public void PrepareForUpdate()
+    {
+        if (IsExiting || IsSafeMode)
+        {
+            return;
+        }
+
+        SaveHistory(waitForCompletion: true);
+    }
+
     public void ReportStoreUpdateAvailability(bool updateAvailable)
     {
         _storeUpdateMonitor?.Report(updateAvailable);

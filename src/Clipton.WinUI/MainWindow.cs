@@ -3107,13 +3107,26 @@ public sealed class MainWindow : Window
         SetStoreUpdateStatus("StoreUpdateStatusInstalling", isBusy: true, canCheck: false, canInstall: false);
         try
         {
+            _runtime.PrepareForUpdate();
             var context = StoreContext.GetDefault();
             InitializeStoreContextWindow(context);
             var result = await context.RequestDownloadAndInstallStorePackageUpdatesAsync(_storePackageUpdates);
-            _storePackageUpdates = [];
-            _storeUpdateAvailable = false;
-            _runtime.ReportStoreUpdateAvailability(false);
-            SetStoreUpdateStatus("StoreUpdateStatusInstallResult", isBusy: false, canCheck: true, canInstall: false, result.OverallState.ToString());
+            if (result.OverallState == StorePackageUpdateState.Completed)
+            {
+                _storePackageUpdates = [];
+                _storeUpdateAvailable = false;
+                _runtime.ReportStoreUpdateAvailability(false);
+                SetStoreUpdateStatus("StoreUpdateResultCompleted", isBusy: false, canCheck: true, canInstall: false);
+            }
+            else
+            {
+                SetStoreUpdateStatus(
+                    GetStoreUpdateResultKey(result.OverallState),
+                    isBusy: false,
+                    canCheck: true,
+                    canInstall: _storePackageUpdates.Count > 0);
+            }
+
             UpdateNavButtonContents();
         }
         catch (Exception exception)
@@ -3129,6 +3142,52 @@ public sealed class MainWindow : Window
             UpdateStoreUpdateButtons();
         }
     }
+
+    private static string GetStoreUpdateResultKey(StorePackageUpdateState state) => state switch
+    {
+        StorePackageUpdateState.Canceled => "StoreUpdateResultCanceled",
+        StorePackageUpdateState.ErrorLowBattery => "StoreUpdateResultLowBattery",
+        StorePackageUpdateState.ErrorWiFiRecommended or StorePackageUpdateState.ErrorWiFiRequired => "StoreUpdateResultWiFi",
+        _ => "StoreUpdateResultFailed"
+    };
+
+    private InfoBadge CreateUpdateBadge()
+    {
+        Brush background = new SolidColorBrush(ColorHelper.FromArgb(0xFF, 0x32, 0x84, 0xF5));
+        Brush foreground = new SolidColorBrush(Colors.White);
+        if (_runtime.IsHighContrast
+            && Application.Current.Resources.TryGetValue("SystemColorHighlightColorBrush", out var highlight) && highlight is Brush highlightBrush
+            && Application.Current.Resources.TryGetValue("SystemColorHighlightTextColorBrush", out var highlightText) && highlightText is Brush highlightTextBrush)
+        {
+            background = highlightBrush;
+            foreground = highlightTextBrush;
+        }
+
+        var badge = new InfoBadge();
+        if (Application.Current.Resources.TryGetValue("AttentionDotInfoBadgeStyle", out var style) && style is Style badgeStyle)
+        {
+            badge.Style = badgeStyle;
+        }
+
+        badge.Width = 24;
+        badge.Height = 24;
+        badge.MinWidth = 24;
+        badge.MinHeight = 24;
+        badge.MaxHeight = 24;
+        badge.Padding = new Thickness(2);
+        badge.Background = background;
+        badge.Foreground = foreground;
+        badge.Template = (ControlTemplate)XamlReader.Load(UpdateBadgeTemplate);
+        return badge;
+    }
+
+    private const string UpdateBadgeTemplate =
+        "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='InfoBadge'>" +
+        "<Grid><Ellipse Fill='{TemplateBinding Background}' />" +
+        "<Viewbox Margin='{TemplateBinding Padding}' Stretch='Uniform'><Canvas Width='960' Height='960'>" +
+        "<Path Fill='{TemplateBinding Foreground}' Data='M480-344.46 317.23-507.23l37.16-36.38L454-444v-352h52v352l99.61-99.61 37.16 36.38L480-344.46ZM276.03-212q-27.03 0-45.53-18.65T212-276.31v-60.46h52v60.46q0 4.62 3.85 8.46 3.84 3.85 8.46 3.85h407.38q4.62 0 8.46-3.85 3.85-3.84 3.85-8.46v-60.46h52v60.46q0 27.01-18.66 45.66Q710.68-212 683.65-212H276.03Z'>" +
+        "<Path.RenderTransform><TranslateTransform Y='960' /></Path.RenderTransform></Path>" +
+        "</Canvas></Viewbox></Grid></ControlTemplate>";
 
     private void InitializeStoreContextWindow(StoreContext context)
     {
@@ -5727,7 +5786,7 @@ public sealed class MainWindow : Window
             FontFamily = new FontFamily("Segoe Fluent Icons"),
             FontSize = 16
         };
-        item.InfoBadge = hasStoreUpdateBadge ? new InfoBadge() : null;
+        item.InfoBadge = hasStoreUpdateBadge ? CreateUpdateBadge() : null;
         AutomationProperties.SetName(item, accessibleLabel);
         ToolTipService.SetToolTip(item, accessibleLabel);
     }
