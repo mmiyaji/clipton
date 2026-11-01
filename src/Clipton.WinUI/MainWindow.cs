@@ -280,6 +280,8 @@ public sealed class MainWindow : Window
     private bool _storeUpdateInstalling;
     private bool _storeUpdateAvailable = IsDebugStoreUpdateAvailableForced();
     private bool _storeUpdateCheckCompleted;
+    private readonly ClickCooldown _checkStoreUpdateCooldown = new(TimeSpan.FromSeconds(3));
+    private readonly ClickCooldown _installStoreUpdateCooldown = new(TimeSpan.FromSeconds(3));
 
     public MainWindow(CliptonRuntime runtime)
     {
@@ -2711,16 +2713,8 @@ public sealed class MainWindow : Window
         info.Children.Add(InfoLinkRow("Author", AuthorUrl, AuthorUrl));
         info.Children.Add(InfoLinkRow("StorePage", "Microsoft Store", MicrosoftStoreUrl));
         _aboutPage.Children.Add(Card(info));
-        if (CanUseStoreUpdates)
-        {
-            _aboutPage.Children.Add(BuildStoreUpdateCard());
-            _autoCheckStoreUpdatesToggle.Toggled += (_, _) =>
-            {
-                if (_loading) return;
-                _runtime.SetAutoCheckStoreUpdates(_autoCheckStoreUpdatesToggle.IsOn);
-            };
-            _aboutPage.Children.Add(SettingCard("\uE72C", "AutoCheckStoreUpdates", "AutoCheckStoreUpdatesDescription", _autoCheckStoreUpdatesToggle));
-        }
+        _aboutPage.Children.Add(SectionHeader("AppUpdateSection"));
+        _aboutPage.Children.Add(BuildStoreUpdateCard());
 
         var documents = new StackPanel { Spacing = 10 };
         documents.Children.Add(DescriptionText("LegalDescription",
@@ -2791,7 +2785,13 @@ public sealed class MainWindow : Window
         var content = new Grid { ColumnSpacing = 14, VerticalAlignment = VerticalAlignment.Center };
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
         content.ColumnDefinitions.Add(new ColumnDefinition());
-        content.Children.Add(IconCircle("\uE895"));
+        var updateIcon = IconCircle("\uE895");
+        if (updateIcon is FrameworkElement updateIconElement)
+        {
+            updateIconElement.VerticalAlignment = VerticalAlignment.Top;
+        }
+
+        content.Children.Add(updateIcon);
 
         var body = new StackPanel { Spacing = 9 };
         body.Children.Add(LocalizedText("StoreUpdate", fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
@@ -2803,8 +2803,26 @@ public sealed class MainWindow : Window
         body.Children.Add(status);
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Spacing = 8 };
-        _checkStoreUpdateButton.Click += async (_, _) => await CheckStoreUpdatesAsync(userInitiated: true);
-        _installStoreUpdateButton.Click += async (_, _) => await InstallStoreUpdatesAsync();
+        _checkStoreUpdateButton.Click += async (_, _) =>
+        {
+            if (!_checkStoreUpdateButton.IsEnabled || !_checkStoreUpdateCooldown.TryEnter())
+            {
+                return;
+            }
+
+            _checkStoreUpdateButton.IsEnabled = false;
+            await CheckStoreUpdatesAsync(userInitiated: true);
+        };
+        _installStoreUpdateButton.Click += async (_, _) =>
+        {
+            if (!_installStoreUpdateButton.IsEnabled || !_installStoreUpdateCooldown.TryEnter())
+            {
+                return;
+            }
+
+            _installStoreUpdateButton.IsEnabled = false;
+            await InstallStoreUpdatesAsync();
+        };
         _installStoreUpdateButton.Visibility = Visibility.Collapsed;
         _changelogLinkButton.Padding = new Thickness(0);
         _changelogLinkButton.VerticalAlignment = VerticalAlignment.Center;
@@ -2814,6 +2832,27 @@ public sealed class MainWindow : Window
         actions.Children.Add(_installStoreUpdateButton);
         actions.Children.Add(_changelogLinkButton);
         body.Children.Add(actions);
+
+        var autoCheckSeparator = new Border { Height = 1, Margin = new Thickness(0, 4, 0, 2), Background = RowSeparatorBrush() };
+        _rowSeparators.Add(autoCheckSeparator);
+        body.Children.Add(autoCheckSeparator);
+        var autoCheckRow = new Grid { ColumnSpacing = 12 };
+        autoCheckRow.ColumnDefinitions.Add(new ColumnDefinition());
+        autoCheckRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var autoCheckText = new StackPanel { Spacing = 2 };
+        autoCheckText.Children.Add(LocalizedText("AutoCheckStoreUpdates", fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
+        autoCheckText.Children.Add(DescriptionText("AutoCheckStoreUpdatesDescription", fontSize: 12, wrapping: TextWrapping.Wrap));
+        _autoCheckStoreUpdatesToggle.VerticalAlignment = VerticalAlignment.Center;
+        _autoCheckStoreUpdatesToggle.IsEnabled = CanUseStoreUpdates;
+        _autoCheckStoreUpdatesToggle.Toggled += (_, _) =>
+        {
+            if (_loading) return;
+            _runtime.SetAutoCheckStoreUpdates(_autoCheckStoreUpdatesToggle.IsOn);
+        };
+        Grid.SetColumn(_autoCheckStoreUpdatesToggle, 1);
+        autoCheckRow.Children.Add(autoCheckText);
+        autoCheckRow.Children.Add(_autoCheckStoreUpdatesToggle);
+        body.Children.Add(autoCheckRow);
 
         Grid.SetColumn(body, 1);
         content.Children.Add(body);
@@ -3006,6 +3045,12 @@ public sealed class MainWindow : Window
         finally
         {
             _storeUpdateChecking = false;
+            if (userInitiated)
+            {
+                _checkStoreUpdateCooldown.Restart();
+                ScheduleStoreUpdateButtonRefresh(_checkStoreUpdateCooldown);
+            }
+
             if (!string.Equals(_storeUpdateStatusKey, "StoreUpdateStatusChecking", StringComparison.Ordinal))
             {
                 _storeUpdateCheckCompleted = true;
@@ -3014,6 +3059,12 @@ public sealed class MainWindow : Window
             RefreshStoreUpdateTexts();
             UpdateStoreUpdateButtons();
         }
+    }
+
+    private void ScheduleStoreUpdateButtonRefresh(ClickCooldown cooldown)
+    {
+        _ = Task.Delay(cooldown.Duration + TimeSpan.FromMilliseconds(100))
+            .ContinueWith(_ => DispatcherQueue.TryEnqueue(UpdateStoreUpdateButtons), TaskScheduler.Default);
     }
 
     private static async Task DelayStoreUpdateResultIfNeededAsync(long startedTimestamp, bool userInitiated)
@@ -3073,6 +3124,8 @@ public sealed class MainWindow : Window
         finally
         {
             _storeUpdateInstalling = false;
+            _installStoreUpdateCooldown.Restart();
+            ScheduleStoreUpdateButtonRefresh(_installStoreUpdateCooldown);
             UpdateStoreUpdateButtons();
         }
     }
@@ -3155,8 +3208,10 @@ public sealed class MainWindow : Window
     {
         var canCheck = _checkStoreUpdateButton.Tag is bool check && check;
         var canInstall = _installStoreUpdateButton.Tag is bool install && install;
-        _checkStoreUpdateButton.IsEnabled = canCheck && !_storeUpdateChecking && !_storeUpdateInstalling;
-        _installStoreUpdateButton.IsEnabled = canInstall && !_storeUpdateChecking && !_storeUpdateInstalling;
+        _checkStoreUpdateButton.IsEnabled = canCheck && !_storeUpdateChecking && !_storeUpdateInstalling
+            && !_checkStoreUpdateCooldown.IsCoolingDown;
+        _installStoreUpdateButton.IsEnabled = canInstall && !_storeUpdateChecking && !_storeUpdateInstalling
+            && !_installStoreUpdateCooldown.IsCoolingDown;
         _installStoreUpdateButton.Visibility = canInstall ? Visibility.Visible : Visibility.Collapsed;
     }
 
