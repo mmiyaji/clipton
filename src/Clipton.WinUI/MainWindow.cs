@@ -139,6 +139,7 @@ public sealed class MainWindow : Window
     private readonly ToggleSwitch _hideSettingsWindowOnStartupToggle = CompactToggle();
     private readonly ToggleSwitch _pauseCaptureToggle = CompactToggle();
     private readonly ToggleSwitch _diagnosticLoggingToggle = CompactToggle();
+    private readonly ToggleSwitch _autoCheckStoreUpdatesToggle = CompactToggle();
     private readonly ToggleSwitch _persistHistoryToggle = CompactToggle();
     private readonly ToggleSwitch _saveSourceMetadataToggle = CompactToggle();
     private readonly TextBox _excludedCaptureAppsBox = new();
@@ -217,6 +218,7 @@ public sealed class MainWindow : Window
     private readonly Button _deleteSnippetButton = new();
     private readonly Button _termsButton = new();
     private readonly Button _privacyButton = new();
+    private readonly Button _licensesButton = new();
     private readonly Button _donationButton = new();
     private readonly TextBlock _donationFallbackText = new();
     private readonly HyperlinkButton _donationLinkButton = new();
@@ -282,6 +284,7 @@ public sealed class MainWindow : Window
     public MainWindow(CliptonRuntime runtime)
     {
         _runtime = runtime;
+        _storeUpdateAvailable |= runtime.StoreUpdateAvailable;
         _brandHeader = BuildBrandHeader();
         _hotkeyPill = Pill(_hotkeyText);
         _captureStatusPill = Pill(new StackPanel
@@ -323,9 +326,11 @@ public sealed class MainWindow : Window
         RefreshTexts();
         RefreshItems();
         _runtime.HighContrastChanged += OnHighContrastChanged;
+        _runtime.StoreUpdateAvailabilityChanged += OnStoreUpdateAvailabilityChanged;
         Closed += (_, _) =>
         {
             _runtime.HighContrastChanged -= OnHighContrastChanged;
+            _runtime.StoreUpdateAvailabilityChanged -= OnStoreUpdateAvailabilityChanged;
             RestoreWindowProc();
             _runtime.OnMainWindowClosed(this);
         };
@@ -717,6 +722,7 @@ public sealed class MainWindow : Window
         AutomationProperties.SetName(_snippetPreviewBox, t("SnippetPreviewPlaceholder"));
         _termsButton.Content = t("TermsOfUse");
         _privacyButton.Content = t("PrivacyPolicy");
+        _licensesButton.Content = t("ThirdPartyLicenses");
         _donationFallbackText.Text = t("BuyMeACoffee");
         _donationLinkButton.Content = t("DonationOpenBuyMeACoffee");
         AutomationProperties.SetName(_donationButton, t("BuyMeACoffee"));
@@ -785,6 +791,7 @@ public sealed class MainWindow : Window
         _hideSettingsWindowOnStartupToggle.IsOn = _runtime.Settings.HideSettingsWindowOnStartup;
         _pauseCaptureToggle.IsOn = _runtime.Settings.PauseCapture;
         _diagnosticLoggingToggle.IsOn = _runtime.Settings.DiagnosticLoggingEnabled;
+        _autoCheckStoreUpdatesToggle.IsOn = _runtime.Settings.AutoCheckStoreUpdates;
         _persistHistoryToggle.IsOn = _runtime.Settings.PersistEncryptedHistory;
         _saveSourceMetadataToggle.IsOn = _runtime.Settings.SaveHistorySourceMetadata;
         _historyAccessLockToggle.IsOn = _runtime.Settings.HistoryAccessLockEnabled && _runtime.IsHistoryAccessLockConfigured;
@@ -844,6 +851,7 @@ public sealed class MainWindow : Window
         SetAutomationId(_quickMenuCapturedAtShortcutBox, "QuickMenuCapturedAtShortcutComboBox");
         SetAutomationId(_pauseCaptureToggle, "PauseCaptureToggle");
         SetAutomationId(_diagnosticLoggingToggle, "DiagnosticLoggingToggle");
+        SetAutomationId(_autoCheckStoreUpdatesToggle, "AutoCheckStoreUpdatesToggle");
         SetAutomationId(_persistHistoryToggle, "PersistHistoryToggle");
         SetAutomationId(_saveSourceMetadataToggle, "SaveSourceMetadataToggle");
         SetAutomationId(_historyAccessLockToggle, "HistoryAccessLockToggle");
@@ -907,6 +915,7 @@ public sealed class MainWindow : Window
         SetAutomationId(_installStoreUpdateButton, "InstallStoreUpdateButton");
         SetAutomationId(_termsButton, "TermsButton");
         SetAutomationId(_privacyButton, "PrivacyButton");
+        SetAutomationId(_licensesButton, "ThirdPartyLicensesButton");
         SetAutomationId(_donationButton, "DonationButton");
         SetAutomationId(_donationLinkButton, "DonationLinkButton");
         SetAutomationId(_openDataDirectoryButton, "OpenDataDirectoryButton");
@@ -2705,6 +2714,12 @@ public sealed class MainWindow : Window
         if (CanUseStoreUpdates)
         {
             _aboutPage.Children.Add(BuildStoreUpdateCard());
+            _autoCheckStoreUpdatesToggle.Toggled += (_, _) =>
+            {
+                if (_loading) return;
+                _runtime.SetAutoCheckStoreUpdates(_autoCheckStoreUpdatesToggle.IsOn);
+            };
+            _aboutPage.Children.Add(SettingCard("\uE72C", "AutoCheckStoreUpdates", "AutoCheckStoreUpdatesDescription", _autoCheckStoreUpdatesToggle));
         }
 
         var documents = new StackPanel { Spacing = 10 };
@@ -2712,16 +2727,63 @@ public sealed class MainWindow : Window
             fontSize: 14,
             wrapping: TextWrapping.Wrap));
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Spacing = 8 };
-        _termsButton.Click += (_, _) => OpenExternalUrl(TermsUrl);
-        _privacyButton.Click += (_, _) => OpenExternalUrl(PrivacyUrl);
+        _termsButton.Click += async (_, _) => await ShowLegalDocumentAsync("TermsOfUse", LegalDocuments.Terms, TermsUrl);
+        _privacyButton.Click += async (_, _) => await ShowLegalDocumentAsync("PrivacyPolicy", LegalDocuments.Privacy, PrivacyUrl);
+        _licensesButton.Click += async (_, _) => await ShowLegalDocumentAsync("ThirdPartyLicenses", LegalDocuments.ThirdPartyNotices, null);
         buttons.Children.Add(_termsButton);
         buttons.Children.Add(_privacyButton);
+        buttons.Children.Add(_licensesButton);
         documents.Children.Add(buttons);
         _aboutPage.Children.Add(Card(documents));
 
         _exitApplicationButton.HorizontalAlignment = HorizontalAlignment.Left;
         _exitApplicationButton.Click += async (_, _) => await ConfirmAndExitApplicationAsync();
         _aboutPage.Children.Add(SettingCard("\uE7E8", "ExitApplication", "ExitApplicationDescription", _exitApplicationButton));
+    }
+
+    private async Task ShowLegalDocumentAsync(string titleKey, string documentName, string? webUrl)
+    {
+        if (_root.XamlRoot is null)
+        {
+            return;
+        }
+
+        var language = _runtime.EffectiveLocale.Split('-')[0];
+        var markdown = LegalDocuments.Load(documentName, language);
+        if (markdown is null)
+        {
+            if (webUrl is not null)
+            {
+                OpenExternalUrl(webUrl);
+            }
+
+            return;
+        }
+
+        var viewer = new ScrollViewer
+        {
+            Content = LegalDocuments.BuildView(markdown),
+            MaxHeight = 440,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Padding = new Thickness(0, 0, 12, 0)
+        };
+        var dialog = new ContentDialog
+        {
+            Title = _runtime.Translate(titleKey),
+            Content = viewer,
+            CloseButtonText = _runtime.Translate("Close"),
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = _root.XamlRoot,
+            RequestedTheme = DialogTheme
+        };
+        dialog.Resources["ContentDialogMaxWidth"] = 760.0;
+        if (webUrl is not null)
+        {
+            dialog.PrimaryButtonText = _runtime.Translate("OpenInBrowser");
+            dialog.PrimaryButtonClick += (_, _) => OpenExternalUrl(webUrl);
+        }
+
+        await ShowContentDialogAsync(dialog);
     }
 
     private UIElement BuildStoreUpdateCard()
@@ -2755,7 +2817,20 @@ public sealed class MainWindow : Window
 
         Grid.SetColumn(body, 1);
         content.Children.Add(body);
-        SetStoreUpdateStatus("StoreUpdateStatusIdle", isBusy: false, canCheck: true, canInstall: false);
+        if (_runtime.StoreUpdateLastCheckedAt is { } lastChecked && !IsDebugStoreUpdateAvailableForced())
+        {
+            SetStoreUpdateStatus(
+                _storeUpdateAvailable ? "StoreUpdateStatusAvailable" : "StoreUpdateStatusNotAvailable",
+                isBusy: false,
+                canCheck: true,
+                canInstall: _storeUpdateAvailable,
+                FormatStoreUpdateCheckedAt(lastChecked));
+        }
+        else
+        {
+            SetStoreUpdateStatus("StoreUpdateStatusIdle", isBusy: false, canCheck: true, canInstall: false);
+        }
+
         return Card(content);
     }
 
@@ -2850,7 +2925,7 @@ public sealed class MainWindow : Window
 
     private async Task EnsureStoreUpdateCheckStartedAsync()
     {
-        if (_storeUpdateCheckStarted)
+        if (_storeUpdateCheckStarted || !_runtime.Settings.AutoCheckStoreUpdates)
         {
             return;
         }
@@ -2909,6 +2984,7 @@ public sealed class MainWindow : Window
             InitializeStoreContextWindow(context);
             _storePackageUpdates = (await context.GetAppAndOptionalStorePackageUpdatesAsync()).ToArray();
             _storeUpdateAvailable = _storePackageUpdates.Count > 0;
+            _runtime.ReportStoreUpdateAvailability(_storeUpdateAvailable);
             await DelayStoreUpdateResultIfNeededAsync(checkStartedTimestamp, userInitiated);
             SetStoreUpdateStatus(
                 _storeUpdateAvailable ? "StoreUpdateStatusAvailable" : "StoreUpdateStatusNotAvailable",
@@ -2985,6 +3061,7 @@ public sealed class MainWindow : Window
             var result = await context.RequestDownloadAndInstallStorePackageUpdatesAsync(_storePackageUpdates);
             _storePackageUpdates = [];
             _storeUpdateAvailable = false;
+            _runtime.ReportStoreUpdateAvailability(false);
             SetStoreUpdateStatus("StoreUpdateStatusInstallResult", isBusy: false, canCheck: true, canInstall: false, result.OverallState.ToString());
             UpdateNavButtonContents();
         }
@@ -3019,9 +3096,30 @@ public sealed class MainWindow : Window
 #endif
     }
 
-    private string FormatStoreUpdateCheckedAt()
+    private string FormatStoreUpdateCheckedAt(DateTimeOffset? checkedAt = null)
     {
-        return DateTimeOffset.Now.ToString("HH:mm", System.Globalization.CultureInfo.CurrentCulture);
+        return (checkedAt ?? DateTimeOffset.Now).ToString("HH:mm", System.Globalization.CultureInfo.CurrentCulture);
+    }
+
+    private void OnStoreUpdateAvailabilityChanged(object? sender, EventArgs e)
+    {
+        _ = DispatcherQueue.TryEnqueue(() =>
+        {
+            var available = _runtime.StoreUpdateAvailable;
+            if (_storeUpdateChecking || _storeUpdateInstalling || available == _storeUpdateAvailable)
+            {
+                return;
+            }
+
+            _storeUpdateAvailable = available;
+            SetStoreUpdateStatus(
+                available ? "StoreUpdateStatusAvailable" : "StoreUpdateStatusNotAvailable",
+                isBusy: false,
+                canCheck: true,
+                canInstall: available,
+                FormatStoreUpdateCheckedAt(_runtime.StoreUpdateLastCheckedAt));
+            UpdateNavButtonContents();
+        });
     }
 
     private void SetStoreUpdateStatus(string key, bool isBusy, bool canCheck, bool canInstall, string? detail = null)
@@ -5819,8 +5917,7 @@ public sealed class MainWindow : Window
 
     private bool IsDark => string.Equals(_runtime.EffectiveTheme, "dark", StringComparison.OrdinalIgnoreCase);
 
-    private bool CanUseStoreUpdates => !string.Equals(_runtime.PackageStatus, "Unpackaged", StringComparison.Ordinal)
-        && !_runtime.PackageStatus.Contains(".Debug", StringComparison.OrdinalIgnoreCase);
+    private bool CanUseStoreUpdates => _runtime.CanUseStoreUpdates;
 
     private ElementTheme DialogTheme => _runtime.IsHighContrast
         ? ElementTheme.Default

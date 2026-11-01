@@ -24,6 +24,8 @@ public sealed class CliptonSettings
 
     public bool DiagnosticLoggingEnabled { get; set; }
 
+    public bool AutoCheckStoreUpdates { get; set; } = true;
+
     public string[] ExcludedCaptureApplicationPatterns { get; set; } = [];
 
     public bool PersistEncryptedHistory { get; set; } = true;

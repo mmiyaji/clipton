@@ -81,6 +81,7 @@ public sealed class CliptonRuntime : IDisposable
     private int _loadedPersistedHistoryCount;
     private HotkeyMessageWindow? _messageWindow;
     private NativeTrayIcon? _notifyIcon;
+    private StoreUpdateMonitor? _storeUpdateMonitor;
     private Window? _lifetimeWindow;
     private MainWindow? _mainWindow;
     private QuickMenuWindow? _defaultQuickMenu;
@@ -898,6 +899,50 @@ public sealed class CliptonRuntime : IDisposable
         AppDiagnostics.Configure(enabled);
     }
 
+    public bool CanUseStoreUpdates => !string.Equals(PackageStatus, "Unpackaged", StringComparison.Ordinal)
+        && !PackageStatus.Contains(".Debug", StringComparison.OrdinalIgnoreCase);
+
+    public bool StoreUpdateAvailable => _storeUpdateMonitor?.UpdateAvailable ?? false;
+
+    public DateTimeOffset? StoreUpdateLastCheckedAt => _storeUpdateMonitor?.LastCheckedAt;
+
+    public event EventHandler? StoreUpdateAvailabilityChanged;
+
+    public void SetAutoCheckStoreUpdates(bool enabled)
+    {
+        Settings.AutoCheckStoreUpdates = enabled;
+        SaveSettings();
+        if (enabled)
+        {
+            _ = _storeUpdateMonitor?.CheckNowAsync();
+        }
+    }
+
+    public void ReportStoreUpdateAvailability(bool updateAvailable)
+    {
+        _storeUpdateMonitor?.Report(updateAvailable);
+    }
+
+    private void StartStoreUpdateMonitor()
+    {
+        if (_storeUpdateMonitor is not null || IsSafeMode || !CanUseStoreUpdates)
+        {
+            return;
+        }
+
+        var monitor = new StoreUpdateMonitor(() => Settings.AutoCheckStoreUpdates, CheckStoreUpdateAvailabilityAsync);
+        monitor.AvailabilityChanged += (_, _) => StoreUpdateAvailabilityChanged?.Invoke(this, EventArgs.Empty);
+        _storeUpdateMonitor = monitor;
+        monitor.Start();
+    }
+
+    private static async Task<bool> CheckStoreUpdateAvailabilityAsync(CancellationToken cancellationToken)
+    {
+        var updates = await global::Windows.Services.Store.StoreContext.GetDefault().GetAppAndOptionalStorePackageUpdatesAsync();
+        cancellationToken.ThrowIfCancellationRequested();
+        return updates.Count > 0;
+    }
+
     public void OpenDiagnosticLogDirectory()
     {
         AppDiagnostics.OpenLogDirectory();
@@ -1440,6 +1485,7 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         IsExiting = true;
+        _storeUpdateMonitor?.Dispose();
         _menuCachePreparation.Cancel();
         _menuCachePreparation.Dispose();
         _quickMenuWarmupCancellation.Cancel();
@@ -1541,6 +1587,7 @@ public sealed class CliptonRuntime : IDisposable
         _clipboardServicesStarted = true;
         AppDiagnostics.Info("Runtime", "Clipboard services started.");
         ScheduleQuickMenuWarmup();
+        StartStoreUpdateMonitor();
     }
 
     private void ScheduleQuickMenuWarmup()
