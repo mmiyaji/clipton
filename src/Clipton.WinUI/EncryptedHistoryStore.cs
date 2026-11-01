@@ -12,7 +12,7 @@ namespace Clipton.WinUI;
 /// payload is encrypted in its own file. Older single-file, segmented and chunked formats
 /// remain readable so users can upgrade without losing local history.
 /// </remarks>
-public sealed class EncryptedHistoryStore
+public sealed partial class EncryptedHistoryStore
 {
     // Format 5 separates ordering from item payloads. Both the manifest and item files are
     // DPAPI-protected; keeping items individual makes small saves cheaper and lets the runtime
@@ -226,7 +226,7 @@ public sealed class EncryptedHistoryStore
     /// that prefix with still-persisted older ids so settings changes or new captures do
     /// not accidentally truncate the rest of the user's history.
     /// </remarks>
-    public void SavePreservingOlder(IEnumerable<ClipboardSnapshot> snapshots, int loadedPersistedCount, int capacity)
+    public void SavePreservingOlder(IEnumerable<ClipboardSnapshot> snapshots, int loadedPersistedCount, int capacity, ISet<string>? excludedIds = null)
     {
         lock (_syncRoot)
         {
@@ -241,7 +241,7 @@ public sealed class EncryptedHistoryStore
                     .Select(item => item.Id)
                     .Concat(persistedIds
                         .Skip(Math.Max(0, loadedPersistedCount))
-                        .Where(id => !currentIds.Contains(id)))
+                        .Where(id => !currentIds.Contains(id) && excludedIds?.Contains(id) != true))
                     .Take(capacity)
                     .ToArray();
                 SaveItemized(currentItems, ids);
@@ -253,7 +253,7 @@ public sealed class EncryptedHistoryStore
                 ? []
                 : LoadOrderedDtos()
                     .Skip(Math.Max(0, loadedPersistedCount))
-                    .Where(item => !currentIds.Contains(item.Id))
+                    .Where(item => !currentIds.Contains(item.Id) && excludedIds?.Contains(item.Id) != true)
                     .Take(remainingCapacity)
                     .ToArray();
             var items = currentItems.Concat(olderItems).Take(capacity).ToArray();
@@ -268,6 +268,9 @@ public sealed class EncryptedHistoryStore
     {
         lock (_syncRoot)
         {
+            _menuCache.Clear();
+            _menuCacheBytes = 0;
+            _legacyMenuSnapshots = null;
             if (File.Exists(_legacyPath))
             {
                 File.Delete(_legacyPath);
@@ -488,12 +491,14 @@ public sealed class EncryptedHistoryStore
             if (overwriteExistingItems || !File.Exists(path))
             {
                 WriteProtected(path, item);
+                WriteMenuCache(item, path);
             }
         }
 
         // Commit the new ordering before destructive cleanup. If the manifest write fails,
         // the previously committed manifest still has all of its referenced payload files.
         WriteManifest(new HistoryManifestDto(FormatVersion, ids, ids, []));
+        _legacyMenuSnapshots = null;
 
         // The manifest is the ordering source of truth; item files not referenced by it
         // are stale encrypted payloads and should be removed after each complete save.
@@ -508,6 +513,8 @@ public sealed class EncryptedHistoryStore
                 }
             }
         }
+
+        PruneMenuCache(idsToKeep);
 
         TryDeleteFile(_deltaPath);
         TryDeleteFile(_headPath);

@@ -107,7 +107,7 @@ public sealed class SettingsStoreTests
         Assert.Equal(["alpha-\\d+"], loaded.CustomMaskPatterns);
         Assert.Equal(MaskRuleDefinitionDefaults.CreateDefaultRules().Length, loaded.MaskRuleDefinitions.Length);
         Assert.Equal(QuickMenuShortcutSettings.DefaultSearch, loaded.QuickMenuShortcuts.Search);
-        Assert.Empty(loaded.QuickMenuPasteOptions.DisabledOptionIds);
+        Assert.Equal(QuickMenuPasteOptionIds.OptionalByDefault, loaded.QuickMenuPasteOptions.DisabledOptionIds);
     }
 
     [Fact]
@@ -655,7 +655,7 @@ public sealed class SettingsStoreTests
 
         var loaded = store.Load();
 
-        Assert.Empty(loaded.QuickMenuPasteOptions.DisabledOptionIds);
+        Assert.Equal(QuickMenuPasteOptionIds.OptionalByDefault, loaded.QuickMenuPasteOptions.DisabledOptionIds);
     }
 
     [Fact]

@@ -21,6 +21,10 @@ namespace Clipton.WinUI;
 
 internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 {
+    private const int DefaultSearchDebounceMilliseconds = 150;
+    private const int FastSearchDebounceMilliseconds = 70;
+    private const int FastSearchDurationMilliseconds = 90;
+    private const int FastSearchesBeforeShortDebounce = 2;
     private enum HeaderFilter
     {
         All,
@@ -116,10 +120,12 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private PointInt32 _dragStartWindowPosition;
     private bool _hasAnchorPoint;
     private bool _dismissed;
+    private bool _preparedInactive;
     private bool _dragging;
     private bool _previewVisible;
     private bool _folderLoading;
     private bool _searchBoxFocused;
+    private bool _searchBoxComposing;
     private bool _startInSearchMode;
     private bool _showCapturedAt;
     private QuickMenuPasteOption? _focusedPasteOption;
@@ -128,7 +134,11 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private IReadOnlyList<QuickMenuItem> _rootItemsForSearch = [];
     private QuickMenuItem[]? _searchResults;
     private Task<QuickMenuItem[]>? _searchSourceTask;
+    private readonly Func<string, CancellationToken, IReadOnlyList<QuickMenuItem>>? _searchProvider;
+    private CancellationTokenSource? _searchCancellation;
+    private CancellationTokenSource? _searchDebounceCancellation;
     private long _searchVersion;
+    private int _consecutiveFastSearches;
     private long _previewRequestId;
     private long _focusRequestId;
     private long _folderLoadRequestId;
@@ -161,13 +171,15 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         string relativeTimeHoursAgoFormat,
         CultureInfo culture,
         bool showCapturedAt,
-        bool startInSearchMode = false)
+        bool startInSearchMode = false,
+        Func<string, CancellationToken, IReadOnlyList<QuickMenuItem>>? searchProvider = null)
     {
         _title = title;
         _items = items;
         _rootItemsForSearch = items;
         _searchPlaceholder = searchPlaceholder;
         _startInSearchMode = startInSearchMode;
+        _searchProvider = searchProvider;
         _palette = RichQuickMenuPalette.ForTheme(theme);
         _shortcuts = shortcuts;
         _openHistory = openHistory;
@@ -199,6 +211,10 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
         Closed += (_, _) =>
         {
+            CancelSearch();
+            CancelSearchDebounce();
+            _dismissed = true;
+            _searchVersion++;
             UninstallKeyboardHook();
             ClosePreviewWindow();
         };
@@ -217,6 +233,12 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     public string DisplayMode => "rich";
 
     public bool IsDismissed => _dismissed;
+
+    internal void MarkPreparedInactive()
+    {
+        _preparedInactive = true;
+        _dismissed = true;
+    }
 
     public void FocusMenu()
     {
@@ -240,6 +262,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
     public void Reopen(IReadOnlyList<QuickMenuItem> items)
     {
+        CancelSearch();
+        CancelSearchDebounce();
+        _preparedInactive = false;
         _dismissed = false;
         _items = items;
         _rootItemsForSearch = items;
@@ -271,9 +296,11 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _rootItemsForSearch = items;
         if (_navigationStack.Count > 0 || _searchBox.Visibility == Visibility.Visible)
         {
+            CancelSearch();
             _searchVersion++;
             _searchResults = null;
             _searchSourceTask = null;
+            if (_searchBox.Visibility == Visibility.Visible) ScheduleSearchUpdate();
             return;
         }
 
@@ -300,12 +327,15 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
     public void Dismiss()
     {
+        CancelSearch();
+        CancelSearchDebounce();
         if (_dismissed)
         {
             return;
         }
 
         _dismissed = true;
+        _searchBoxComposing = false;
         _feedbackTimer.Stop();
         HideFolderLoading();
         UninstallKeyboardHook();
@@ -332,12 +362,20 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _root.KeyDown += OnKeyDown;
         _root.Loaded += (_, _) =>
         {
-            FocusMenuNow();
-            QueueFocusRetry();
+            if (!_preparedInactive && !_dismissed)
+            {
+                FocusMenuNow();
+                QueueFocusRetry();
+            }
         };
         var escapeAccelerator = new KeyboardAccelerator { Key = VirtualKey.Escape };
         escapeAccelerator.Invoked += (_, args) =>
         {
+            if (_searchBoxFocused)
+            {
+                return;
+            }
+
             args.Handled = true;
             Dismiss();
         };
@@ -438,8 +476,20 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _previewCard.Visibility = Visibility.Collapsed;
         _previewCard.VerticalAlignment = VerticalAlignment.Center;
         _previewCard.IsTabStop = true;
-        _previewCard.KeyDown += OnKeyDown;
-        _previewCard.Child = BuildPreviewPanel();
+        if (_previewCard.Child is null)
+        {
+            // The card survives closing its window. Its image and labels are
+            // already parented after the first show, so reuse that visual tree.
+            _previewCard.KeyDown += OnKeyDown;
+            _previewCard.Child = BuildPreviewPanel();
+            var escapeAccelerator = new KeyboardAccelerator { Key = VirtualKey.Escape };
+            escapeAccelerator.Invoked += (_, args) =>
+            {
+                args.Handled = true;
+                Dismiss();
+            };
+            _previewCard.KeyboardAccelerators.Add(escapeAccelerator);
+        }
         _previewWindow.Content = _previewCard;
 
         _previewHwnd = WindowNative.GetWindowHandle(_previewWindow);
@@ -459,13 +509,6 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         ApplyWindowRegion(_previewHwnd, previewSize.Width, previewSize.Height);
         DisableDwmBorder(_previewHwnd);
 
-        var escapeAccelerator = new KeyboardAccelerator { Key = VirtualKey.Escape };
-        escapeAccelerator.Invoked += (_, args) =>
-        {
-            args.Handled = true;
-            Dismiss();
-        };
-        _previewCard.KeyboardAccelerators.Add(escapeAccelerator);
     }
 
     private void ClosePreviewWindow()
@@ -538,6 +581,18 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         _searchBox.Visibility = Visibility.Collapsed;
         _searchBox.GotFocus += (_, _) => _searchBoxFocused = true;
         _searchBox.LostFocus += (_, _) => _searchBoxFocused = false;
+        _searchBox.TextCompositionStarted += (_, _) =>
+        {
+            _searchBoxComposing = true;
+            _searchVersion++;
+            CancelSearch();
+            CancelSearchDebounce();
+        };
+        _searchBox.TextCompositionEnded += (_, _) =>
+        {
+            _searchBoxComposing = false;
+            ScheduleSearchUpdate();
+        };
         _searchBox.TextChanged += (_, _) => ScheduleSearchUpdate();
         _searchBox.KeyDown += OnSearchBoxKeyDown;
         AutomationProperties.SetAutomationId(_searchBox, "RichQuickMenuSearchBox");
@@ -593,7 +648,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     {
         // Warm up the flattened snapshot (folder materialization reads the
         // encrypted store) so the first keystroke filters without a long wait.
-        _searchSourceTask ??= CreateSearchSourceTask(_rootItemsForSearch);
+        if (_searchProvider is null) _searchSourceTask ??= CreateSearchSourceTask(_rootItemsForSearch);
         _searchBox.Visibility = Visibility.Visible;
         if (_searchButton is not null)
         {
@@ -606,7 +661,10 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
     private void HideSearch()
     {
+        CancelSearch();
+        CancelSearchDebounce();
         _searchVersion++;
+        _searchBoxComposing = false;
         _searchBox.Visibility = Visibility.Collapsed;
         if (_searchButton is not null)
         {
@@ -629,6 +687,29 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
     private void OnSearchBoxKeyDown(object sender, KeyRoutedEventArgs args)
     {
+        // The IME owns Enter, Escape, Space, and the arrow keys while it is
+        // composing or selecting a conversion candidate.
+        if (_searchBoxComposing)
+        {
+            return;
+        }
+
+        static bool IsDown(VirtualKey virtualKey) => Microsoft.UI.Input.InputKeyboardSource
+            .GetKeyStateForCurrentThread(virtualKey)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+        var ctrl = IsDown(VirtualKey.Control);
+        var hasNonCtrlShortcutModifier = IsDown(VirtualKey.Shift)
+            || IsDown(VirtualKey.Menu)
+            || IsDown(VirtualKey.LeftWindows)
+            || IsDown(VirtualKey.RightWindows);
+        if (MatchesShortcut(_shortcuts.Search, args.Key, ctrl, hasNonCtrlShortcutModifier))
+        {
+            args.Handled = true;
+            HideSearch();
+            return;
+        }
+
         switch (args.Key)
         {
             case VirtualKey.Down:
@@ -638,6 +719,14 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             case VirtualKey.Up:
                 args.Handled = true;
                 MoveSelection(-1);
+                break;
+            case VirtualKey.PageDown:
+                args.Handled = true;
+                MoveSelection(5);
+                break;
+            case VirtualKey.PageUp:
+                args.Handled = true;
+                MoveSelection(-5);
                 break;
             case VirtualKey.Enter:
                 args.Handled = true;
@@ -663,18 +752,66 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
     private void ScheduleSearchUpdate()
     {
-        var version = ++_searchVersion;
-        _ = Task.Delay(150).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
+        CancelSearch();
+        if (_dismissed || _searchBox.Visibility != Visibility.Visible)
         {
-            if (version == _searchVersion && !_dismissed)
+            CancelSearchDebounce();
+            return;
+        }
+
+        if (_searchBoxComposing)
+        {
+            CancelSearchDebounce();
+            return;
+        }
+
+        CancelSearchDebounce();
+        var version = ++_searchVersion;
+        var cancellation = new CancellationTokenSource();
+        _searchDebounceCancellation = cancellation;
+        var delay = SearchDebounceInterval(_consecutiveFastSearches);
+        _ = DelaySearchUpdateAsync(version, delay, cancellation.Token);
+    }
+
+    internal static TimeSpan SearchDebounceInterval(int consecutiveFastSearches) =>
+        TimeSpan.FromMilliseconds(consecutiveFastSearches >= FastSearchesBeforeShortDebounce
+            ? FastSearchDebounceMilliseconds
+            : DefaultSearchDebounceMilliseconds);
+
+    private async Task DelaySearchUpdateAsync(long version, TimeSpan delay, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+            DispatcherQueue.TryEnqueue(() =>
             {
-                ApplySearchQuery(version);
-            }
-        }));
+                if (version == _searchVersion && !_dismissed && !_searchBoxComposing)
+                {
+                    ApplySearchQuery(version);
+                }
+            });
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private void CancelSearchDebounce()
+    {
+        var previous = _searchDebounceCancellation;
+        _searchDebounceCancellation = null;
+        if (previous is null)
+        {
+            return;
+        }
+
+        previous.Cancel();
+        previous.Dispose();
     }
 
     private async void ApplySearchQuery(long version)
     {
+        var searchStarted = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
             var query = _searchBox.Text.Trim();
@@ -690,28 +827,54 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
                 return;
             }
 
-            var sourceTask = _searchSourceTask ??= CreateSearchSourceTask(_rootItemsForSearch);
-            var source = await sourceTask;
-            var results = await Task.Run(() =>
+            QuickMenuItem[] results;
+            if (_searchProvider is not null)
             {
-                var filter = SearchFilter.Parse(query);
-                return source.Where(item => QuickMenuWindow.MatchesSearch(filter, item)).Take(60).ToArray();
-            });
+                CancelSearch();
+                _searchCancellation = new CancellationTokenSource();
+                var token = _searchCancellation.Token;
+                results = await Task.Run(() => _searchProvider(query, token).ToArray(), token);
+            }
+            else
+            {
+                var sourceTask = _searchSourceTask ??= CreateSearchSourceTask(_rootItemsForSearch);
+                var source = await sourceTask;
+                results = await Task.Run(() =>
+                {
+                    var filter = SearchFilter.Parse(query);
+                    return source.Where(item => QuickMenuWindow.MatchesSearch(filter, item)).Take(60).ToArray();
+                });
+            }
 
             if (version != _searchVersion || _dismissed)
             {
                 return;
             }
 
+            var duration = System.Diagnostics.Stopwatch.GetElapsedTime(searchStarted).TotalMilliseconds;
+            _consecutiveFastSearches = duration <= FastSearchDurationMilliseconds
+                ? Math.Min(_consecutiveFastSearches + 1, FastSearchesBeforeShortDebounce)
+                : 0;
+
             _searchResults = results;
             _selectedIndex = 0;
             RebuildItems();
             _scrollViewer?.ChangeView(null, 0, null, disableAnimation: true);
         }
+        catch (OperationCanceledException)
+        {
+        }
         catch (Exception exception)
         {
             AppDiagnostics.Log(exception, "Rich quick menu search");
         }
+    }
+
+    private void CancelSearch()
+    {
+        _searchCancellation?.Cancel();
+        _searchCancellation?.Dispose();
+        _searchCancellation = null;
     }
 
     private static Task<QuickMenuItem[]> CreateSearchSourceTask(IReadOnlyList<QuickMenuItem> rootItems)
@@ -1151,10 +1314,10 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
     private UIElement CreateItemIcon(QuickMenuItem item)
     {
-        if (item.IconImageBytes is { Length: > 0 } bytes)
+        if (item.HasIconImage)
         {
             var image = new Image { Stretch = Stretch.UniformToFill };
-            _ = SetImageSourceAsync(image, bytes);
+            image.Loaded += async (_, _) => await SetImageSourceAsync(image, item);
             return image;
         }
 
@@ -1238,7 +1401,9 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private async Task UpdatePreviewAsync(QuickMenuItem? item)
     {
         var requestId = Interlocked.Increment(ref _previewRequestId);
-        var bytes = item?.PreviewImageBytesProvider?.Invoke() ?? item?.IconImageBytes;
+        var bytes = item?.PreviewImageBytesProvider is { } provider
+            ? await Task.Run(provider) : item?.IconImageBytes;
+        if (_dismissed || requestId != _previewRequestId) return;
         if (item is null || bytes is not { Length: > 0 })
         {
             _previewCard.Visibility = Visibility.Collapsed;
@@ -1247,7 +1412,7 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         var bitmap = await CreateBitmapImageAsync(bytes, decodePixelWidth: 600);
-        if (requestId != _previewRequestId)
+        if (_dismissed || requestId != _previewRequestId)
         {
             return;
         }
@@ -1261,6 +1426,11 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
 
     private void OnKeyDown(object sender, KeyRoutedEventArgs args)
     {
+        if (_searchBoxFocused && _searchBoxComposing)
+        {
+            return;
+        }
+
         var key = args.Key;
         static bool IsDown(VirtualKey virtualKey) => Microsoft.UI.Input.InputKeyboardSource
             .GetKeyStateForCurrentThread(virtualKey)
@@ -1492,40 +1662,13 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             return NativeMethods.CallNextHookEx(s_keyboardHook, nCode, wParam, lParam);
         }
 
-        // While the search box is editing, only list navigation is intercepted;
-        // everything else (letters, Left/Right, Backspace, Home/End, Ctrl+C...)
-        // must reach the text box.
+        // A low-level hook runs before the IME. Swallowing Enter, Escape, Space,
+        // or an arrow key here prevents Japanese conversion and candidate
+        // selection. Once the search box has focus, let its routed key handler
+        // and the IME decide which keys are text input and which navigate results.
         if (_searchBoxFocused)
         {
-            switch (key)
-            {
-                case NativeMethods.VkDown:
-                    DispatcherQueue.TryEnqueue(() => MoveSelection(1));
-                    return 1;
-                case NativeMethods.VkUp:
-                    DispatcherQueue.TryEnqueue(() => MoveSelection(-1));
-                    return 1;
-                case VkPageDown:
-                    DispatcherQueue.TryEnqueue(() => MoveSelection(5));
-                    return 1;
-                case VkPageUp:
-                    DispatcherQueue.TryEnqueue(() => MoveSelection(-5));
-                    return 1;
-                case NativeMethods.VkReturn:
-                    DispatcherQueue.TryEnqueue(InvokeSelected);
-                    return 1;
-                case NativeMethods.VkEscape:
-                    DispatcherQueue.TryEnqueue(HandleSearchEscape);
-                    return 1;
-                default:
-                    if (MatchesShortcut(key, ctrl, hasNonCtrlShortcutModifier, _shortcuts.Search))
-                    {
-                        DispatcherQueue.TryEnqueue(HideSearch);
-                        return 1;
-                    }
-
-                    return NativeMethods.CallNextHookEx(s_keyboardHook, nCode, wParam, lParam);
-            }
+            return NativeMethods.CallNextHookEx(s_keyboardHook, nCode, wParam, lParam);
         }
 
         switch (key)
@@ -2009,6 +2152,23 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         ConfigureToolWindowStyle(_hwnd);
+#if CLIPTON_AUTOMATION_WINDOWS
+        // Test-only: make the rich menu discoverable by desktop automation tools.
+        // Normal builds keep the menu as a tool window and do not create a taskbar entry.
+        Title = "Clipton paste diagnostic menu";
+        var exStyle = NativeMethods.GetWindowLongPtr(_hwnd, NativeMethods.GwlExstyle).ToInt64();
+        exStyle &= ~NativeMethods.WsExToolwindow;
+        exStyle |= NativeMethods.WsExAppwindow;
+        NativeMethods.SetWindowLongPtr(_hwnd, NativeMethods.GwlExstyle, new IntPtr(exStyle));
+        _ = SetWindowPos(
+            _hwnd,
+            IntPtr.Zero,
+            0,
+            0,
+            0,
+            0,
+            SwpNoMove | SwpNoSize | SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
+#endif
     }
 
     private static void ConfigureToolWindowStyle(IntPtr hwnd)
@@ -2350,7 +2510,8 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
     private static bool IsImageItem(QuickMenuItem item)
     {
         return item.KindLabel.Equals("Image", StringComparison.OrdinalIgnoreCase)
-            || item.IconImageBytes is { Length: > 0 };
+            || item.KindLabel == "I"
+            || item.HasIconImage;
     }
 
     private static bool MatchesShortcut(string shortcut, VirtualKey key, bool ctrl, bool hasNonCtrlShortcutModifier)
@@ -2385,9 +2546,26 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
             && (int)parsedKey == key;
     }
 
-    private static async Task SetImageSourceAsync(Image image, byte[] bytes)
+    private static async Task SetImageSourceAsync(Image image, QuickMenuItem item)
     {
-        image.Source = await CreateBitmapImageAsync(bytes, decodePixelWidth: 180);
+        try
+        {
+            var bytes = await item.GetIconImageBytesAsync();
+            if (!image.IsLoaded || bytes is not { Length: > 0 })
+            {
+                return;
+            }
+
+            var bitmap = await CreateBitmapImageAsync(bytes, decodePixelWidth: 180);
+            if (image.IsLoaded)
+            {
+                image.Source = bitmap;
+            }
+        }
+        catch (Exception exception)
+        {
+            AppDiagnostics.Log(exception, "Rich quick menu thumbnail");
+        }
     }
 
     private static async Task<BitmapImage> CreateBitmapImageAsync(byte[] bytes, int decodePixelWidth = 0)

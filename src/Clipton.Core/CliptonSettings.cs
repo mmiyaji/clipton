@@ -286,6 +286,7 @@ public static class QuickMenuPasteOptionIds
     public const string PasteImageFile = "paste-image-file";
     public const string CopyImageOnly = "copy-image-only";
     public const string TogglePin = "toggle-pin";
+    public const string RegisterAsSnippet = "register-as-snippet";
 
     public static readonly string[] All =
     [
@@ -309,7 +310,22 @@ public static class QuickMenuPasteOptionIds
         PasteImageResizeHalf,
         PasteImageFile,
         CopyImageOnly,
-        TogglePin
+        TogglePin,
+        RegisterAsSnippet
+    ];
+
+    public static readonly string[] OptionalByDefault =
+    [
+        PasteUppercase,
+        PasteLowercase,
+        PasteJsonString,
+        PasteExtractUrls,
+        PasteFormattedJson,
+        PasteFileNamesWithoutExtension,
+        PasteFileDirectories,
+        PasteImageJpeg,
+        PasteImageResizeHalf,
+        CopyImageOnly
     ];
 }
 
@@ -318,7 +334,7 @@ public static class QuickMenuPasteOptionIds
 /// </summary>
 public sealed class QuickMenuPasteOptionSettings
 {
-    public string[] DisabledOptionIds { get; set; } = [];
+    public string[] DisabledOptionIds { get; set; } = QuickMenuPasteOptionIds.OptionalByDefault.ToArray();
 
     public bool IsEnabled(string optionId)
     {

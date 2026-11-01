@@ -47,6 +47,12 @@ internal static class NativeMethods
     internal const int WmRbuttonup = 0x0205;
     internal const int WmLbuttonup = 0x0202;
     internal const int WmClose = 0x0010;
+    internal const int PmRemove = 0x0001;
+    internal const uint QsAllInput = 0x04FF;
+    internal const uint MwmoInputAvailable = 0x0004;
+    internal const uint WaitObject0 = 0;
+    internal const uint WaitFailed = 0xFFFFFFFF;
+    internal const uint Infinite = 0xFFFFFFFF;
     internal const int WmMove = 0x0003;
     internal const int WmSize = 0x0005;
     internal const int GwlWndproc = -4;
@@ -81,6 +87,10 @@ internal static class NativeMethods
     [DllImport("user32.dll", EntryPoint = "RegisterClassExW", SetLastError = true)]
     internal static extern ushort RegisterClassEx(ref WindowClassEx lpwcx);
 
+    [DllImport("user32.dll", EntryPoint = "UnregisterClassW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool UnregisterClass(string className, IntPtr instance);
+
     [DllImport("user32.dll", EntryPoint = "CreateWindowExW", CharSet = CharSet.Unicode, SetLastError = true)]
     internal static extern IntPtr CreateWindowEx(
         int dwExStyle,
@@ -113,6 +123,13 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     internal static extern IntPtr DispatchMessage(ref Message lpMsg);
+
+    [DllImport("user32.dll", EntryPoint = "PeekMessageW", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool PeekMessage(out Message lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern uint MsgWaitForMultipleObjectsEx(uint count, IntPtr[] handles, uint milliseconds, uint wakeMask, uint flags);
 
     [DllImport("user32.dll")]
     internal static extern void PostQuitMessage(int nExitCode);

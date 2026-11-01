@@ -26,7 +26,6 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private const int ScreenEdgePadding = 8;
     private const int EstimatedRootFlyoutHeight = 420;
     private const int NativeResourceCollectionMinIntervalMilliseconds = 5000;
-    private const int InitialShowFlyoutDelayMilliseconds = 120;
     private const int DwmwaNcRenderingPolicy = 2;
     private const int DwmwaBorderColor = 34;
     private const int DwmncrpDisabled = 1;
@@ -79,10 +78,10 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
     private AppWindow? _appWindow;
     private IntPtr _hwnd;
     private bool _dismissed;
+    private bool _preparedInactive;
     private bool _opened;
     private bool _reopening;
     private bool _hostLoaded;
-    private bool _initialShowPending = true;
     private bool _showFlyoutScheduled;
     private long _focusToken;
     private IReadOnlyList<QuickMenuItem> _currentItems;
@@ -162,6 +161,12 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
 
     public bool IsDismissed => _dismissed;
 
+    internal void MarkPreparedInactive()
+    {
+        _preparedInactive = true;
+        _dismissed = true;
+    }
+
     public void FocusMenu()
     {
         Activate();
@@ -171,7 +176,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             FocusHostWindow();
             if (_hostLoaded)
             {
-                QueueShowFlyout(_initialShowPending ? InitialShowFlyoutDelayMilliseconds : 0);
+                QueueShowFlyout();
             }
         });
     }
@@ -186,9 +191,9 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         _flyout.Hide();
         _appWindow?.Hide();
         ReleaseMenuReferences();
+        _preparedInactive = false;
         _dismissed = false;
         _opened = false;
-        _initialShowPending = false;
         _showFlyoutScheduled = false;
         _rootItems = items;
         _currentItems = items;
@@ -210,6 +215,25 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         if (!_dismissed)
         {
             RefreshVisibleItems(_flyout.Items);
+        }
+    }
+
+    public void RefreshItems(IReadOnlyList<QuickMenuItem> items)
+    {
+        if (_dismissed)
+        {
+            return;
+        }
+
+        // A background clipboard capture can complete while the flyout is
+        // opening. Update its collection without Hide/ShowAt: ShowAt during
+        // the closing animation can be ignored, leaving only the hidden host.
+        _rootItems = items;
+        _currentItems = items;
+        BuildFlyout();
+        if (_opened)
+        {
+            FocusFirstRootItem();
         }
     }
 
@@ -280,12 +304,15 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         _host.Loaded += (_, _) =>
         {
             _hostLoaded = true;
-            QueueShowFlyout(_initialShowPending ? InitialShowFlyoutDelayMilliseconds : 0);
+            if (!_preparedInactive && !_dismissed)
+            {
+                QueueShowFlyout();
+            }
         };
         Content = _host;
     }
 
-    private void QueueShowFlyout(int delayMilliseconds)
+    private void QueueShowFlyout()
     {
         if (_showFlyoutScheduled || _opened || _dismissed)
         {
@@ -293,17 +320,9 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         _showFlyoutScheduled = true;
-        if (delayMilliseconds <= 0)
-        {
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                _showFlyoutScheduled = false;
-                ShowFlyout();
-            });
-            return;
-        }
-
-        EnqueueAfterDelay(delayMilliseconds, () =>
+        // Loaded establishes XamlRoot. One dispatcher turn lets layout finish
+        // without imposing a fixed delay on the first hotkey press.
+        DispatcherQueue.TryEnqueue(() =>
         {
             _showFlyoutScheduled = false;
             ShowFlyout();
@@ -318,7 +337,6 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         _opened = true;
-        _initialShowPending = false;
         InstallKeyboardHook();
         InstallMouseHook();
         FocusHostWindow();
@@ -1488,12 +1506,12 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         }
 
         if (filter.HasUrl is not null
-            && !filter.MatchesUrl(CliptonRuntime.ExtractUrls($"{item.Title} {item.Subtitle} {item.RevealedTitle}").Length > 0))
+            && !filter.MatchesUrl(CliptonRuntime.ExtractUrls(item.SearchText ?? $"{item.Title} {item.Subtitle} {item.RevealedTitle}").Length > 0))
         {
             return false;
         }
 
-        return filter.MatchesText(() => $"{item.Title} {item.Subtitle} {item.KindLabel} {item.RevealedTitle}");
+        return filter.MatchesText(() => item.SearchText ?? $"{item.Title} {item.Subtitle} {item.KindLabel} {item.RevealedTitle}");
     }
 
     private void AddItems(IList<MenuFlyoutItemBase> target, IReadOnlyList<QuickMenuItem> items, MenuFlyoutSubItem? parent)
@@ -1565,9 +1583,9 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
                 {
                     ReplaceSubItemChevronWithMoreGlyph(optionSubItem);
                     if (!string.Equals(_imagePreviewSize, "none", StringComparison.OrdinalIgnoreCase)
-                        && item.IconImageBytes is { Length: > 0 })
+                        && item.HasIconImage)
                     {
-                        _ = InsertImagePreviewAsync(optionSubItem, item.IconImageBytes, _imagePreviewSize, _palette);
+                        _ = InsertImagePreviewAsync(optionSubItem, item, _imagePreviewSize, _palette);
                     }
                 };
                 ConfigureImagePreviewShortcut(optionSubItem, item);
@@ -1637,9 +1655,9 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             }
 
             if (!string.Equals(_imagePreviewSize, "none", StringComparison.OrdinalIgnoreCase)
-                && item.IconImageBytes is { Length: > 0 })
+                && item.HasIconImage)
             {
-                flyoutItem.Loaded += async (_, _) => await InsertImagePreviewAsync(flyoutItem, item.IconImageBytes, _imagePreviewSize, _palette);
+                flyoutItem.Loaded += async (_, _) => await InsertImagePreviewAsync(flyoutItem, item, _imagePreviewSize, _palette);
             }
 
             ConfigureImagePreviewShortcut(flyoutItem, item);
@@ -1816,9 +1834,9 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             KeyboardAcceleratorTextOverride = "Space"
         };
         TrackFocus(previewItem, previewItem.Tag);
-        if (item.IconImageBytes is { Length: > 0 } imageBytes)
+        if (item.HasIconImage)
         {
-            previewItem.Loaded += async (_, _) => await InsertImagePreviewAsync(previewItem, imageBytes, "small", _palette);
+            previewItem.Loaded += async (_, _) => await InsertImagePreviewAsync(previewItem, item, "small", _palette);
         }
 
         previewItem.Click += (_, _) => ToggleImagePreview(item);
@@ -2140,7 +2158,6 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         _flyout.Placement = placement.Placement;
         _appWindow.Resize(new SizeInt32(HostWindowSize, HostWindowSize));
         _appWindow.Move(new PointInt32(placement.Anchor.X, placement.Anchor.Y));
-        NativeMethods.SetForegroundWindow(_hwnd);
     }
 
     private static RootFlyoutPlacement GetRootFlyoutPlacement(System.Drawing.Point point, System.Drawing.Rectangle workingArea)
@@ -2210,8 +2227,8 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         {
             Glyph = item.IconGlyph,
             FontFamily = new FontFamily(item.IconFontFamily ?? "Segoe UI"),
-            FontSize = item.IconImageBytes is { Length: > 0 } ? 13 : 12,
-            Opacity = item.IconImageBytes is { Length: > 0 } ? 0.78 : 1
+            FontSize = item.HasIconImage ? 13 : 12,
+            Opacity = item.HasIconImage ? 0.78 : 1
         };
     }
 
@@ -2232,14 +2249,18 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
 
     private static async Task InsertImagePreviewAsync(
         MenuFlyoutItemBase flyoutItem,
-        byte[]? imageBytes,
+        QuickMenuItem item,
         string size,
         QuickMenuThemePalette palette)
     {
         // Invoked from async-void Loaded handlers; an exception here would crash the app.
         try
         {
-            await InsertImagePreviewCoreAsync(flyoutItem, imageBytes, size, palette);
+            var imageBytes = await item.GetIconImageBytesAsync();
+            if (flyoutItem.IsLoaded)
+            {
+                await InsertImagePreviewCoreAsync(flyoutItem, imageBytes, size, palette);
+            }
         }
         catch (Exception exception)
         {
@@ -2254,6 +2275,12 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         QuickMenuThemePalette palette)
     {
         if (imageBytes is not { Length: > 0 })
+        {
+            return;
+        }
+
+        var bitmap = await CreateBitmapImageAsync(imageBytes);
+        if (!flyoutItem.IsLoaded)
         {
             return;
         }
@@ -2281,7 +2308,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             Background = palette.InlineImagePreviewBackground.ToBrush(),
             Child = new Image
             {
-                Source = await CreateBitmapImageAsync(imageBytes),
+                Source = bitmap,
                 Stretch = Stretch.UniformToFill
             }
         };
@@ -2443,12 +2470,44 @@ public sealed record QuickMenuItem(
     bool IsPinned = false,
     IReadOnlyCollection<ClipboardFormatKind>? Formats = null,
     bool IsNumberShortcutEnabled = false,
-    Func<IReadOnlyList<QuickMenuPasteOption>>? LazyPasteOptions = null)
+    Func<IReadOnlyList<QuickMenuPasteOption>>? LazyPasteOptions = null,
+    Func<byte[]?>? IconImageBytesProvider = null,
+    string? SearchText = null)
 {
+    // Serialize decoding to avoid holding several full-resolution bitmaps at once.
+    private static readonly SemaphoreSlim ThumbnailGate = new(1, 1);
+    private readonly Lazy<Task<byte[]?>> _iconImageTask = new(() => LoadIconImageAsync(IconImageBytes, IconImageBytesProvider));
     private IReadOnlyList<QuickMenuItem>? _resolvedChildren = Children;
     private IReadOnlyList<QuickMenuPasteOption>? _resolvedPasteOptions = PasteOptions;
 
     public bool IsSelected { get; set; }
+
+    public bool HasIconImage => IconImageBytes is { Length: > 0 } || IconImageBytesProvider is not null;
+
+    public Task<byte[]?> GetIconImageBytesAsync() => _iconImageTask.Value;
+
+    private static async Task<byte[]?> LoadIconImageAsync(byte[]? bytes, Func<byte[]?>? provider)
+    {
+        if (bytes is { Length: > 0 } || provider is null)
+        {
+            return bytes;
+        }
+
+        await ThumbnailGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            return await Task.Run(provider).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            AppDiagnostics.Log(exception, "Quick menu thumbnail");
+            return null;
+        }
+        finally
+        {
+            ThumbnailGate.Release();
+        }
+    }
 
     public bool IsFolder => !IsSeparator && (_resolvedChildren is { Count: > 0 } || LazyChildren is not null);
 

@@ -15,6 +15,15 @@ public sealed partial class LocalizationCatalog
             ["zh-Hans"] = CreateSimplifiedChineseResources(),
         };
 
+        if (completed.TryGetValue("ja", out var japaneseResources))
+        {
+            completed["ja"] = new ReadOnlyDictionary<string, string>(
+                japaneseResources.ToDictionary(
+                    pair => pair.Key,
+                    pair => pair.Value.Replace("登録単語", "定型文", StringComparison.Ordinal),
+                    StringComparer.Ordinal));
+        }
+
         return new ReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>(completed);
     }
 
@@ -145,6 +154,7 @@ public sealed partial class LocalizationCatalog
             ["SnippetFolderSelected"] = "Neue Einträge werden erstellt in: {0}",
             ["EditSnippet"] = "Bearbeiten",
             ["RegisterFromHistory"] = "Ausgewählten Verlauf registrieren",
+            ["RegisterAsSnippet"] = "Als Textbaustein speichern",
             ["Settings"] = "Einstellungen",
             ["Paste"] = "Paste",
             ["PastePlain"] = "Fügen Sie einfachen Text ein",
@@ -533,6 +543,7 @@ public sealed partial class LocalizationCatalog
             ["SnippetFolderSelected"] = "Se crearán nuevas entradas en: {0}",
             ["EditSnippet"] = "Editar",
             ["RegisterFromHistory"] = "Registrar historial seleccionado",
+            ["RegisterAsSnippet"] = "Registrar como texto guardado",
             ["Settings"] = "Configuración",
             ["Paste"] = "Pasta",
             ["PastePlain"] = "Pegar texto sin formato",
@@ -921,6 +932,7 @@ public sealed partial class LocalizationCatalog
             ["SnippetFolderSelected"] = "De nouvelles entrées seront créées dans : {0}",
             ["EditSnippet"] = "Modifier",
             ["RegisterFromHistory"] = "Enregistrer l'historique sélectionné",
+            ["RegisterAsSnippet"] = "Enregistrer comme extrait",
             ["Settings"] = "Paramètres",
             ["Paste"] = "Coller",
             ["PastePlain"] = "Coller du texte brut",
@@ -1309,6 +1321,7 @@ public sealed partial class LocalizationCatalog
             ["SnippetFolderSelected"] = "새 항목이 생성될 위치: {0}",
             ["EditSnippet"] = "편집하다",
             ["RegisterFromHistory"] = "선택한 이력 등록",
+            ["RegisterAsSnippet"] = "정형 문구로 등록",
             ["Settings"] = "설정",
             ["Paste"] = "반죽",
             ["PastePlain"] = "일반 텍스트 붙여넣기",
@@ -1697,6 +1710,7 @@ public sealed partial class LocalizationCatalog
             ["SnippetFolderSelected"] = "新条目将创建于：{0}",
             ["EditSnippet"] = "编辑",
             ["RegisterFromHistory"] = "注册选定的历史记录",
+            ["RegisterAsSnippet"] = "注册为固定短语",
             ["Settings"] = "设置",
             ["Paste"] = "粘贴",
             ["PastePlain"] = "粘贴纯文本",

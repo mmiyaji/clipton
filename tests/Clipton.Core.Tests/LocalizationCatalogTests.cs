@@ -209,6 +209,26 @@ public sealed class LocalizationCatalogTests
         Assert.Contains("{0}", catalog.Translate("ja", "SnippetSearchStatus"));
         Assert.Contains("name and text", catalog.Translate("en", "SnippetValidationRequired"));
         Assert.NotEqual("SnippetPreviewPlaceholder", catalog.Translate("ja", "SnippetPreviewPlaceholder"));
+        Assert.Equal("\u5B9A\u578B\u6587", catalog.Translate("ja", "Snippets"));
+        Assert.Equal("\u65B0\u3057\u3044\u5B9A\u578B\u6587", catalog.Translate("ja", "NewSnippet"));
+    }
+
+    [Fact]
+    public void Translate_UsesOutcomeFocusedJapaneseSettingLabels()
+    {
+        var catalog = new LocalizationCatalog();
+
+        Assert.Equal("\u30B7\u30E7\u30FC\u30C8\u30AB\u30C3\u30C8\u3092\u5909\u66F4", catalog.Translate("ja", "CaptureHotkey"));
+        Assert.Equal("\u65E2\u5B9A\u5024\u306B\u623B\u3059", catalog.Translate("ja", "ResetHotkey"));
+        Assert.Equal("\u30D0\u30C3\u30AF\u30B0\u30E9\u30A6\u30F3\u30C9\u3067\u8D77\u52D5", catalog.Translate("ja", "HideSettingsWindowOnStartup"));
+    }
+
+    [Fact]
+    public void JapaneseResources_UseConsistentSnippetTerminology()
+    {
+        var resources = GetResources();
+
+        Assert.DoesNotContain(resources["ja"].Values, value => value.Contains("登録単語", StringComparison.Ordinal));
     }
 
     [Fact]

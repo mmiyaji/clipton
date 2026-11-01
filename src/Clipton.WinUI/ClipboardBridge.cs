@@ -19,15 +19,10 @@ namespace Clipton.WinUI;
 /// </remarks>
 public static class ClipboardBridge
 {
-    // Bound image reads before decoding so a single clipboard bitmap cannot dominate
-    // memory or UI responsiveness.
-    private const long MaxClipboardImageSourceBytes = 32L * 1024 * 1024;
-    private const long MaxClipboardImagePixels = 32_000_000;
-
     /// <summary>
     /// Captures the current clipboard into a supported snapshot, or <see langword="null"/>.
     /// </summary>
-    public static ClipboardSnapshot? Capture() => WithClipboardRetry(CaptureOnce);
+    public static ClipboardSnapshot? Capture() => WithClipboardRetry(NativeClipboardReader.Capture);
 
     /// <summary>
     /// Returns plain text from a snapshot, deriving it from rich formats when needed.
@@ -89,91 +84,6 @@ public static class ClipboardBridge
     public static ClipboardSnapshot FromSnippet(Snippet snippet)
     {
         return new ClipboardSnapshot(Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, [ClipboardFormatKind.Text], text: snippet.Text);
-    }
-
-    private static ClipboardSnapshot? CaptureOnce()
-    {
-        try
-        {
-            var data = Clipboard.GetContent();
-            if (!ContainsAnySupportedFormat(data))
-            {
-                return null;
-            }
-
-            var formats = new List<ClipboardFormatKind>();
-            string? text = null;
-            string? rtf = null;
-            string? html = null;
-            byte[]? image = null;
-            IReadOnlyList<string>? filePaths = null;
-
-            if (data.Contains(StandardDataFormats.Text))
-            {
-                text = Wait(data.GetTextAsync);
-                if (!string.IsNullOrEmpty(text)) formats.Add(ClipboardFormatKind.Text);
-            }
-
-            if (data.Contains(StandardDataFormats.Rtf))
-            {
-                rtf = Wait(data.GetRtfAsync);
-                if (!string.IsNullOrEmpty(rtf)) formats.Add(ClipboardFormatKind.RichText);
-            }
-
-            if (data.Contains(StandardDataFormats.Html))
-            {
-                html = Wait(data.GetHtmlFormatAsync);
-                if (!string.IsNullOrEmpty(html)) formats.Add(ClipboardFormatKind.Html);
-            }
-
-            if (string.IsNullOrEmpty(text))
-            {
-                text = ExtractPlainText(rtf, html);
-                if (!string.IsNullOrEmpty(text)) formats.Add(ClipboardFormatKind.Text);
-            }
-
-            if (data.Contains(StandardDataFormats.StorageItems))
-            {
-                var storageItems = Wait(data.GetStorageItemsAsync);
-                filePaths = storageItems
-                    .OfType<StorageFile>()
-                    .Select(file => file.Path)
-                    .Where(path => !string.IsNullOrWhiteSpace(path))
-                    .ToArray();
-                if (filePaths.Count > 0) formats.Add(ClipboardFormatKind.FileDrop);
-            }
-
-            if (data.Contains(StandardDataFormats.Bitmap))
-            {
-                try
-                {
-                    var bitmap = Wait(data.GetBitmapAsync);
-                    image = EncodePng(ReadAllBytes(bitmap, MaxClipboardImageSourceBytes));
-                    if (image.Length > 0) formats.Add(ClipboardFormatKind.Image);
-                }
-                catch (Exception exception) when (exception is ExternalException or COMException or UnauthorizedAccessException or IOException)
-                {
-                    AppDiagnostics.Log(exception, "Clipboard image capture");
-                }
-            }
-
-            return formats.Count == 0
-                ? null
-                : new ClipboardSnapshot(Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, formats, text, rtf, html, image, filePaths);
-        }
-        catch (Exception exception) when (exception is ExternalException or COMException or UnauthorizedAccessException)
-        {
-            return null;
-        }
-    }
-
-    private static bool ContainsAnySupportedFormat(DataPackageView data)
-    {
-        return data.Contains(StandardDataFormats.Text)
-            || data.Contains(StandardDataFormats.Rtf)
-            || data.Contains(StandardDataFormats.Html)
-            || data.Contains(StandardDataFormats.StorageItems)
-            || data.Contains(StandardDataFormats.Bitmap);
     }
 
     private static bool PutOnce(ClipboardSnapshot snapshot, bool asPlainText)
@@ -268,36 +178,9 @@ public static class ClipboardBridge
     private static void SetBitmap(DataPackage data, byte[] bytes)
     {
         var stream = new InMemoryRandomAccessStream();
-        stream.WriteAsync(bytes.AsBuffer()).AsTask().GetAwaiter().GetResult();
+        Wait(() => stream.WriteAsync(bytes.AsBuffer()));
         stream.Seek(0);
         data.SetBitmap(RandomAccessStreamReference.CreateFromStream(stream));
-    }
-
-    private static byte[] ReadAllBytes(RandomAccessStreamReference reference, long maxBytes)
-    {
-        using var randomAccessStream = Wait(reference.OpenReadAsync);
-        if (randomAccessStream.Size > (ulong)maxBytes)
-        {
-            AppDiagnostics.Info("Clipboard", $"Skipped clipboard image because the source stream was {randomAccessStream.Size} bytes.");
-            return [];
-        }
-
-        using var stream = randomAccessStream.AsStreamForRead();
-        using var output = new MemoryStream();
-        var buffer = new byte[81920];
-        int read;
-        while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
-        {
-            if (output.Length + read > maxBytes)
-            {
-                AppDiagnostics.Info("Clipboard", $"Skipped clipboard image because the source stream exceeded {maxBytes} bytes.");
-                return [];
-            }
-
-            output.Write(buffer, 0, read);
-        }
-
-        return output.ToArray();
     }
 
     private static string? ExtractPlainText(string? rtf, string? html)
@@ -332,75 +215,50 @@ public static class ClipboardBridge
         return output.ToArray();
     }
 
-    private static byte[] EncodePng(byte[] imageBytes)
+    private static T Wait<T>(Func<IAsyncOperation<T>> action)
     {
-        if (imageBytes.Length == 0)
-        {
-            return [];
-        }
-
+        var operation = action();
         try
         {
-            using var input = new MemoryStream(imageBytes);
-            using var source = System.Drawing.Image.FromStream(input);
-            if ((long)source.Width * source.Height > MaxClipboardImagePixels)
-            {
-                AppDiagnostics.Info("Clipboard", $"Skipped clipboard image because its dimensions were {source.Width}x{source.Height}.");
-                return [];
-            }
-
-            using var output = new MemoryStream();
-            source.Save(output, ImageFormat.Png);
-            if (output.Length > MaxClipboardImageSourceBytes)
-            {
-                AppDiagnostics.Info("Clipboard", $"Skipped clipboard image because the encoded PNG was {output.Length} bytes.");
-                return [];
-            }
-
-            return output.ToArray();
+            return operation.AsTask().GetAwaiter().GetResult();
         }
-        catch (Exception exception) when (exception is ArgumentException or ExternalException)
+        finally
         {
-            AppDiagnostics.Info("Clipboard", "Skipped clipboard image because it could not be decoded as an image.");
-            return [];
+            operation.Close();
         }
     }
 
-    private static T Wait<T>(Func<IAsyncOperation<T>> action)
+    private static TResult Wait<TResult, TProgress>(Func<IAsyncOperationWithProgress<TResult, TProgress>> action)
     {
-        return action().AsTask().GetAwaiter().GetResult();
+        var operation = action();
+        try
+        {
+            return operation.AsTask().GetAwaiter().GetResult();
+        }
+        finally
+        {
+            operation.Close();
+        }
     }
 
     private static void Wait(Func<IAsyncAction> action)
     {
-        action().AsTask().GetAwaiter().GetResult();
+        var operation = action();
+        try
+        {
+            operation.AsTask().GetAwaiter().GetResult();
+        }
+        finally
+        {
+            operation.Close();
+        }
     }
 
     private static T? WithClipboardRetry<T>(Func<T?> action)
     {
-        const int maxAttempts = 20;
-        for (var attempt = 0; attempt < maxAttempts; attempt++)
-        {
-            try
-            {
-                return action();
-            }
-            catch (Exception exception) when (attempt < maxAttempts - 1 && exception is ExternalException or COMException or UnauthorizedAccessException)
-            {
-                Thread.Sleep(75);
-            }
-        }
-
-        // One final attempt outside the retry filter records exhausted failures while
-        // still letting successful late clipboard releases complete normally.
-        try
-        {
-            return action();
-        }
-        catch (Exception exception) when (exception is ExternalException or COMException or UnauthorizedAccessException)
-        {
-            AppDiagnostics.Log(exception, "Clipboard access retries exhausted");
-            return default;
-        }
+        return ClipboardRetry.Execute(
+            action,
+            retryDelay: milliseconds => Thread.Sleep(milliseconds),
+            onExhausted: exception => AppDiagnostics.Log(exception, "Clipboard access retries exhausted"));
     }
 }

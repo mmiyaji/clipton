@@ -4,6 +4,15 @@ namespace Clipton.Core.Tests;
 
 public sealed class SearchFilterTests
 {
+    [Fact]
+    public void MatchesTextFields_MatchesTermsAcrossBodyAndMetadataWithoutLosingPhrases()
+    {
+        var filter = SearchFilter.Parse("\"long phrase\" source");
+        Assert.True(filter.MatchesTextFields("A LONG PHRASE", "Source application", null));
+        Assert.False(filter.MatchesTextFields("long", "phrase source"));
+        Assert.False(filter.MatchesTextFields("long phrase", null));
+        Assert.True(SearchFilter.Parse("type:text").MatchesTextFields());
+    }
     [Theory]
     [InlineData(null)]
     [InlineData("")]

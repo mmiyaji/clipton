@@ -174,6 +174,23 @@ public sealed class RuntimeSafetyRegressionTests
     }
 
     [Fact]
+    public void Dispose_ReleasesScheduledQuickMenuWarmupCancellationOnce()
+    {
+        var runtime = new CliptonRuntime(CreateTestRoot(), isSafeMode: true);
+        var scheduledCancellation = new CancellationTokenSource();
+        var scheduledToken = scheduledCancellation.Token;
+        typeof(CliptonRuntime)
+            .GetField("_quickMenuWarmupScheduleCancellation", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(runtime, scheduledCancellation);
+
+        var exception = Record.Exception(runtime.Dispose);
+
+        Assert.Null(exception);
+        Assert.True(runtime.IsExiting);
+        Assert.True(scheduledToken.IsCancellationRequested);
+    }
+
+    [Fact]
     public void HighContrastNotification_IsForwardedUntilRuntimeIsDisposed()
     {
         var root = CreateTestRoot();

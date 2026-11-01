@@ -32,6 +32,10 @@ namespace Clipton.WinUI;
 /// </remarks>
 public sealed class CliptonRuntime : IDisposable
 {
+    private const int QuickMenuWarmupIdleDelayMilliseconds = 750;
+    private const int QuickMenuWarmupCacheWaitMilliseconds = 3000;
+    private const int QuickMenuWarmupMaxRootItems = 256;
+    private const long QuickMenuWarmupTextBudget = 512 * 1024;
     // Only a small prefix of persisted history is loaded at startup. Older items stay on
     // disk and are paged in when the UI asks for more, keeping startup and memory bounded.
     private const int HistorySaveDebounceMilliseconds = 500;
@@ -68,6 +72,7 @@ public sealed class CliptonRuntime : IDisposable
     private readonly object _historyImageCacheGate = new();
     private readonly Dictionary<string, byte[]> _historyImageBytesByKey = new(StringComparer.Ordinal);
     private readonly Queue<string> _historyImageCacheKeys = new();
+    private int _historyImageCacheVersion;
     private readonly HashSet<string> _deletedHistoryIds = new(StringComparer.Ordinal);
     private CancellationTokenSource? _historySaveDebounce;
     private long _historySaveVersion;
@@ -81,6 +86,7 @@ public sealed class CliptonRuntime : IDisposable
     private QuickMenuWindow? _defaultQuickMenu;
     private RichQuickMenuWindow? _richQuickMenu;
     private PasteTargetWindowIdentity _pasteTargetWindow;
+    private long _pasteDiagnosticsSequence;
     private long _lastQuickMenuRequestTick;
     private int _quickMenuRequestPending;
     private bool _clipboardServicesStarted;
@@ -91,6 +97,11 @@ public sealed class CliptonRuntime : IDisposable
     private int _historyAccessUnlockFailedAttempts;
     private DateTimeOffset? _historyAccessUnlockBlockedUntilUtc;
     private int _disposeState;
+    private readonly CancellationTokenSource _menuCachePreparation = new();
+    private readonly CancellationTokenSource _quickMenuWarmupCancellation = new();
+    private CancellationTokenSource? _quickMenuWarmupScheduleCancellation;
+    private Task? _menuCachePreparationTask;
+    private int _quickMenuConfigurationVersion;
 
     /// <summary>
     /// Creates the runtime and loads settings, snippets and the initial resident history.
@@ -128,7 +139,7 @@ public sealed class CliptonRuntime : IDisposable
         if (Settings.PersistEncryptedHistory)
         {
             _persistedHistoryCount = _historyStore.Count();
-            var snapshots = _historyStore.LoadRecent(Math.Min(Settings.MaxHistoryItems, InitialPersistedHistoryLoadCount));
+            var snapshots = _historyStore.LoadRecent(Math.Min(Settings.MaxHistoryItems, ResidentHistoryMenuCount));
             _loadedPersistedHistoryCount = snapshots.Count;
             foreach (var snapshot in snapshots.Reverse())
             {
@@ -137,6 +148,11 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         AppProfiler.Mark($"History loaded. count={History.Items.Count}; persisted={_persistedHistoryCount}");
+        if (Settings.PersistEncryptedHistory && !isSafeMode)
+        {
+            var token = _menuCachePreparation.Token;
+            _menuCachePreparationTask = Task.Run(() => _historyStore.PrepareMenuCache(token));
+        }
         _accessibilitySettings = isSafeMode ? null : TryCreateAccessibilitySettings();
         if (_accessibilitySettings is not null)
         {
@@ -351,7 +367,7 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        var item = History.Find(id);
+        var item = FindHistoryItem(id);
         if (item is null)
         {
             return;
@@ -456,7 +472,7 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        var item = History.Find(id);
+        var item = FindHistoryItem(id);
         if (item?.ImagePng is not { Length: > 0 } imagePng)
         {
             return;
@@ -488,14 +504,22 @@ public sealed class CliptonRuntime : IDisposable
     {
         var pasteTargetWindow = _pasteTargetWindow;
         _pasteTargetWindow = default;
+        var pasteOperation = Interlocked.Increment(ref _pasteDiagnosticsSequence);
         _captureWorker.Post(() =>
         {
             try
             {
+                var startedAt = Environment.TickCount64;
+                var sequenceBeforePublish = NativeMethods.GetClipboardSequenceNumber();
                 var clipboardUpdated = writeClipboard();
+                var sequenceAfterPublish = NativeMethods.GetClipboardSequenceNumber();
                 if (clipboardUpdated && sendPaste)
                 {
-                    SendPaste(pasteTargetWindow);
+                    SendPaste(pasteTargetWindow, pasteOperation, startedAt, sequenceBeforePublish, sequenceAfterPublish);
+                }
+                else
+                {
+                    AppDiagnostics.Info("Paste", $"Paste operation {pasteOperation} did not send keys; updated={clipboardUpdated}, sendPaste={sendPaste}, sequenceBeforePublish={sequenceBeforePublish}, sequenceAfterPublish={sequenceAfterPublish}.");
                 }
             }
             finally
@@ -515,7 +539,7 @@ public sealed class CliptonRuntime : IDisposable
             return [];
         }
 
-        var item = History.Find(id);
+        var item = FindHistoryItem(id);
         if (item is null)
         {
             return [];
@@ -523,7 +547,7 @@ public sealed class CliptonRuntime : IDisposable
 
         if (item.Formats.Contains(ClipboardFormatKind.Image))
         {
-            return CreateImagePasteOptions(item);
+            return AppendHistoryRegistrationOption(CreateImagePasteOptions(item), item);
         }
 
         var plainText = ClipboardBridge.GetPlainText(item);
@@ -533,7 +557,18 @@ public sealed class CliptonRuntime : IDisposable
         };
 
         options.AddRange(CreateTextPasteOptions(plainText, item.Id));
-        return EnabledPasteOptions(options);
+        return AppendHistoryRegistrationOption(EnabledPasteOptions(options), item, plainText);
+    }
+
+    public string? GetHistoryPlainText(string id)
+    {
+        if (RequiresHistoryAccessUnlock || FindHistoryItem(id) is not { } item)
+        {
+            return null;
+        }
+
+        var plainText = ClipboardBridge.GetPlainText(item);
+        return string.IsNullOrWhiteSpace(plainText) ? null : plainText;
     }
 
     public async Task SetStartWithWindowsAsync(bool enabled)
@@ -640,8 +675,7 @@ public sealed class CliptonRuntime : IDisposable
             window.RefreshItems();
         }
 
-        _defaultQuickMenu?.Dismiss();
-        _richQuickMenu?.Dismiss();
+        InvalidateCachedQuickMenus();
     }
 
     public void ResetHistoryAccessLockAndClearHistory() => ResetHistoryAccessLockAndClearProtectedData();
@@ -655,8 +689,7 @@ public sealed class CliptonRuntime : IDisposable
         _historyAccessUnlockedUntilUtc = null;
         ClearHistoryAccessUnlockFailures();
         StopHistoryAccessLockTimer();
-        _defaultQuickMenu?.Dismiss();
-        _richQuickMenu?.Dismiss();
+        InvalidateCachedQuickMenus();
         ClearHistory();
         ClearSnippets();
     }
@@ -903,12 +936,16 @@ public sealed class CliptonRuntime : IDisposable
     {
         Settings.QuickMenuImagePreviewSize = NormalizeQuickMenuImagePreviewSize(size);
         SaveSettings();
+        InvalidateCachedQuickMenus();
+        ScheduleQuickMenuWarmup();
     }
 
     public void SetQuickMenuDisplayMode(string mode)
     {
         Settings.QuickMenuDisplayMode = NormalizeQuickMenuDisplayMode(mode);
         SaveSettings();
+        InvalidateCachedQuickMenus();
+        ScheduleQuickMenuWarmup();
     }
 
     public void SetQuickMenuShowCapturedAt(bool enabled)
@@ -948,6 +985,12 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         Settings.QuickMenuPasteOptions.DisabledOptionIds = QuickMenuPasteOptionSettings.NormalizeDisabledOptionIds(disabledIds);
+        SaveSettings();
+    }
+
+    public void ResetQuickMenuPasteOptionsToDefaults()
+    {
+        Settings.QuickMenuPasteOptions = new QuickMenuPasteOptionSettings();
         SaveSettings();
     }
 
@@ -994,7 +1037,7 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        if (History.Remove(id))
+        if (History.Remove(id) || (Settings.PersistEncryptedHistory && _historyStore.LoadItem(id) is not null))
         {
             _deletedHistoryIds.Add(id);
             UnpinHistoryItem(id, refresh: false);
@@ -1376,6 +1419,7 @@ public sealed class CliptonRuntime : IDisposable
         SaveSettings();
         InvalidateCachedQuickMenus();
         RefreshTrayText();
+        ScheduleQuickMenuWarmup();
     }
 
     public void SetTheme(string theme)
@@ -1385,6 +1429,7 @@ public sealed class CliptonRuntime : IDisposable
         InvalidateCachedQuickMenus();
         RefreshTrayIcon();
         RefreshTrayText();
+        ScheduleQuickMenuWarmup();
     }
 
     public void Dispose()
@@ -1395,6 +1440,13 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         IsExiting = true;
+        _menuCachePreparation.Cancel();
+        _menuCachePreparation.Dispose();
+        _quickMenuWarmupCancellation.Cancel();
+        _quickMenuWarmupCancellation.Dispose();
+        // InvalidateCachedQuickMenus owns and releases the scheduled child token source.
+        // Releasing it here as well leaves the field pointing at a disposed CTS, then
+        // the final invalidation below calls Cancel on that disposed instance.
         if (_accessibilitySettings is not null)
         {
             try
@@ -1432,6 +1484,11 @@ public sealed class CliptonRuntime : IDisposable
 
     private void InvalidateCachedQuickMenus()
     {
+        Interlocked.Increment(ref _quickMenuConfigurationVersion);
+        var warmup = _quickMenuWarmupScheduleCancellation;
+        _quickMenuWarmupScheduleCancellation = null;
+        warmup?.Cancel();
+        warmup?.Dispose();
         var defaultQuickMenu = _defaultQuickMenu;
         var richQuickMenu = _richQuickMenu;
         _defaultQuickMenu = null;
@@ -1483,6 +1540,107 @@ public sealed class CliptonRuntime : IDisposable
         AppProfiler.Mark("Initial clipboard capture scheduled.");
         _clipboardServicesStarted = true;
         AppDiagnostics.Info("Runtime", "Clipboard services started.");
+        ScheduleQuickMenuWarmup();
+    }
+
+    private void ScheduleQuickMenuWarmup()
+    {
+        if (IsSafeMode || IsExiting || !_clipboardServicesStarted || RequiresHistoryAccessUnlock
+            || _dispatcherQueue is null)
+        {
+            return;
+        }
+
+        _quickMenuWarmupScheduleCancellation?.Cancel();
+        _quickMenuWarmupScheduleCancellation?.Dispose();
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_quickMenuWarmupCancellation.Token);
+        _quickMenuWarmupScheduleCancellation = cancellation;
+        var configurationVersion = Volatile.Read(ref _quickMenuConfigurationVersion);
+        _ = PrepareQuickMenuWindowAfterIdleAsync(configurationVersion, cancellation.Token);
+    }
+
+    private async Task PrepareQuickMenuWindowAfterIdleAsync(int configurationVersion, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(QuickMenuWarmupIdleDelayMilliseconds, cancellationToken).ConfigureAwait(false);
+            if (_menuCachePreparationTask is { } cachePreparation)
+            {
+                var completed = await Task.WhenAny(cachePreparation,
+                    Task.Delay(QuickMenuWarmupCacheWaitMilliseconds, cancellationToken)).ConfigureAwait(false);
+                if (completed != cachePreparation)
+                {
+                    return;
+                }
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            _dispatcherQueue?.TryEnqueue(DispatcherQueuePriority.Low, () =>
+            {
+                if (cancellationToken.IsCancellationRequested || IsExiting || RequiresHistoryAccessUnlock
+                    || configurationVersion != Volatile.Read(ref _quickMenuConfigurationVersion))
+                {
+                    return;
+                }
+
+                var richMode = string.Equals(NormalizeQuickMenuDisplayMode(Settings.QuickMenuDisplayMode), "rich", StringComparison.Ordinal);
+                if ((richMode && _richQuickMenu is not null) || (!richMode && _defaultQuickMenu is not null))
+                {
+                    return;
+                }
+
+                try
+                {
+                    // Construct only the selected hidden menu. The window constructors build
+                    // their controls but do not activate, focus, show, or install input hooks.
+                    var items = BuildQuickMenuItems();
+                    if (cancellationToken.IsCancellationRequested || IsExiting || RequiresHistoryAccessUnlock
+                        || configurationVersion != Volatile.Read(ref _quickMenuConfigurationVersion)
+                        || !FitsQuickMenuWarmupBudget(items))
+                    {
+                        return;
+                    }
+
+                    if (richMode)
+                    {
+                        _richQuickMenu ??= CreateRichQuickMenuWindow(items, startInSearchMode: false);
+                        _richQuickMenu.MarkPreparedInactive();
+                    }
+                    else
+                    {
+                        _defaultQuickMenu ??= CreateDefaultQuickMenuWindow(items);
+                        _defaultQuickMenu.MarkPreparedInactive();
+                    }
+                }
+                catch (Exception exception)
+                {
+                    AppDiagnostics.Log(exception, "Prepare quick menu");
+                }
+            });
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private static bool FitsQuickMenuWarmupBudget(IReadOnlyList<QuickMenuItem> items)
+    {
+        if (items.Count > QuickMenuWarmupMaxRootItems)
+        {
+            return false;
+        }
+
+        long textBytes = 0;
+        foreach (var item in items)
+        {
+            textBytes += (long)(item.Title.Length + item.Subtitle.Length + (item.SearchText?.Length ?? 0)) * sizeof(char);
+            if (textBytes > QuickMenuWarmupTextBudget)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public async void ShowHistoryWindow()
@@ -1501,15 +1659,43 @@ public sealed class CliptonRuntime : IDisposable
 
     public async void ShowNewSnippetEditorWindow()
     {
-        if (!await EnsureHistoryAccessUnlockedAsync(keepUnlockWindowVisible: true))
+        try
         {
-            return;
-        }
+            if (!await EnsureHistoryAccessUnlockedAsync(keepUnlockWindowVisible: true))
+            {
+                return;
+            }
 
-        ShowMainWindow();
-        if (_mainWindow is not null)
+            ShowMainWindow();
+            if (_mainWindow is not null)
+            {
+                await _mainWindow.ShowNewSnippetEditorAsync();
+            }
+        }
+        catch (Exception ex)
         {
-            await _mainWindow.ShowNewSnippetEditorAsync();
+            AppDiagnostics.Log(ex, $"New snippet menu action failed; main window exists={_mainWindow is not null}.");
+        }
+    }
+
+    public async void ShowHistorySnippetEditorWindow(string historyId)
+    {
+        try
+        {
+            if (!await EnsureHistoryAccessUnlockedAsync(keepUnlockWindowVisible: true))
+            {
+                return;
+            }
+
+            ShowMainWindow();
+            if (_mainWindow is not null)
+            {
+                await _mainWindow.ShowHistorySnippetEditorAsync(historyId);
+            }
+        }
+        catch (Exception ex)
+        {
+            AppDiagnostics.Log(ex, $"History snippet registration failed for item {historyId}; main window exists={_mainWindow is not null}.");
         }
     }
 
@@ -1600,7 +1786,7 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        if (!_dispatcherQueue.TryEnqueue(async () =>
+        if (!_dispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.High, async () =>
         {
             try
             {
@@ -1830,6 +2016,9 @@ public sealed class CliptonRuntime : IDisposable
             }
 
             _mainWindow?.RefreshItemsIncremental();
+            // The clipboard listener can finish before the hotkey's refresh
+            // request. Whichever capture commits first must update the menu.
+            RefreshOpenQuickMenuItems();
             return true;
         }
 
@@ -1850,13 +2039,7 @@ public sealed class CliptonRuntime : IDisposable
                     AppDiagnostics.Info("Clipboard", $"Quick menu clipboard capture completed after {elapsed:F1}ms; refreshing current menu.");
                 }
 
-                _dispatcherQueue?.TryEnqueue(() =>
-                {
-                    if (CommitCapturedClipboard(result.Snapshot, result.Sequence))
-                    {
-                        RefreshOpenQuickMenuItems();
-                    }
-                });
+                _dispatcherQueue?.TryEnqueue(() => CommitCapturedClipboard(result.Snapshot, result.Sequence));
             }
             else if (completed.Exception is not null)
             {
@@ -2015,7 +2198,18 @@ public sealed class CliptonRuntime : IDisposable
         _richQuickMenu?.Dismiss();
         if (_defaultQuickMenu is null)
         {
-            _defaultQuickMenu = new QuickMenuWindow(
+            _defaultQuickMenu = CreateDefaultQuickMenuWindow(menuItems);
+            _defaultQuickMenu.FocusMenu();
+            return;
+        }
+
+        _defaultQuickMenu.UpdateDisplayOptions(Settings.QuickMenuShowCapturedAt, Settings.QuickMenuShowShortcutHints);
+        _defaultQuickMenu.Reopen(menuItems);
+    }
+
+    private QuickMenuWindow CreateDefaultQuickMenuWindow(IReadOnlyList<QuickMenuItem> menuItems)
+    {
+        return new QuickMenuWindow(
                 Translate("History"),
                 menuItems,
                 EffectiveTheme,
@@ -2045,12 +2239,6 @@ public sealed class CliptonRuntime : IDisposable
                     ["QuickMenuFolderNoItems"] = Translate("QuickMenuFolderNoItems")
                 },
                 GetEffectiveCulture());
-            _defaultQuickMenu.FocusMenu();
-            return;
-        }
-
-        _defaultQuickMenu.UpdateDisplayOptions(Settings.QuickMenuShowCapturedAt, Settings.QuickMenuShowShortcutHints);
-        _defaultQuickMenu.Reopen(menuItems);
     }
 
     private void ShowRichQuickMenu(IReadOnlyList<QuickMenuItem> menuItems, bool startInSearchMode)
@@ -2087,7 +2275,7 @@ public sealed class CliptonRuntime : IDisposable
         ApplyQuickMenuDisplayOptions();
         if (_defaultQuickMenu is { IsDismissed: false })
         {
-            _defaultQuickMenu.Reopen(BuildQuickMenuItems());
+            _defaultQuickMenu.RefreshItems(BuildQuickMenuItems());
             return;
         }
 
@@ -2127,7 +2315,8 @@ public sealed class CliptonRuntime : IDisposable
             Translate("RelativeTimeHoursAgo"),
             GetEffectiveCulture(),
             Settings.QuickMenuShowCapturedAt,
-            startInSearchMode);
+            startInSearchMode,
+            SearchQuickMenuItems);
     }
 
     private CultureInfo GetEffectiveCulture()
@@ -2149,33 +2338,45 @@ public sealed class CliptonRuntime : IDisposable
     private List<QuickMenuItem> BuildQuickMenuItems()
     {
         var menuItems = new List<QuickMenuItem>();
+        var history = CaptureMenuHistory();
+        var availableIds = history.Ids.ToHashSet(StringComparer.Ordinal);
         var pinnedIds = Settings.PinnedHistoryIds.ToHashSet(StringComparer.Ordinal);
-        var historyCount = CountUnpinnedHistoryItems(pinnedIds);
-        var pinnedItems = Settings.PinnedHistoryIds
-            .Select(History.Find)
-            .OfType<ClipboardSnapshot>()
+        var pinnedItemIds = Settings.PinnedHistoryIds
+            .Where(id => availableIds.Contains(id))
             .ToArray();
+        var historyCount = history.Ids.Count(id => !pinnedIds.Contains(id));
         var topLevelHistoryItems = QuickMenuHistoryBuckets.NormalizeTopLevelHistoryItems(Settings.QuickMenuTopLevelHistoryItems);
         var includeImageThumbnails = !string.Equals(Settings.QuickMenuImagePreviewSize, "none", StringComparison.OrdinalIgnoreCase);
-        var directHistoryItems = EnumerateUnpinnedHistoryItems(pinnedIds).Take(topLevelHistoryItems);
-        foreach (var item in directHistoryItems)
+        var directHistoryIds = history.Ids.Where(id => !pinnedIds.Contains(id)).Take(topLevelHistoryItems);
+        foreach (var id in directHistoryIds)
         {
-            menuItems.Add(CreateHistoryMenuItem(item, includeImageThumbnails));
+            var resident = history.Resident.GetValueOrDefault(id);
+            var item = resident ?? _historyStore.LoadMenuSnapshot(id);
+            if (item is not null)
+            {
+                menuItems.Add(CreateHistoryMenuItem(ApplySourceMetadataPolicy(item), includeImageThumbnails,
+                    payloadOnDisk: resident is null));
+            }
         }
 
         AppProfiler.Mark($"Quick menu direct history items created. items={menuItems.Count}; historyCount={historyCount}; loaded={History.Items.Count}; persisted={_persistedHistoryCount}");
         AddHistoryRangeFolders(menuItems, historyCount, topLevelHistoryItems, pinnedIds, includeImageThumbnails);
         AppProfiler.Mark($"Quick menu history folders created. items={menuItems.Count}");
 
-        if (pinnedItems.Length > 0)
+        if (pinnedItemIds.Length > 0)
         {
             menuItems.Add(new QuickMenuItem(
                 Translate("PinnedHistory"),
-                FormatItemCount(pinnedItems.Length),
+                FormatItemCount(pinnedItemIds.Length),
                 ">",
                 "Enter",
                 () => { },
-                LazyChildren: () => pinnedItems.Select(item => CreateHistoryMenuItem(item, includeImageThumbnails)).ToArray(),
+                LazyChildren: () => pinnedItemIds
+                    .Select(id => history.Resident.GetValueOrDefault(id) ?? _historyStore.LoadMenuSnapshot(id))
+                    .OfType<ClipboardSnapshot>()
+                    .Select(item => CreateHistoryMenuItem(ApplySourceMetadataPolicy(item), includeImageThumbnails,
+                        payloadOnDisk: !history.Resident.ContainsKey(item.Id)))
+                    .ToArray(),
                 IconGlyph: "",
                 IconFontFamily: "Segoe Fluent Icons"));
         }
@@ -2288,32 +2489,6 @@ public sealed class CliptonRuntime : IDisposable
             : 150;
     }
 
-    private int CountUnpinnedHistoryItems(ISet<string> pinnedIds)
-    {
-        var count = 0;
-        foreach (var item in History.Items)
-        {
-            if (!pinnedIds.Contains(item.Id))
-            {
-                count++;
-            }
-        }
-
-        var unloadedPersistedItems = Math.Max(0, _persistedHistoryCount - _loadedPersistedHistoryCount);
-        return count + unloadedPersistedItems;
-    }
-
-    private IEnumerable<ClipboardSnapshot> EnumerateUnpinnedHistoryItems(ISet<string> pinnedIds)
-    {
-        foreach (var item in History.Items)
-        {
-            if (!pinnedIds.Contains(item.Id))
-            {
-                yield return item;
-            }
-        }
-    }
-
     private void EnsurePersistedHistoryLoaded(int loadedPersistedCount)
     {
         if (!Settings.PersistEncryptedHistory || loadedPersistedCount <= _loadedPersistedHistoryCount)
@@ -2356,21 +2531,71 @@ public sealed class CliptonRuntime : IDisposable
 
     private IReadOnlyList<ClipboardSnapshot> GetUnpinnedHistoryRange(ISet<string> pinnedIds, int offset, int count)
     {
-        var targetLoadedPersistedCount = Math.Min(_persistedHistoryCount, offset + count + pinnedIds.Count);
-        EnsurePersistedHistoryLoaded(targetLoadedPersistedCount);
-        IReadOnlyList<ClipboardSnapshot> range = [];
+        var history = CaptureMenuHistory();
+        return history.Ids.Where(id => !pinnedIds.Contains(id)).Skip(offset).Take(count)
+            .Select(id => history.Resident.GetValueOrDefault(id) ?? _historyStore.LoadItem(id))
+            .OfType<ClipboardSnapshot>().Select(ApplySourceMetadataPolicy).ToArray();
+    }
+
+    private int ResidentHistoryMenuCount => Math.Max(InitialPersistedHistoryLoadCount,
+        QuickMenuHistoryBuckets.NormalizeTopLevelHistoryItems(Settings.QuickMenuTopLevelHistoryItems));
+
+    private ClipboardSnapshot? FindHistoryItem(string id) => _deletedHistoryIds.Contains(id) ? null
+        : History.Find(id) ?? (Settings.PersistEncryptedHistory ? _historyStore.LoadItem(id) : null);
+
+    private (string[] Ids, Dictionary<string, ClipboardSnapshot> Resident) CaptureMenuHistory()
+    {
+        ClipboardSnapshot[] resident = [];
+        HashSet<string> deleted = [];
+        var loaded = 0;
+        var persist = false;
+        var capacity = 0;
         if (!RunOnDispatcher(() =>
         {
-            range = EnumerateUnpinnedHistoryItems(pinnedIds)
-                .Skip(offset)
-                .Take(count)
-                .ToArray();
-        }))
-        {
-            return [];
-        }
+            resident = History.Items.ToArray();
+            deleted = _deletedHistoryIds.ToHashSet(StringComparer.Ordinal);
+            loaded = _loadedPersistedHistoryCount;
+            persist = Settings.PersistEncryptedHistory;
+            capacity = Settings.MaxHistoryItems;
+        })) return ([], new(StringComparer.Ordinal));
+        var ids = resident.Select(item => item.Id)
+            .Concat(persist ? _historyStore.GetOrderedIds().Skip(loaded) : [])
+            .Where(id => !deleted.Contains(id)).Distinct(StringComparer.Ordinal).Take(capacity).ToArray();
+        return (ids, resident.ToDictionary(item => item.Id, StringComparer.Ordinal));
+    }
 
-        return range;
+    internal IReadOnlyList<QuickMenuItem> SearchQuickMenuItems(string query, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var filter = SearchFilter.Parse(query);
+        var history = CaptureMenuHistory();
+        Snippet[] snippets = [];
+        if (!RunOnDispatcher(() => snippets = Snippets.Snippets.ToArray())) return [];
+        var snippetCatalog = new SnippetCatalog();
+        foreach (var snippet in snippets) snippetCatalog.Upsert(snippet);
+        var results = new List<QuickMenuItem>();
+        foreach (var id in history.Ids)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var resident = history.Resident.GetValueOrDefault(id);
+            var item = resident ?? _historyStore.LoadMenuSnapshot(id);
+            if (item is null || !filter.MatchesDate(item.CapturedAt)
+                || !filter.MatchesPinned(IsHistoryPinned(id)) || !filter.MatchesType(item.Formats)) continue;
+            item = ApplySourceMetadataPolicy(item);
+            var plainText = ClipboardBridge.GetPlainText(item);
+            var metadata = $"{CreatePreviewText(item, null)} {CreateHistoryMetadataSummary(item, CreateFormatSummary(item.Formats))} {GetKindLabel(item)} {snippetCatalog.FindByText(plainText)?.DisplayName}";
+            if (!filter.MatchesTextFields(plainText, metadata)
+                || (filter.HasUrl is not null && !filter.MatchesUrl(ExtractUrls(plainText ?? string.Empty).Length > 0 || ExtractUrls(metadata).Length > 0))) continue;
+            results.Add(CreateHistoryMenuItem(item, Settings.QuickMenuImagePreviewSize != "none", payloadOnDisk: resident is null, snippetCatalog));
+            if (results.Count == 60) return results;
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        foreach (var snippet in QuickMenuWindow.FlattenSearchableItems(CreateSnippetMenuItems(snippets)))
+        {
+            if (QuickMenuWindow.MatchesSearch(filter, snippet)) results.Add(snippet);
+            if (results.Count == 60) break;
+        }
+        return results;
     }
 
     // History and the loaded-count fields are UI-thread state, but folder
@@ -2686,7 +2911,8 @@ public sealed class CliptonRuntime : IDisposable
             History.Items.ToArray(),
             _loadedPersistedHistoryCount,
             UnloadedPersistedHistoryCount,
-            Settings.MaxHistoryItems);
+            Settings.MaxHistoryItems,
+            _deletedHistoryIds.ToHashSet(StringComparer.Ordinal));
     }
 
     private Task<bool> EnqueueHistoryPersist(HistoryPersistPlan plan)
@@ -2719,7 +2945,7 @@ public sealed class CliptonRuntime : IDisposable
             // of saving only the resident prefix.
             if (plan.UnloadedCount > 0)
             {
-                _historyStore.SavePreservingOlder(plan.Snapshots, plan.LoadedPersistedCount, plan.Capacity);
+                _historyStore.SavePreservingOlder(plan.Snapshots, plan.LoadedPersistedCount, plan.Capacity, plan.DeletedIds);
             }
             else
             {
@@ -2743,8 +2969,12 @@ public sealed class CliptonRuntime : IDisposable
             return;
         }
 
-        _persistedHistoryCount = Math.Min(plan.Capacity, Math.Max(_persistedHistoryCount, plan.Snapshots.Length + plan.UnloadedCount));
+        _persistedHistoryCount = _historyStore.Count();
         TrimLoadedHistoryAfterPersist();
+        // A save replaces the consumed disk prefix with this plan's resident
+        // snapshots. Captures/deletions can change the live list while it saves.
+        _loadedPersistedHistoryCount = plan.Snapshots
+            .TakeWhile(item => History.Find(item.Id) is not null || _deletedHistoryIds.Contains(item.Id)).Count();
     }
 
     private sealed record HistoryPersistPlan(
@@ -2752,7 +2982,8 @@ public sealed class CliptonRuntime : IDisposable
         ClipboardSnapshot[] Snapshots,
         int LoadedPersistedCount,
         int UnloadedCount,
-        int Capacity);
+        int Capacity,
+        HashSet<string> DeletedIds);
 
     private void QueueHistorySave()
     {
@@ -2811,14 +3042,12 @@ public sealed class CliptonRuntime : IDisposable
 
     private void TrimLoadedHistoryAfterPersist()
     {
-        if (!Settings.PersistEncryptedHistory || History.Items.Count <= InitialPersistedHistoryLoadCount)
+        if (!Settings.PersistEncryptedHistory || History.Items.Count <= ResidentHistoryMenuCount)
         {
             return;
         }
 
-        History.UnloadOlderBeyond(InitialPersistedHistoryLoadCount);
-        _persistedHistoryCount = Math.Max(_persistedHistoryCount, _historyStore.Count());
-        _loadedPersistedHistoryCount = Math.Min(History.Items.Count, _persistedHistoryCount);
+        History.UnloadOlderBeyond(ResidentHistoryMenuCount);
         PruneHistoryImageFiles(History.Items.Select(item => item.Id).ToHashSet(StringComparer.Ordinal));
         _mainWindow?.RefreshItems();
     }
@@ -2826,7 +3055,7 @@ public sealed class CliptonRuntime : IDisposable
     private bool ShouldFlushResidentHistory()
     {
         if (!Settings.PersistEncryptedHistory
-            || History.Items.Count <= InitialPersistedHistoryLoadCount + ResidentHistoryFlushOverflowCount)
+            || History.Items.Count <= ResidentHistoryMenuCount + ResidentHistoryFlushOverflowCount)
         {
             return false;
         }
@@ -3074,26 +3303,35 @@ public sealed class CliptonRuntime : IDisposable
             : new PasteTargetWindowIdentity(window, threadId, processId);
     }
 
-    private void SendPaste(PasteTargetWindowIdentity pasteTargetWindow)
+    private void SendPaste(
+        PasteTargetWindowIdentity pasteTargetWindow,
+        long pasteOperation,
+        long startedAt,
+        uint sequenceBeforePublish,
+        uint sequenceAfterPublish)
     {
-        if (!RestorePasteTarget(pasteTargetWindow)
-            || !WaitForPasteTargetForeground(pasteTargetWindow))
+        var targetRestored = RestorePasteTarget(pasteTargetWindow)
+            && WaitForPasteTargetForeground(pasteTargetWindow);
+        if (!targetRestored)
         {
-            AppDiagnostics.Warning("Paste", "Paste was canceled because the original target window could not be restored.");
+            AppDiagnostics.Warning("Paste", $"Paste operation {pasteOperation} was canceled because the original target window could not be restored; target={pasteTargetWindow.Handle}, sequenceBeforePublish={sequenceBeforePublish}, sequenceAfterPublish={sequenceAfterPublish}, sequenceAfterActivation={NativeMethods.GetClipboardSequenceNumber()}, elapsedMs={Environment.TickCount64 - startedAt}.");
             return;
         }
 
+        var sequenceAfterActivation = NativeMethods.GetClipboardSequenceNumber();
         if (!WaitForModifierKeyRelease())
         {
-            AppDiagnostics.Warning("Paste", "Paste was canceled because a modifier key remained pressed.");
+            AppDiagnostics.Warning("Paste", $"Paste operation {pasteOperation} was canceled because a modifier key remained pressed; target={pasteTargetWindow.Handle}, sequenceBeforePublish={sequenceBeforePublish}, sequenceAfterPublish={sequenceAfterPublish}, sequenceAfterActivation={sequenceAfterActivation}, sequenceBeforeKeys={NativeMethods.GetClipboardSequenceNumber()}, elapsedMs={Environment.TickCount64 - startedAt}.");
             return;
         }
 
         // Revalidate immediately before injecting keys. The HWND may have been destroyed
         // and reused, or focus may have moved while clipboard work was in progress.
-        if (!IsPasteTargetForeground(pasteTargetWindow))
+        var isTargetForeground = IsPasteTargetForeground(pasteTargetWindow);
+        var sequenceBeforeKeys = NativeMethods.GetClipboardSequenceNumber();
+        if (!isTargetForeground)
         {
-            AppDiagnostics.Warning("Paste", "Paste was canceled because focus moved away from the original target window.");
+            AppDiagnostics.Warning("Paste", $"Paste operation {pasteOperation} was canceled because focus moved away from the original target window; target={pasteTargetWindow.Handle}, sequenceBeforePublish={sequenceBeforePublish}, sequenceAfterPublish={sequenceAfterPublish}, sequenceAfterActivation={sequenceAfterActivation}, sequenceBeforeKeys={sequenceBeforeKeys}, elapsedMs={Environment.TickCount64 - startedAt}.");
             return;
         }
 
@@ -3102,6 +3340,8 @@ public sealed class CliptonRuntime : IDisposable
         Thread.Sleep(20);
         NativeMethods.keybd_event(NativeMethods.VkV, 0, NativeMethods.KeyeventfKeyup, UIntPtr.Zero);
         NativeMethods.keybd_event(NativeMethods.VkControl, 0, NativeMethods.KeyeventfKeyup, UIntPtr.Zero);
+
+        AppDiagnostics.Info("Paste", $"Paste operation {pasteOperation} phases: target={pasteTargetWindow.Handle}, sequenceBeforePublish={sequenceBeforePublish}, sequenceAfterPublish={sequenceAfterPublish}, sequenceAfterActivation={sequenceAfterActivation}, sequenceBeforeKeys={sequenceBeforeKeys}, elapsedMs={Environment.TickCount64 - startedAt}.");
     }
 
     // Shift/Alt/Win still held from the hotkey or Enter press would turn the
@@ -3234,20 +3474,26 @@ public sealed class CliptonRuntime : IDisposable
         return "T";
     }
 
-    private QuickMenuItem CreateHistoryMenuItem(ClipboardSnapshot item, bool includeImageThumbnail)
+    private QuickMenuItem CreateHistoryMenuItem(ClipboardSnapshot item, bool includeImageThumbnail, bool payloadOnDisk = false, SnippetCatalog? snippetCatalog = null)
     {
-        var display = CreateHistoryItemViewModel(item, includeThumbnail: includeImageThumbnail);
-        var header = display.Preview;
-        var revealedHeader = IsMaskedHistoryItem(item)
-            ? item.Preview
-            : null;
+        var imageCacheVersion = Volatile.Read(ref _historyImageCacheVersion);
         var plainText = ClipboardBridge.GetPlainText(item);
-        var textActionTitle = string.IsNullOrWhiteSpace(display.Preview) ? Translate("QuickEdit") : display.Preview;
-        Func<IReadOnlyList<QuickMenuPasteOption>> pasteOptionsFactory = item.ImagePng is { Length: > 0 }
-            ? () => CreateImagePasteOptions(item)
+        var display = CreateHistoryItemViewModel(item, plainText, includeThumbnail: false, out var maskedKind, snippetCatalog);
+        var header = LimitMenuText(display.Preview);
+        var revealedHeader = maskedKind != MaskedHistoryKind.None
+            ? LimitMenuText(item.Preview)
+            : null;
+        var textActionTitle = string.IsNullOrWhiteSpace(header) ? Translate("QuickEdit") : header;
+        var isImage = item.Formats.Contains(ClipboardFormatKind.Image);
+        Func<IReadOnlyList<QuickMenuPasteOption>> pasteOptionsFactory = isImage
+            ? () =>
+            {
+                var resolved = payloadOnDisk ? FindHistoryItem(item.Id) ?? item : item;
+                return AppendHistoryRegistrationOption(CreateImagePasteOptions(resolved), resolved);
+            }
             : item.FilePaths.Count > 0
-                ? () => CreateFilePasteOptions(item)
-                : () => CreateTextPasteOptions(plainText, item.Id);
+                ? () => AppendHistoryRegistrationOption(CreateFilePasteOptions(item), item, plainText)
+                : () => AppendHistoryRegistrationOption(CreateTextPasteOptions(plainText, item.Id), item, plainText);
         return new QuickMenuItem(
             header,
             display.FormatSummary,
@@ -3256,20 +3502,24 @@ public sealed class CliptonRuntime : IDisposable
             () => PasteHistoryItem(item.Id, asPlainText: false),
             !string.IsNullOrEmpty(plainText) ? () => PasteHistoryItem(item.Id, asPlainText: true) : null,
             LazyPasteOptions: pasteOptionsFactory,
-            IconGlyph: GetHistoryIconGlyph(item),
-            IconFontFamily: GetHistoryIconFontFamily(item),
-            IconImageBytes: includeImageThumbnail ? GetHistoryThumbnailBytes(item) : null,
-            PreviewImageBytesProvider: item.ImagePng is { Length: > 0 } ? () => GetHistoryImagePreviewBytes(item) : null,
-            CopyInvoke: item.ImagePng is { Length: > 0 } ? () => PasteImage(item.Id, ImagePasteMode.Png, sendPaste: false) : null,
-            CutInvoke: item.ImagePng is { Length: > 0 } ? () => CutImageHistoryItem(item.Id) : null,
+            IconGlyph: GetHistoryIconGlyph(item, maskedKind),
+            IconFontFamily: GetHistoryIconFontFamily(item, maskedKind),
+            IconImageBytesProvider: includeImageThumbnail && isImage
+                ? () => GetQuickMenuThumbnailBytes(payloadOnDisk ? _historyStore.LoadItem(item.Id) ?? item : item, imageCacheVersion) : null,
+            PreviewImageBytesProvider: isImage ? () => payloadOnDisk ? _historyStore.LoadItem(item.Id)?.ImagePng : item.ImagePng : null,
+            CopyInvoke: isImage ? () => PasteImage(item.Id, ImagePasteMode.Png, sendPaste: false) : null,
+            CutInvoke: isImage ? () => CutImageHistoryItem(item.Id) : null,
             EditInvoke: !string.IsNullOrEmpty(plainText) ? () => QuickEditAndPasteText(plainText, textActionTitle) : null,
             PreviewInvoke: !string.IsNullOrEmpty(plainText) ? () => PreviewText(plainText, textActionTitle) : null,
             RevealedTitle: revealedHeader,
             CapturedAt: item.CapturedAt,
             IsPinned: IsHistoryPinned(item.Id),
             Formats: item.Formats,
-            IsNumberShortcutEnabled: true);
+            IsNumberShortcutEnabled: true,
+            SearchText: $"{plainText} {header} {display.FormatSummary} {GetKindLabel(item)}");
     }
+
+    private static string LimitMenuText(string text) => text.Length <= 512 ? text : text[..512] + "…";
 
     private void CutImageHistoryItem(string id)
     {
@@ -3291,9 +3541,9 @@ public sealed class CliptonRuntime : IDisposable
             : $"{hint} / {plainTextShortcut}";
     }
 
-    private string GetHistoryIconGlyph(ClipboardSnapshot item)
+    private static string GetHistoryIconGlyph(ClipboardSnapshot item, MaskedHistoryKind maskedKind)
     {
-        return GetMaskedHistoryKind(item) switch
+        return maskedKind switch
         {
             MaskedHistoryKind.RegisteredSnippet => "\uE8EC",
             MaskedHistoryKind.Sensitive => "\uE72E",
@@ -3321,9 +3571,9 @@ public sealed class CliptonRuntime : IDisposable
         return "Aa";
     }
 
-    private string GetHistoryIconFontFamily(ClipboardSnapshot item)
+    private static string GetHistoryIconFontFamily(ClipboardSnapshot item, MaskedHistoryKind maskedKind)
     {
-        return GetMaskedHistoryKind(item) != MaskedHistoryKind.None
+        return maskedKind != MaskedHistoryKind.None
             || item.Formats.Contains(ClipboardFormatKind.FileDrop)
             || item.Formats.Contains(ClipboardFormatKind.Image)
             ? "Segoe Fluent Icons"
@@ -3339,7 +3589,6 @@ public sealed class CliptonRuntime : IDisposable
 
         try
         {
-            Directory.CreateDirectory(_thumbnailPath);
             var cacheKey = $"{item.Id}-96";
             if (TryGetCachedHistoryImageBytes(cacheKey) is { } cachedBytes)
             {
@@ -3364,22 +3613,7 @@ public sealed class CliptonRuntime : IDisposable
                 return legacyBytes;
             }
 
-            using var sourceStream = new MemoryStream(item.ImagePng);
-            using var source = Drawing.Image.FromStream(sourceStream);
-            const int size = 96;
-            var scale = Math.Min((double)size / source.Width, (double)size / source.Height);
-            var width = Math.Max(1, (int)Math.Round(source.Width * scale));
-            var height = Math.Max(1, (int)Math.Round(source.Height * scale));
-            using var thumbnail = new Drawing.Bitmap(size, size);
-            using var graphics = Drawing.Graphics.FromImage(thumbnail);
-            graphics.Clear(Drawing.Color.Transparent);
-            graphics.InterpolationMode = Drawing2D.InterpolationMode.HighQualityBicubic;
-            graphics.PixelOffsetMode = Drawing2D.PixelOffsetMode.HighQuality;
-            graphics.SmoothingMode = Drawing2D.SmoothingMode.HighQuality;
-            graphics.DrawImage(source, (size - width) / 2, (size - height) / 2, width, height);
-            using var thumbnailStream = new MemoryStream();
-            thumbnail.Save(thumbnailStream, Imaging.ImageFormat.Png);
-            var thumbnailBytes = thumbnailStream.ToArray();
+            var thumbnailBytes = CreateHistoryThumbnailBytes(item.ImagePng);
             WriteProtectedBytes(path, thumbnailBytes);
             CacheHistoryImageBytes(cacheKey, thumbnailBytes);
             return thumbnailBytes;
@@ -3388,6 +3622,57 @@ public sealed class CliptonRuntime : IDisposable
         {
             return null;
         }
+    }
+
+    private byte[]? GetQuickMenuThumbnailBytes(ClipboardSnapshot item, int cacheVersion)
+    {
+        var cacheKey = $"{item.Id}-96";
+        lock (_historyImageCacheGate)
+        {
+            if (cacheVersion != _historyImageCacheVersion)
+            {
+                return null;
+            }
+
+            if (_historyImageBytesByKey.TryGetValue(cacheKey, out var cachedBytes))
+            {
+                return cachedBytes;
+            }
+        }
+
+        // Called by the menu's background loader. Keep this path memory-only so
+        // closing/deleting history cannot race a worker writing thumbnail files.
+        var bytes = CreateHistoryThumbnailBytes(item.ImagePng!);
+        lock (_historyImageCacheGate)
+        {
+            if (cacheVersion != _historyImageCacheVersion)
+            {
+                return null;
+            }
+
+            CacheHistoryImageBytes(cacheKey, bytes);
+            return bytes;
+        }
+    }
+
+    private static byte[] CreateHistoryThumbnailBytes(byte[] imagePng)
+    {
+        using var sourceStream = new MemoryStream(imagePng);
+        using var source = Drawing.Image.FromStream(sourceStream);
+        const int size = 96;
+        var scale = Math.Min((double)size / source.Width, (double)size / source.Height);
+        var width = Math.Max(1, (int)Math.Round(source.Width * scale));
+        var height = Math.Max(1, (int)Math.Round(source.Height * scale));
+        using var thumbnail = new Drawing.Bitmap(size, size);
+        using var graphics = Drawing.Graphics.FromImage(thumbnail);
+        graphics.Clear(Drawing.Color.Transparent);
+        graphics.InterpolationMode = Drawing2D.InterpolationMode.HighQualityBicubic;
+        graphics.PixelOffsetMode = Drawing2D.PixelOffsetMode.HighQuality;
+        graphics.SmoothingMode = Drawing2D.SmoothingMode.HighQuality;
+        graphics.DrawImage(source, (size - width) / 2, (size - height) / 2, width, height);
+        using var thumbnailStream = new MemoryStream();
+        thumbnail.Save(thumbnailStream, Imaging.ImageFormat.Png);
+        return thumbnailStream.ToArray();
     }
 
     private byte[]? GetHistoryImagePreviewBytes(ClipboardSnapshot item)
@@ -3436,11 +3721,12 @@ public sealed class CliptonRuntime : IDisposable
 
     public byte[]? GetHistoryImagePreviewBytes(string id)
     {
-        return History.Find(id) is { } item ? GetHistoryImagePreviewBytes(item) : null;
+        return FindHistoryItem(id) is { } item ? GetHistoryImagePreviewBytes(item) : null;
     }
 
     private void DeleteHistoryImageFiles(string id)
     {
+        RemoveCachedHistoryImageFiles(id);
         if (!Directory.Exists(_thumbnailPath))
         {
             return;
@@ -3450,12 +3736,17 @@ public sealed class CliptonRuntime : IDisposable
         {
             TryDeleteFile(file);
         }
-
-        RemoveCachedHistoryImageFiles(id);
     }
 
     private void ClearHistoryImageFiles()
     {
+        lock (_historyImageCacheGate)
+        {
+            _historyImageCacheVersion++;
+            _historyImageBytesByKey.Clear();
+            _historyImageCacheKeys.Clear();
+        }
+
         if (!Directory.Exists(_thumbnailPath))
         {
             return;
@@ -3466,10 +3757,6 @@ public sealed class CliptonRuntime : IDisposable
             TryDeleteFile(file);
         }
 
-        lock (_historyImageCacheGate)
-        {
-            _historyImageBytesByKey.Clear();
-        }
     }
 
     private void PruneHistoryImageFiles(HashSet<string> activeHistoryIds)
@@ -3526,6 +3813,7 @@ public sealed class CliptonRuntime : IDisposable
     {
         lock (_historyImageCacheGate)
         {
+            _historyImageCacheVersion++;
             _historyImageBytesByKey.Remove($"{id}-96");
             _historyImageBytesByKey.Remove($"{id}-preview");
         }
@@ -3588,19 +3876,27 @@ public sealed class CliptonRuntime : IDisposable
     /// </remarks>
     public HistoryItemViewModel CreateHistoryItemViewModel(ClipboardSnapshot snapshot, bool includeThumbnail = true)
     {
+        return CreateHistoryItemViewModel(snapshot, ClipboardBridge.GetPlainText(snapshot), includeThumbnail, out _);
+    }
+
+    private HistoryItemViewModel CreateHistoryItemViewModel(
+        ClipboardSnapshot snapshot, string? plainText, bool includeThumbnail, out MaskedHistoryKind maskedKind, SnippetCatalog? snippetCatalog = null)
+    {
+        maskedKind = MaskedHistoryKind.None;
         var formats = CreateFormatSummary(snapshot.Formats);
         var metadata = CreateHistoryMetadataSummary(snapshot, formats);
-        var plainText = ClipboardBridge.GetPlainText(snapshot);
         var thumbnailBytes = includeThumbnail ? GetHistoryThumbnailBytes(snapshot) : null;
         var isImage = snapshot.Formats.Contains(ClipboardFormatKind.Image);
-        var snippet = Snippets.FindByText(plainText);
+        var snippet = (snippetCatalog ?? Snippets).FindByText(plainText);
         if (snippet is not null)
         {
+            maskedKind = MaskedHistoryKind.RegisteredSnippet;
             return new HistoryItemViewModel(snapshot.Id, snippet.DisplayName, $"{Translate("RegisteredSnippetMasked")} - {metadata}", snapshot.CapturedAt, FormatCapturedAt(snapshot.CapturedAt), isImage, thumbnailBytes);
         }
 
         if (Settings.MaskSensitiveContent && CreateMaskedPreview(plainText) is { } maskedPreview)
         {
+            maskedKind = MaskedHistoryKind.Sensitive;
             return new HistoryItemViewModel(snapshot.Id, NormalizePreviewText(maskedPreview), $"{Translate("MaskedSensitive")} - {metadata}", snapshot.CapturedAt, FormatCapturedAt(snapshot.CapturedAt), isImage, thumbnailBytes);
         }
 
@@ -3636,26 +3932,6 @@ public sealed class CliptonRuntime : IDisposable
         return $"{applicationName} - {windowTitle}";
     }
 
-    private bool IsMaskedHistoryItem(ClipboardSnapshot snapshot)
-    {
-        var plainText = ClipboardBridge.GetPlainText(snapshot);
-        return Snippets.FindByText(plainText) is not null
-            || (Settings.MaskSensitiveContent && CreateMaskedPreview(plainText) is not null);
-    }
-
-    private MaskedHistoryKind GetMaskedHistoryKind(ClipboardSnapshot snapshot)
-    {
-        var plainText = ClipboardBridge.GetPlainText(snapshot);
-        if (Snippets.FindByText(plainText) is not null)
-        {
-            return MaskedHistoryKind.RegisteredSnippet;
-        }
-
-        return Settings.MaskSensitiveContent && CreateMaskedPreview(plainText) is not null
-            ? MaskedHistoryKind.Sensitive
-            : MaskedHistoryKind.None;
-    }
-
     private string? CreateMaskedPreview(string? plainText)
     {
         var previewScanText = SensitiveContentDetector.CreatePreviewScanText(plainText);
@@ -3679,7 +3955,7 @@ public sealed class CliptonRuntime : IDisposable
             return string.Join(", ", snapshot.FilePaths.Select(Path.GetFileName));
         }
 
-        if (snapshot.ImagePng is { Length: > 0 })
+        if (snapshot.Formats.Contains(ClipboardFormatKind.Image))
         {
             return Translate("Image");
         }
@@ -3853,8 +4129,28 @@ public sealed class CliptonRuntime : IDisposable
     private IReadOnlyList<QuickMenuPasteOption> EnabledPasteOptions(IEnumerable<QuickMenuPasteOption> options)
     {
         return options
-            .Where(option => string.IsNullOrWhiteSpace(option.Id) || IsQuickMenuPasteOptionEnabled(option.Id))
+            .Where(option => string.IsNullOrWhiteSpace(option.Id)
+                || string.Equals(option.Id, QuickMenuPasteOptionIds.RegisterAsSnippet, StringComparison.Ordinal)
+                || IsQuickMenuPasteOptionEnabled(option.Id))
             .ToArray();
+    }
+
+    private IReadOnlyList<QuickMenuPasteOption> AppendHistoryRegistrationOption(
+        IReadOnlyList<QuickMenuPasteOption> options,
+        ClipboardSnapshot item,
+        string? plainText = null)
+    {
+        plainText ??= ClipboardBridge.GetPlainText(item);
+        if (string.IsNullOrWhiteSpace(plainText) || RequiresHistoryAccessUnlock)
+        {
+            return options;
+        }
+
+        return [.. options, new QuickMenuPasteOption(
+            Translate("RegisterAsSnippet"),
+            "\uE8EC",
+            () => ShowHistorySnippetEditorWindow(item.Id),
+            Id: QuickMenuPasteOptionIds.RegisterAsSnippet)];
     }
 
     public static string[] ExtractUrls(string text)
