@@ -971,17 +971,19 @@ public sealed class MainWindow : Window
         }
 
         // Page indexes stay fixed; only the sidebar placement is grouped:
-        // everyday pages, then settings pages, with donation and about pinned to the footer.
-        _navigationView.MenuItems.Add(_navClipboardHeader);
-        _navigationView.MenuItems.Add(_navItems[1]);
-        _navigationView.MenuItems.Add(_navItems[4]);
-        _navigationView.MenuItems.Add(new NavigationViewItemSeparator());
+        // settings pages, then clipboard pages, then donation and about. The pane footer is
+        // reserved for the hotkey and brand block, so nothing goes into FooterMenuItems.
         _navigationView.MenuItems.Add(_navSettingsHeader);
         _navigationView.MenuItems.Add(_navItems[0]);
         _navigationView.MenuItems.Add(_navItems[2]);
         _navigationView.MenuItems.Add(_navItems[3]);
-        _navigationView.FooterMenuItems.Add(_navItems[5]);
-        _navigationView.FooterMenuItems.Add(_navItems[6]);
+        _navigationView.MenuItems.Add(new NavigationViewItemSeparator());
+        _navigationView.MenuItems.Add(_navClipboardHeader);
+        _navigationView.MenuItems.Add(_navItems[1]);
+        _navigationView.MenuItems.Add(_navItems[4]);
+        _navigationView.MenuItems.Add(new NavigationViewItemSeparator());
+        _navigationView.MenuItems.Add(_navItems[5]);
+        _navigationView.MenuItems.Add(_navItems[6]);
 
         _contentScroller.MinWidth = ContentMinWidth;
         _contentScroller.Padding = new Thickness(36, 30, 36, 16);
