@@ -92,5 +92,6 @@ window.CLIPTON_EN = {
  "rel.more": "Full changelog",
  "faq7.q": "Where can I ask a question or report a bug?",
  "faq7.a": "Please use <a href=\"https://github.com/mmiyaji/clipton/issues\">GitHub Issues</a>.",
- "foot.author": "Author's website"
+ "foot.author": "Author's website",
+ "grp.docs": "Documents"
 };

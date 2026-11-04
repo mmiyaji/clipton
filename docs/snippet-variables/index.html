@@ -1,40 +1,43 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Clipton Snippet Variables</title>
-  <style>
-    body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; color: #1f1f1f; background: #f7f7f7; }
-    main { max-width: 980px; margin: 0 auto; padding: 48px 24px; line-height: 1.75; }
-    h1 { font-size: 2rem; margin: 0 0 12px; }
-    h2 { font-size: 1.15rem; margin-top: 32px; }
-    h3 { font-size: 1rem; margin-top: 24px; }
-    section { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 28px; }
-    table { width: 100%; border-collapse: collapse; margin: 16px 0 24px; }
-    th, td { border-bottom: 1px solid #e5e5e5; padding: 10px 8px; text-align: left; vertical-align: top; }
-    th { background: #f3f4f6; font-weight: 600; }
-    code { background: #f3f4f6; border-radius: 4px; padding: 2px 5px; font-family: Consolas, "Courier New", monospace; }
-    pre { overflow-x: auto; background: #1f1f1f; color: #f5f5f5; border-radius: 6px; padding: 14px; }
-    pre code { background: transparent; color: inherit; border-radius: 0; padding: 0; }
-    .updated, .note { color: #667085; font-size: .95rem; }
-    .copy-button { appearance: none; border: 1px solid #d0d5dd; border-radius: 4px; background: #fff; color: #1f1f1f; padding: 4px 10px; font: inherit; line-height: 1.3; cursor: pointer; }
-    .copy-button:hover { background: #f3f4f6; }
-    .copy-button:focus-visible { outline: 2px solid #0067c0; outline-offset: 2px; }
-    .copy-button.copied { border-color: #0067c0; color: #0067c0; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-en="Snippet Variables | Clipton">定型文の変数一覧 | Clipton</title>
+<meta name="description" content="Clipton の定型文で使える日付、時刻、ファイル名などの変数の一覧です。" data-en="Variables for dates, times, file names and more that you can use in Clipton snippets.">
+<link rel="canonical" href="https://clipton.ruhenheim.org/snippet-variables/">
+<link rel="alternate" hreflang="ja" href="https://clipton.ruhenheim.org/snippet-variables/?lang=ja">
+<link rel="alternate" hreflang="en" href="https://clipton.ruhenheim.org/snippet-variables/?lang=en">
+<link rel="alternate" hreflang="x-default" href="https://clipton.ruhenheim.org/snippet-variables/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://clipton.ruhenheim.org/snippet-variables/">
+<meta property="og:title" content="定型文の変数一覧 | Clipton">
+<meta property="og:description" content="Clipton の定型文で使える日付、時刻、ファイル名などの変数の一覧です。">
+<meta property="og:image" content="https://clipton.ruhenheim.org/images/site/history-ja.png">
+<meta property="og:locale" content="ja_JP">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#f3f3f3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#202020" media="(prefers-color-scheme: dark)">
+<link rel="icon" type="image/png" href="../images/clipton-icon.png">
+<link rel="stylesheet" <link rel="stylesheet" href="../assets/styles.css">
+<script>(function(){var r=document.documentElement,q=new URLSearchParams(location.search).get('lang'),s=null,t=null;try{s=localStorage.getItem('clipton-language');t=localStorage.getItem('clipton-theme')}catch(e){}if(t==='light'||t==='dark')r.dataset.theme=t;var l=q==='en'||q==='ja'?q:(s==='en'||s==='ja'?s:((navigator.language||'').toLowerCase().indexOf('ja')===0?'ja':'en'));r.dataset.lang=l;if(l==='en')r.classList.add('en-pending')})();</script>
 </head>
 <body>
-  <main>
-    <section>
-      <h1>Clipton Snippet Variables</h1>
-      <p class="updated">Last updated: 2026-06-01</p>
-
-      <h2>日本語</h2>
-      <p>登録単語の本文に <code>{{date}}</code> のような変数を書くと、登録単語を貼り付ける瞬間の値に展開されます。通常のクリップボード履歴貼り付けでは展開されません。</p>
+<a class="skip" href="#top" data-i18n="skip">本文へ移動</a><div class="tools"><div class="langmenu">
+<button id="lang" class="tool lang" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="lang-list" aria-label="言語: 日本語" title="Language / 言語">
+<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="10" cy="10" r="7.6"/><path d="M2.4 10h15.2M10 2.4c2.1 2.2 3.1 4.7 3.1 7.6s-1 5.4-3.1 7.6c-2.1-2.2-3.1-4.7-3.1-7.6s1-5.4 3.1-7.6z"/></svg>
+<span id="lang-label" lang="ja">日本語</span>
+<svg class="chev" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M3 4.5l3 3 3-3"/></svg>
+</button>
+<ul id="lang-list" class="lang-list" hidden><li><a href="#" hreflang="ja" lang="ja" data-lang="ja">日本語</a></li><li><a href="#" hreflang="en" lang="en" data-lang="en">English</a></li></ul></div>
+<button id="theme" class="tool theme" type="button" aria-label="表示モードを切り替え">
+<svg class="sun" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="3.6"/><path d="M10 1.8v2M10 16.2v2M1.8 10h2M16.2 10h2M4.2 4.2l1.4 1.4M14.4 14.4l1.4 1.4M4.2 15.8l1.4-1.4M14.4 5.6l1.4-1.4"/></svg>
+<svg class="moon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M16.6 12.4A7 7 0 0 1 7.6 3.4a7 7 0 1 0 9 9z"/></svg>
+</button></div><div class="shell"><aside><div class="brand"><img src="../images/clipton-icon.png" alt="" width="20" height="20">Clipton</div><a href="../" data-i18n="nav.overview">概要</a><div class="grp" data-i18n="grp.use">使い方</div><a href="../#features" data-i18n="nav.features">できること</a><a href="../#start" data-i18n="nav.start">始め方</a><a href="../#gallery" data-i18n="nav.gallery">画面</a><div class="grp" data-i18n="grp.ref">参考</div><a href="../#tips" data-i18n="nav.tips">Tips</a><a href="../#faq" data-i18n="nav.faq">よくある質問</a><a href="../#release" data-i18n="nav.release">更新情報</a><div class="grp" data-i18n="grp.docs">ドキュメント</div><a href="../privacy/" data-i18n="foot.privacy">プライバシーポリシー</a><a href="../terms/" data-i18n="foot.terms">利用規約</a><a class="on" aria-current="page" href="../snippet-variables/" data-i18n="foot.vars">定型文の変数一覧</a></aside><main id="top"><div data-lang-block="ja" lang="ja"><h1>定型文の変数一覧</h1><p class="dim">最終更新日: 2026-06-01</p><div class="card doc" style="margin-top:20px"><p>登録単語の本文に <code>{{date}}</code> のような変数を書くと、登録単語を貼り付ける瞬間の値に展開されます。通常のクリップボード履歴貼り付けでは展開されません。</p>
 
       <h3>基本変数</h3>
-      <table>
+      <div class="table-wrap"><table>
         <thead>
           <tr><th>変数</th><th>内容</th><th>例</th><th>コピー</th></tr>
         </thead>
@@ -70,7 +73,7 @@
           <tr><td><code>{{filecount}}</code></td><td>コピーされているファイル数</td><td><code>2</code></td><td><button class="copy-button" data-copy="{{filecount}}">コピー</button></td></tr>
           <tr><td><code>{{br}}</code> / <code>{{newline}}</code></td><td>改行</td><td>複数行テンプレート用</td><td><button class="copy-button" data-copy="{{br}}">コピー</button></td></tr>
         </tbody>
-      </table>
+      </table></div>
 
       <h3>日時フォーマット</h3>
       <p><code>{{date}}</code>, <code>{{time}}</code>, <code>{{datetime}}</code>, <code>{{weekday}}</code>, <code>{{tomorrow}}</code>, <code>{{utcdate}}</code> などの日時系変数は .NET の日時フォーマットを指定できます。<code>{{adddays:7|yyyy/MM/dd}}</code> のように、加算系は <code>|</code> の後ろへ形式を指定できます。</p>
@@ -89,12 +92,9 @@
 検証コード: {{randomnumber:6}}
 1行目{{br}}2行目</code></pre>
 
-      <p class="note">ファイル系変数は、ファイルをコピーした状態で登録単語を貼り付けると展開されます。複数ファイルは既定で改行区切りです。<code>{{filenames:", "}}</code> のように区切り文字を指定できます。未対応の変数は変換されず、そのまま貼り付けられます。コマンド実行や環境変数参照はサポートしていません。</p>
+      <p class="note">ファイル系変数は、ファイルをコピーした状態で登録単語を貼り付けると展開されます。複数ファイルは既定で改行区切りです。<code>{{filenames:", "}}</code> のように区切り文字を指定できます。未対応の変数は変換されず、そのまま貼り付けられます。コマンド実行や環境変数参照はサポートしていません。</p></div></div><div data-lang-block="en" lang="en"><h1>Snippet Variables</h1><p class="dim">Last updated: 2026-06-01</p><div class="card doc" style="margin-top:20px"><p>Snippet variables are expanded only when a registered snippet is pasted. Regular clipboard history paste operations do not expand variables.</p>
 
-      <h2>English</h2>
-      <p>Snippet variables are expanded only when a registered snippet is pasted. Regular clipboard history paste operations do not expand variables.</p>
-
-      <table>
+      <div class="table-wrap"><table>
         <thead>
           <tr><th>Variable</th><th>Description</th><th>Example</th><th>Copy</th></tr>
         </thead>
@@ -126,7 +126,7 @@
           <tr><td><code>{{filecount}}</code></td><td>Copied file count</td><td><code>2</code></td><td><button class="copy-button" data-copy="{{filecount}}">Copy</button></td></tr>
           <tr><td><code>{{br}}</code> / <code>{{newline}}</code></td><td>Line break</td><td>For multi-line snippets</td><td><button class="copy-button" data-copy="{{br}}">Copy</button></td></tr>
         </tbody>
-      </table>
+      </table></div>
 
       <p>Custom date and time formats are supported with either colon or function-style syntax. Offset variables use <code>|</code> before the output format, such as <code>{{adddays:7|yyyy/MM/dd}}</code>.</p>
       <pre><code>{{date:yyyy/MM/dd}}
@@ -135,10 +135,10 @@
 {{datetime:yyyy-MM-dd HH:mm:ss}}
 {{tomorrow:yyyy/MM/dd}}
 {{adddays:7|yyyy/MM/dd}}
-{{addminutes:30|HH:mm}}</code></pre>
-    </section>
-  </main>
-  <script>
+{{addminutes:30|HH:mm}}</code></pre></div></div><footer class="foot"><nav><a href="../privacy/" data-i18n="foot.privacy">プライバシーポリシー</a><a href="../terms/" data-i18n="foot.terms">利用規約</a><a href="../snippet-variables/" data-i18n="foot.vars">定型文の変数一覧</a><a href="https://github.com/mmiyaji/clipton">GitHub</a><a href="https://ruhenheim.org/" data-i18n="foot.author">作者のサイト</a></nav><p>© 2026 Ruhenheim / Clipton</p></footer></main></div>
+<script src="../assets/i18n-en.js"></script>
+<script src="../assets/site.js"></script>
+<script>
     async function copyText(value) {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(value);

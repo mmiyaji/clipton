@@ -43,9 +43,14 @@
     });
     document.querySelectorAll('[data-store-link]').forEach(function (link) { link.href = store[lang]; });
 
+    var titleElement = document.querySelector('title');
+    if (titleElement && titleElement._ja === undefined) titleElement._ja = document.title;
+    if (titleElement) document.title = lang === 'en' ? (titleElement.getAttribute('data-en') || titleElement._ja) : titleElement._ja;
     var descriptionMeta = document.querySelector('meta[name="description"]');
     if (descriptionMeta && descriptionMeta._ja === undefined) descriptionMeta._ja = descriptionMeta.content;
-    var description = lang === 'en' ? EN['meta.description'] : descriptionMeta && descriptionMeta._ja;
+    var description = lang === 'en'
+      ? (descriptionMeta && descriptionMeta.getAttribute('data-en')) || EN['meta.description']
+      : descriptionMeta && descriptionMeta._ja;
     if (description) {
       meta('meta[name="description"]', description);
       meta('meta[property="og:description"]', description);
