@@ -31,7 +31,7 @@ References:
 ## Asset Folders
 
 - Partner Center screenshots, draft mockups, and demo video deliverables are generated into `artifacts/store/`. The folder is not tracked by Git (`artifacts/` is ignored).
-- Website screenshots: `docs/images/store/`
+- Website screenshots: `docs/images/site/` (`<screen>-ja.png` / `<screen>-en.png`, copied from the Store captures)
 - Store text source: `docs/STORE_LISTING.md`
 
 Important: existing generated screenshots in `artifacts/store/` are useful as layout drafts, but they include marketing-style overlay text. Do not submit them as final screenshots unless they are replaced with actual app UI captures that follow Microsoft guidance.

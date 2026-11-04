@@ -485,4 +485,5 @@ $RECYCLE.BIN/
 !docs/images/clipton-readme-overview.png
 !docs/images/clipton-icon.png
 !docs/images/store/*.png
+!docs/images/site/*.png
 !packaging/Clipton.Package/Images/*.png
