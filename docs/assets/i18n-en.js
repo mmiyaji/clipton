@@ -6,6 +6,7 @@ window.CLIPTON_EN = {
  "nav.gallery": "Screens",
  "nav.tips": "Tips",
  "nav.faq": "FAQ",
+ "grp.guide": "Guide",
  "grp.use": "Using Clipton",
  "grp.ref": "Reference",
  "lead": "Clipton is a clipboard manager for Windows. It keeps what you copy as history and lets you paste from a menu that opens with a hotkey. Text you use often can be saved as snippets. History stays on this PC and is never sent to the cloud.",
