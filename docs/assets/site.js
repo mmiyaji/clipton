@@ -26,6 +26,8 @@
   function applyLanguage(lang) {
     root.lang = lang;
     root.dataset.lang = lang;
+    var sidebar = document.querySelector('aside');
+    if (sidebar) sidebar.setAttribute('aria-label', lang === 'en' ? 'Page navigation' : 'ページナビゲーション');
     document.querySelectorAll('[data-i18n]').forEach(function (element) { localize(element, lang); });
     document.querySelectorAll('img[data-shot]').forEach(function (image) {
       if (image._jaAlt === undefined) image._jaAlt = image.alt;
@@ -74,6 +76,7 @@
       lightbox = GLightbox({ selector: '.glightbox', touchNavigation: true, loop: true });
     }
     root.classList.remove('en-pending');
+    scheduleSelection();
   }
 
   function setUrlLanguage(lang) {
@@ -142,19 +145,71 @@
     });
   }
 
-  // Highlights the sidebar entry for the section currently at the top of the window.
+  // Keep the selected section stable while a sidebar link's smooth scroll is in progress.
   var navLinks = Array.prototype.slice.call(document.querySelectorAll('aside a[href^="#"]'));
-  var sections = navLinks.map(function (link) { return document.getElementById(link.getAttribute('href').slice(1)); });
-  function markCurrent() {
-    var current = 0;
-    sections.forEach(function (section, index) {
-      if (section && section.getBoundingClientRect().top <= 120) current = index;
+  var sections = navLinks.map(function (link) { return document.getElementById(link.getAttribute('href').slice(1)); })
+    .filter(function (section) { return section; });
+  var pendingSelection = false, clickedSection = null, settleTimer = 0;
+  function markSection(id) {
+    navLinks.forEach(function (link) {
+      var selected = link.getAttribute('href') === '#' + id;
+      link.classList.toggle('on', selected);
+      if (selected) link.setAttribute('aria-current', 'location');
+      else link.removeAttribute('aria-current');
     });
-    navLinks.forEach(function (link, index) { link.classList.toggle('on', index === current); });
   }
-  if (navLinks.length) {
-    window.addEventListener('scroll', markCurrent, { passive: true });
-    markCurrent();
+  function sectionInView() {
+    if (!sections.length) return null;
+    if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) return sections[sections.length - 1].id;
+    var current = sections[0].id;
+    sections.forEach(function (section) { if (section.getBoundingClientRect().top <= 120) current = section.id; });
+    return current;
+  }
+  function finishScroll() {
+    clearTimeout(settleTimer);
+    clickedSection = null;
+    var current = sectionInView();
+    if (current) markSection(current);
+  }
+  function scheduleSelection() {
+    if (pendingSelection) return;
+    pendingSelection = true;
+    requestAnimationFrame(function () {
+      pendingSelection = false;
+      if (!clickedSection) {
+        var current = sectionInView();
+        if (current) markSection(current);
+      }
+    });
+  }
+  if (sections.length) {
+    window.addEventListener('scroll', function () {
+      if (clickedSection) {
+        clearTimeout(settleTimer);
+        settleTimer = setTimeout(finishScroll, 160);
+      } else scheduleSelection();
+    }, { passive: true });
+    navLinks.forEach(function (link) {
+      link.addEventListener('click', function (event) {
+        if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+        var id = link.getAttribute('href').slice(1);
+        if (!document.getElementById(id)) return;
+        clickedSection = id;
+        markSection(id);
+        clearTimeout(settleTimer);
+        settleTimer = setTimeout(finishScroll, 600);
+      });
+    });
+    window.addEventListener('scrollend', finishScroll);
+    window.addEventListener('resize', scheduleSelection);
+    window.addEventListener('load', scheduleSelection);
+    window.addEventListener('hashchange', function () { if (!clickedSection) scheduleSelection(); });
+    window.addEventListener('wheel', finishScroll, { passive: true });
+    window.addEventListener('touchstart', finishScroll, { passive: true });
+    window.addEventListener('keydown', function (event) {
+      if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].indexOf(event.key) !== -1) finishScroll();
+    });
+    markSection(location.hash && document.getElementById(location.hash.slice(1)) ? location.hash.slice(1) : sectionInView());
   }
 
   applyLanguage(root.dataset.lang === 'en' ? 'en' : 'ja');

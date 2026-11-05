@@ -1,7 +1,6 @@
-// Checks the static site in docs/ before it is deployed: every local file a page references must exist,
-// and every data-i18n key used in the pages must have an English string.
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import './test-site-navigation.mjs';
 
 const root = path.resolve(process.argv[2] ?? 'docs');
 const pages = ['index.html', 'privacy/index.html', 'terms/index.html', 'snippet-variables/index.html'];
@@ -33,8 +32,29 @@ for (const page of pages) {
   }
 }
 
+const home = readFileSync(path.join(root, 'index.html'), 'utf8');
+const nav = home.match(/<aside\b[^>]*>([\s\S]*?)<\/aside>/)?.[1] ?? '';
+const navTargets = [...nav.matchAll(/href="#([^"]+)"/g)].map(([, id]) => id);
+const sectionIds = new Set([...home.matchAll(/<main\b[^>]*\bid="([^"]+)"|<h2\b[^>]*\bid="([^"]+)"/g)].map((match) => match[1] ?? match[2]));
+if (!nav.includes('data-i18n="grp.guide"') || !nav.includes('data-i18n="grp.ref"') || !nav.includes('data-i18n="grp.docs"')) {
+  problems.push('index.html: sidebar should have Guide, Reference, and Documents headings');
+}
+if (!nav.includes('href="#top"') || nav.indexOf('data-i18n="grp.guide"') > nav.indexOf('href="#top"')) {
+  problems.push('index.html: Overview should be a link under Guide');
+}
+for (const id of navTargets) if (!sectionIds.has(id)) problems.push(`index.html: sidebar target #${id} does not exist`);
+
+const navigationScript = readFileSync(path.join(root, 'assets/site.js'), 'utf8');
+for (const [description, pattern] of [
+  ['aria-current location state', /setAttribute\('aria-current', 'location'\)/],
+  ['modified click handling', /event\.ctrlKey \|\| event\.metaKey \|\| event\.shiftKey \|\| event\.altKey/],
+  ['smooth scroll settling', /setTimeout\(finishScroll, 160\)/],
+  ['resize and load refresh', /addEventListener\('resize', scheduleSelection\)[\s\S]*addEventListener\('load', scheduleSelection\)/],
+  ['history fragment refresh', /addEventListener\('hashchange'/],
+]) if (!pattern.test(navigationScript)) problems.push(`assets/site.js: missing ${description}`);
+
 if (problems.length) {
   console.error([...new Set(problems)].join('\n'));
   process.exit(1);
 }
-console.log(`Checked ${pages.length} pages in ${root}`);
+console.log(`Checked ${pages.length} pages and sidebar navigation in ${root}`);
