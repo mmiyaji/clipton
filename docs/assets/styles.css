@@ -1,5 +1,6 @@
 :root{--bg:#f3f3f3;--card:#ffffff;--card2:#f9f9f9;--fg:#1a1a1a;--muted:#444;--dim:#6b6b6b;--line:#e2e2e2;--accent:#005fb8;--accent-fg:#fff;--kbd:#ffffff;--kbd-edge:#c8c8c8;
-  --body:"Segoe UI Variable Text","Segoe UI","Yu Gothic UI","Hiragino Sans","Noto Sans JP",sans-serif;--display:"Segoe UI Variable Display","Segoe UI","Yu Gothic UI","Hiragino Sans","Noto Sans JP",sans-serif;--mono:"Cascadia Mono",Consolas,monospace;color-scheme:light}
+  --body:"Yu Gothic UI","Yu Gothic",Meiryo,"Noto Sans JP","Hiragino Kaku Gothic ProN",sans-serif;--display:"Yu Gothic UI","Yu Gothic",Meiryo,"Noto Sans JP","Hiragino Kaku Gothic ProN",sans-serif;--body-en:"Segoe UI Variable Text","Segoe UI","Yu Gothic UI",Meiryo,"Noto Sans JP",sans-serif;--display-en:"Segoe UI Variable Display","Segoe UI","Yu Gothic UI",Meiryo,"Noto Sans JP",sans-serif;--mono:"Cascadia Mono",Consolas,monospace;color-scheme:light}
+:root[data-lang="en"]{--body:var(--body-en);--display:var(--display-en)}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#202020;--card:#2b2b2b;--card2:#323232;--fg:#ffffff;--muted:#c5c5c5;--dim:#9a9a9a;--line:#3a3a3a;--accent:#60cdff;--accent-fg:#000;--kbd:#383838;--kbd-edge:#1a1a1a;color-scheme:dark}}
 :root[data-theme="dark"]{--bg:#202020;--card:#2b2b2b;--card2:#323232;--fg:#ffffff;--muted:#c5c5c5;--dim:#9a9a9a;--line:#3a3a3a;--accent:#60cdff;--accent-fg:#000;--kbd:#383838;--kbd-edge:#1a1a1a;color-scheme:dark}
 *{box-sizing:border-box}html{scroll-behavior:smooth}
