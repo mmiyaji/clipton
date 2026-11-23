@@ -21,7 +21,7 @@ internal sealed class QuickTextWindow : Window
     private readonly bool _editable;
     private bool _completed;
 
-    private QuickTextWindow(
+    public QuickTextWindow(
         string title,
         string text,
         string theme,
@@ -42,24 +42,17 @@ internal sealed class QuickTextWindow : Window
         };
     }
 
-    public static Task<string?> ShowAsync(
-        string title,
-        string text,
-        string theme,
-        bool editable,
-        string submitText,
-        string cancelText)
-    {
-        var window = new QuickTextWindow(title, text, theme, editable, submitText, cancelText);
-        window.PositionNearCursor();
-        window.Activate();
-        window._textBox.Focus(FocusState.Programmatic);
-        if (editable)
-        {
-            window._textBox.SelectionStart = window._textBox.Text.Length;
-        }
+    public Task<string?> Result => _completion.Task;
 
-        return window._completion.Task;
+    public void Show()
+    {
+        PositionNearCursor();
+        Activate();
+        _textBox.Focus(FocusState.Programmatic);
+        if (_editable)
+        {
+            _textBox.SelectionStart = _textBox.Text.Length;
+        }
     }
 
     private UIElement BuildContent(string title, string text, string theme, string submitText, string cancelText)

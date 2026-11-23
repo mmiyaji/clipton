@@ -55,6 +55,7 @@ public sealed class MainWindow : Window
     private readonly CliptonRuntime _runtime;
     private readonly Grid _root = new();
     private readonly SemaphoreSlim _dialogGate = new(1, 1);
+    private ContentDialog? _protectedDialog;
     private readonly NavigationView _navigationView = new();
     private readonly ScrollViewer _contentScroller = new();
     private readonly StackPanel _generalPage = SettingsPage();
@@ -470,6 +471,11 @@ public sealed class MainWindow : Window
     public async Task<bool> RequestHistoryAccessUnlockAsync(bool showWindow)
     {
         return await EnsureHistoryAccessUnlockedAsync(showWindow);
+    }
+
+    internal void DismissProtectedDialog()
+    {
+        _protectedDialog?.Hide();
     }
 
     public void HideHistoryPageForLock()
@@ -3860,6 +3866,7 @@ public sealed class MainWindow : Window
         }
 
         _snippetDeleteInProgress = true;
+        var version = _runtime.ProtectedAccessVersion;
         try
         {
             var selected = _selectedSnippet;
@@ -3868,8 +3875,9 @@ public sealed class MainWindow : Window
                 string.Format(_runtime.Translate("ConfirmDeleteSnippetMessage"), selected.DisplayName),
                 _runtime.Translate("Delete"),
                 _runtime.Translate("Cancel"),
-                critical: true);
-            if (!confirmed)
+                critical: true,
+                protectedVersion: version);
+            if (!confirmed || !_runtime.CanUseProtectedData(version))
             {
                 return;
             }
@@ -3899,6 +3907,7 @@ public sealed class MainWindow : Window
         }
 
         _historyItemDeleteInProgress = true;
+        var version = _runtime.ProtectedAccessVersion;
         try
         {
             var confirmed = await ConfirmDialogAsync(
@@ -3906,8 +3915,9 @@ public sealed class MainWindow : Window
                 _runtime.Translate("ConfirmDeleteHistoryItemMessage"),
                 _runtime.Translate("Delete"),
                 _runtime.Translate("Cancel"),
-                critical: true);
-            if (!confirmed)
+                critical: true,
+                protectedVersion: version);
+            if (!confirmed || !_runtime.CanUseProtectedData(version))
             {
                 return;
             }
@@ -4146,25 +4156,27 @@ public sealed class MainWindow : Window
 
     private async Task ExportHistoryAsync()
     {
+        var version = _runtime.ProtectedAccessVersion;
         var path = await SelectExportPathAsync($"clipton-history-{DateTime.Now:yyyyMMdd-HHmmss}{EncryptedExportFile.Extension}");
-        if (path is null)
+        if (path is null || version != _runtime.ProtectedAccessVersion)
         {
             return;
         }
 
         var encrypted = EncryptedExportFile.HasEncryptedExtension(path);
-        if (!await ConfirmProtectedDataExportAsync(encrypted ? "ConfirmExportHistoryEncryptedMessage" : "ConfirmExportHistoryMessage"))
+        if (!await ConfirmProtectedDataExportAsync(encrypted ? "ConfirmExportHistoryEncryptedMessage" : "ConfirmExportHistoryMessage", version))
         {
             return;
         }
 
-        var password = encrypted ? await PromptForExportPasswordAsync() : null;
-        if (encrypted && password is null)
+        var password = encrypted ? await PromptForExportPasswordAsync(version) : null;
+        if (version != _runtime.ProtectedAccessVersion || (encrypted && password is null))
         {
             return;
         }
 
         await RunImportExportActionAsync(
+            version,
             "ExportHistory",
             () => string.Format(
                 _runtime.Translate("ExportComplete"),
@@ -4173,90 +4185,84 @@ public sealed class MainWindow : Window
 
     private async Task ImportHistoryAsync()
     {
+        var version = _runtime.ProtectedAccessVersion;
         var path = await SelectImportPathAsync();
-        if (path is null)
+        if (path is null || version != _runtime.ProtectedAccessVersion)
         {
             return;
         }
 
         var encrypted = EncryptedExportFile.HasEncryptedExtension(path);
-        var password = encrypted ? await PromptForImportPasswordAsync() : null;
-        if (encrypted && password is null)
+        var password = encrypted ? await PromptForImportPasswordAsync(version) : null;
+        if (version != _runtime.ProtectedAccessVersion || (encrypted && password is null))
         {
             return;
         }
 
-        HistoryImportPreview preview;
         try
         {
-            preview = encrypted
-                ? _runtime.PreviewImportHistoryEncrypted(path, password!)
-                : _runtime.PreviewImportHistory(path);
+            var count = await _runtime.ImportHistoryWithConfirmationAsync(path, password, preview =>
+                ConfirmDialogAsync(
+                    _runtime.Translate("ConfirmImportHistoryTitle"),
+                    string.Format(
+                        _runtime.Translate("ConfirmImportHistoryPreviewMessage"),
+                        preview.SourceItems,
+                        preview.UniqueItems,
+                        preview.ReplacementItems,
+                        preview.RemovedByCapacityItems,
+                        preview.Capacity),
+                    _runtime.Translate("ImportHistory"),
+                    _runtime.Translate("Cancel"),
+                    protectedVersion: version));
+            if (count.HasValue)
+            {
+                await ShowMessageDialogAsync(
+                    _runtime.Translate("ImportHistory"),
+                    string.Format(_runtime.Translate("ImportComplete"), count.Value),
+                    _runtime.Translate("Close"),
+                    version);
+            }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException or ArgumentException or FormatException)
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException or ArgumentException or FormatException)
         {
             await ShowMessageDialogAsync(
                 _runtime.Translate("ImportHistory"),
                 string.Format(_runtime.Translate("ImportExportFailed"), ex.Message),
-                _runtime.Translate("Close"));
-            return;
+                _runtime.Translate("Close"),
+                version);
         }
-
-        if (!await ConfirmDialogAsync(
-                _runtime.Translate("ConfirmImportHistoryTitle"),
-                string.Format(
-                    _runtime.Translate("ConfirmImportHistoryPreviewMessage"),
-                    preview.SourceItems,
-                    preview.UniqueItems,
-                    preview.ReplacementItems,
-                    preview.RemovedByCapacityItems,
-                    preview.Capacity),
-                _runtime.Translate("ImportHistory"),
-                _runtime.Translate("Cancel")))
-        {
-            return;
-        }
-
-        await RunImportExportActionAsync(
-            "ImportHistory",
-            () =>
-            {
-                var count = encrypted
-                    ? _runtime.ImportHistoryEncrypted(path, password!)
-                    : _runtime.ImportHistory(path);
-                RefreshItems();
-                return string.Format(_runtime.Translate("ImportComplete"), count);
-            });
     }
 
     private async Task ExportSnippetsAsync()
     {
+        var version = _runtime.ProtectedAccessVersion;
         var path = await SelectExportPathAsync($"clipton-snippets-{DateTime.Now:yyyyMMdd-HHmmss}{EncryptedExportFile.Extension}");
-        if (path is null)
+        if (path is null || version != _runtime.ProtectedAccessVersion)
         {
             return;
         }
 
         var encrypted = EncryptedExportFile.HasEncryptedExtension(path);
-        if (!await ConfirmProtectedDataExportAsync(encrypted ? "ConfirmExportSnippetsEncryptedMessage" : "ConfirmExportSnippetsMessage"))
+        if (!await ConfirmProtectedDataExportAsync(encrypted ? "ConfirmExportSnippetsEncryptedMessage" : "ConfirmExportSnippetsMessage", version))
         {
             return;
         }
 
-        var password = encrypted ? await PromptForExportPasswordAsync() : null;
-        if (encrypted && password is null)
+        var password = encrypted ? await PromptForExportPasswordAsync(version) : null;
+        if (version != _runtime.ProtectedAccessVersion || (encrypted && password is null))
         {
             return;
         }
 
         await RunImportExportActionAsync(
+            version,
             "ExportSnippets",
             () => string.Format(
                 _runtime.Translate("ExportComplete"),
                 encrypted ? _runtime.ExportSnippetsEncrypted(path, password!) : _runtime.ExportSnippets(path)));
     }
 
-    private async Task<bool> ConfirmProtectedDataExportAsync(string messageKey)
+    private async Task<bool> ConfirmProtectedDataExportAsync(string messageKey, long version)
     {
         if (_root.XamlRoot is null)
         {
@@ -4271,7 +4277,8 @@ public sealed class MainWindow : Window
                 title,
                 message,
                 _runtime.Translate("Export"),
-                _runtime.Translate("Cancel"));
+                _runtime.Translate("Cancel"),
+                protectedVersion: version);
         }
 
         var pinBox = new PasswordBox
@@ -4330,7 +4337,7 @@ public sealed class MainWindow : Window
         };
 
         pinBox.Loaded += (_, _) => pinBox.Focus(FocusState.Programmatic);
-        await ShowContentDialogAsync(dialog);
+        confirmed = await ShowContentDialogAsync(dialog, version) == ContentDialogResult.Primary && confirmed;
         UpdateHistoryAccessLockUi();
         if (confirmed)
         {
@@ -4340,7 +4347,7 @@ public sealed class MainWindow : Window
         return confirmed;
     }
 
-    private async Task<string?> PromptForExportPasswordAsync()
+    private async Task<string?> PromptForExportPasswordAsync(long version)
     {
         if (_root.XamlRoot is null)
         {
@@ -4414,11 +4421,10 @@ public sealed class MainWindow : Window
         };
 
         passwordBox.Loaded += (_, _) => passwordBox.Focus(FocusState.Programmatic);
-        await ShowContentDialogAsync(dialog);
-        return password;
+        return await ShowContentDialogAsync(dialog, version) == ContentDialogResult.Primary ? password : null;
     }
 
-    private async Task<string?> PromptForImportPasswordAsync()
+    private async Task<string?> PromptForImportPasswordAsync(long version)
     {
         if (_root.XamlRoot is null)
         {
@@ -4475,21 +4481,21 @@ public sealed class MainWindow : Window
         };
 
         passwordBox.Loaded += (_, _) => passwordBox.Focus(FocusState.Programmatic);
-        await ShowContentDialogAsync(dialog);
-        return password;
+        return await ShowContentDialogAsync(dialog, version) == ContentDialogResult.Primary ? password : null;
     }
 
     private async Task ImportSnippetsAsync()
     {
+        var version = _runtime.ProtectedAccessVersion;
         var path = await SelectImportPathAsync();
-        if (path is null)
+        if (path is null || version != _runtime.ProtectedAccessVersion)
         {
             return;
         }
 
         var encrypted = EncryptedExportFile.HasEncryptedExtension(path);
-        var password = encrypted ? await PromptForImportPasswordAsync() : null;
-        if (encrypted && password is null)
+        var password = encrypted ? await PromptForImportPasswordAsync(version) : null;
+        if (version != _runtime.ProtectedAccessVersion || (encrypted && password is null))
         {
             return;
         }
@@ -4506,7 +4512,8 @@ public sealed class MainWindow : Window
             await ShowMessageDialogAsync(
                 _runtime.Translate("ImportSnippets"),
                 string.Format(_runtime.Translate("ImportExportFailed"), ex.Message),
-                _runtime.Translate("Close"));
+                _runtime.Translate("Close"),
+                version);
             return;
         }
 
@@ -4518,12 +4525,14 @@ public sealed class MainWindow : Window
                     preview.ValidItems,
                     preview.ReplacementItems),
                 _runtime.Translate("ImportSnippets"),
-                _runtime.Translate("Cancel")))
+                _runtime.Translate("Cancel"),
+                protectedVersion: version))
         {
             return;
         }
 
         await RunImportExportActionAsync(
+            version,
             "ImportSnippets",
             () =>
             {
@@ -4577,38 +4586,59 @@ public sealed class MainWindow : Window
         return folder?.Path;
     }
 
-    private async Task RunImportExportActionAsync(string titleKey, Func<string> action)
+    private async Task RunImportExportActionAsync(long version, string titleKey, Func<string> action)
     {
+        if (version != _runtime.ProtectedAccessVersion)
+        {
+            return;
+        }
+
         try
         {
             await ShowMessageDialogAsync(
                 _runtime.Translate(titleKey),
                 action(),
-                _runtime.Translate("Close"));
+                _runtime.Translate("Close"),
+                version);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException or ArgumentException or FormatException)
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException or ArgumentException or FormatException)
         {
             await ShowMessageDialogAsync(
                 _runtime.Translate(titleKey),
                 string.Format(_runtime.Translate("ImportExportFailed"), ex.Message),
-                _runtime.Translate("Close"));
+                _runtime.Translate("Close"),
+                version);
         }
     }
 
-    private async Task<ContentDialogResult> ShowContentDialogAsync(ContentDialog dialog)
+    private async Task<ContentDialogResult> ShowContentDialogAsync(ContentDialog dialog, long? protectedVersion = null)
     {
         await _dialogGate.WaitAsync();
         try
         {
-            return await dialog.ShowAsync();
+            if (protectedVersion is not null)
+            {
+                if (protectedVersion != _runtime.ProtectedAccessVersion)
+                {
+                    return ContentDialogResult.None;
+                }
+
+                _protectedDialog = dialog;
+            }
+
+            var result = await dialog.ShowAsync();
+            return protectedVersion is null || protectedVersion == _runtime.ProtectedAccessVersion
+                ? result
+                : ContentDialogResult.None;
         }
         finally
         {
+            _protectedDialog = null;
             _dialogGate.Release();
         }
     }
 
-    private async Task ShowMessageDialogAsync(string title, string message, string closeText)
+    private async Task ShowMessageDialogAsync(string title, string message, string closeText, long? protectedVersion = null)
     {
         if (_root.XamlRoot is null)
         {
@@ -4628,7 +4658,7 @@ public sealed class MainWindow : Window
             XamlRoot = _root.XamlRoot,
             RequestedTheme = DialogTheme
         };
-        await ShowContentDialogAsync(dialog);
+        await ShowContentDialogAsync(dialog, protectedVersion);
     }
 
     private async Task<bool> PromptForHistoryAccessUnlockAsync()
@@ -4844,7 +4874,7 @@ public sealed class MainWindow : Window
         _runtime.ExitApplication();
     }
 
-    private async Task<bool> ConfirmDialogAsync(string title, string message, string primaryText, string closeText, bool critical = false)
+    private async Task<bool> ConfirmDialogAsync(string title, string message, string primaryText, string closeText, bool critical = false, long? protectedVersion = null)
     {
         if (_root.XamlRoot is null)
         {
@@ -4878,11 +4908,12 @@ public sealed class MainWindow : Window
             dialog.PrimaryButtonStyle = style;
         }
 
-        return await ShowContentDialogAsync(dialog) == ContentDialogResult.Primary;
+        return await ShowContentDialogAsync(dialog, protectedVersion) == ContentDialogResult.Primary;
     }
 
     private async Task ShowHistoryImagePreviewAsync(HistoryItemViewModel item)
     {
+        var version = _runtime.ProtectedAccessVersion;
         var imageBytes = _runtime.GetHistoryImagePreviewBytes(item.Id);
         if (_root.XamlRoot is null
             || imageBytes is not { Length: > 0 })
@@ -4899,6 +4930,11 @@ public sealed class MainWindow : Window
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
+
+        if (!_runtime.CanUseProtectedData(version))
+        {
+            return;
+        }
 
         var frame = new Border
         {
@@ -4924,7 +4960,7 @@ public sealed class MainWindow : Window
             RequestedTheme = DialogTheme
         };
 
-        await ShowContentDialogAsync(dialog);
+        await ShowContentDialogAsync(dialog, version);
     }
 
     private void SelectSnippet(SnippetItemViewModel selected)
@@ -5301,6 +5337,12 @@ public sealed class MainWindow : Window
 
     private async Task OpenSnippetEditorAsync(SnippetItemViewModel? existing, string folder, string name, string text)
     {
+        var version = _runtime.ProtectedAccessVersion;
+        if (!_runtime.CanUseProtectedData(version))
+        {
+            return;
+        }
+
         var folderBox = SnippetEditorTextBox(folder, _runtime.Translate("SnippetFolder"));
         var nameBox = SnippetEditorTextBox(name, _runtime.Translate("SnippetName"));
         var textBox = SnippetEditorTextBox(text, _runtime.Translate("SnippetText"));
@@ -5365,8 +5407,8 @@ public sealed class MainWindow : Window
             nameBox.SelectAll();
         };
 
-        var result = await ShowContentDialogAsync(dialog);
-        if (result != ContentDialogResult.Primary)
+        var result = await ShowContentDialogAsync(dialog, version);
+        if (result != ContentDialogResult.Primary || !_runtime.CanUseProtectedData(version))
         {
             return;
         }
@@ -5380,31 +5422,46 @@ public sealed class MainWindow : Window
         }
 
         var newFolder = parsed.Folder;
-        var overwritesDifferentSnippet = _runtime.Snippets.Find(newFolder, newName) is not null
-            && (existing is null
-                || !string.Equals(existing.Name, newName, StringComparison.Ordinal)
-                || !string.Equals(existing.Folder, newFolder, StringComparison.Ordinal));
+        var original = existing is null ? null : _runtime.Snippets.Find(existing.Folder, existing.Name);
+        var destination = _runtime.Snippets.Find(newFolder, newName);
+        var overwritesDifferentSnippet = destination is not null && !ReferenceEquals(destination, original);
         if (overwritesDifferentSnippet)
         {
             var confirmed = await ConfirmDialogAsync(
                 _runtime.Translate("ConfirmOverwriteSnippetTitle"),
                 string.Format(_runtime.Translate("ConfirmOverwriteSnippetMessage"), new Snippet(newName, newText, newFolder).DisplayName),
                 _runtime.Translate("Save"),
-                _runtime.Translate("Cancel"));
+                _runtime.Translate("Cancel"),
+                protectedVersion: version);
             if (!confirmed)
             {
                 return;
             }
         }
 
-        if (existing is not null
-            && (!string.Equals(existing.Name, newName, StringComparison.Ordinal)
-                || !string.Equals(existing.Folder, newFolder, StringComparison.Ordinal)))
+        if (!_runtime.CanUseProtectedData(version))
         {
-            _runtime.RemoveSnippet(existing.Folder, existing.Name);
+            return;
         }
 
-        _runtime.UpsertSnippet(newFolder, newName, newText);
+        try
+        {
+            _runtime.SaveSnippet(new Snippet(newName, newText, newFolder), original);
+        }
+        catch (InvalidOperationException) when (!_runtime.CanUseProtectedData(version))
+        {
+            return;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+        {
+            await ShowMessageDialogAsync(
+                _runtime.Translate("SnippetEditor"),
+                string.Format(_runtime.Translate("ImportExportFailed"), ex.Message),
+                _runtime.Translate("Close"),
+                version);
+            return;
+        }
+
         _selectedSnippet = SnippetItemViewModel.FromSnippet(new Snippet(newName, newText, newFolder));
         UpdateSelectedSnippetText();
         RefreshItems();

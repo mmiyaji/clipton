@@ -38,17 +38,25 @@ internal static class NativeClipboardReader
     private static readonly int s_pngFormat = RegisterClipboardFormat("PNG");
     private static readonly UTF8Encoding s_utf8 = new(false, false);
 
-    internal static ClipboardSnapshot? Capture()
+    internal static ClipboardSnapshot? Capture(Func<IntPtr, uint, bool>? acceptOwner = null)
     {
-        var sequenceBefore = GetClipboardSequenceNumber();
         if (!OpenClipboard(IntPtr.Zero))
         {
             throw ClipboardFailure("OpenClipboard failed");
         }
 
         RawClipboardData raw;
+        uint sequenceBefore;
         try
         {
+            sequenceBefore = GetClipboardSequenceNumber();
+            // Inspect the owner while this read holds the clipboard open. Another
+            // process cannot replace the payload between attribution and copying.
+            if (acceptOwner is not null && !acceptOwner(NativeMethods.GetClipboardOwner(), sequenceBefore))
+            {
+                return null;
+            }
+
             raw = CopySupportedFormats();
         }
         finally

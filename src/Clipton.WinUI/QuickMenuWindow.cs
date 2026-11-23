@@ -1287,23 +1287,25 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
         return false;
     }
 
-    private void InvokeImagePreviewCopy(bool cut)
+    private async void InvokeImagePreviewCopy(bool cut)
     {
         var item = _imagePreviewItem;
         var action = cut ? item?.CutInvoke : item?.CopyInvoke;
-        if (action is null)
+        if (action is null || !await action() || _dismissed || !ReferenceEquals(item, _imagePreviewItem))
         {
             return;
         }
 
-        action();
         ShowImagePreviewFeedback(cut ? "ImagePreviewFeedbackCut" : "ImagePreviewFeedbackCopy");
         if (cut)
         {
             EnqueueAfterDelay(450, () =>
             {
-                HideImagePreview();
-                Dismiss();
+                if (!_dismissed && ReferenceEquals(item, _imagePreviewItem))
+                {
+                    HideImagePreview();
+                    Dismiss();
+                }
             });
         }
     }
@@ -2461,8 +2463,8 @@ public sealed record QuickMenuItem(
     string? IconFontFamily = null,
     byte[]? IconImageBytes = null,
     Func<byte[]?>? PreviewImageBytesProvider = null,
-    Action? CopyInvoke = null,
-    Action? CutInvoke = null,
+    Func<Task<bool>>? CopyInvoke = null,
+    Func<Task<bool>>? CutInvoke = null,
     Action? EditInvoke = null,
     Action? PreviewInvoke = null,
     string? RevealedTitle = null,

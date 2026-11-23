@@ -6,6 +6,140 @@ namespace Clipton.WinUI.Tests;
 
 public sealed class RuntimeSafetyRegressionTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ImportHistory_PreviewIncludesUnloadedMatchesAndCapacityEvictions(bool encrypted)
+    {
+        var root = CreateTestRoot();
+        Directory.CreateDirectory(root);
+        new JsonSettingsStore(Path.Combine(root, "settings.json")).Save(new CliptonSettings { MaxHistoryItems = 30 });
+        var store = new EncryptedHistoryStore(Path.Combine(root, "history.dat"));
+        store.Save(Enumerable.Range(0, 30).Select(index => TextSnapshot($"item-{index}", $"value-{index}")));
+        using var runtime = new CliptonRuntime(root, isSafeMode: true);
+        var path = Path.Combine(root, encrypted ? "import.clipton" : "import.json");
+        const string password = "test-password";
+        var dto = new
+        {
+            Version = 1,
+            Items = new[] { "value-20", "new value", "new value", "value-0", "another new value" }
+                .Select((value, index) => new
+                {
+                    CapturedAt = DateTimeOffset.UnixEpoch.AddSeconds(index),
+                    Formats = new[] { "Text" },
+                    Text = value,
+                    FilePaths = Array.Empty<string>()
+                }).ToArray()
+        };
+        if (encrypted)
+        {
+            EncryptedExportFile.Write(path, "history", dto, password, new JsonSerializerOptions());
+        }
+        else
+        {
+            File.WriteAllBytes(path, JsonSerializer.SerializeToUtf8Bytes(dto));
+        }
+
+        Assert.Equal(10, runtime.History.Items.Count);
+        var preview = encrypted ? runtime.PreviewImportHistoryEncrypted(path, password) : runtime.PreviewImportHistory(path);
+        Assert.Equal(new HistoryImportPreview(5, 4, 2, 2, 30), preview);
+        Assert.Equal(10, runtime.History.Items.Count);
+        Assert.Equal(4, encrypted ? runtime.ImportHistoryEncrypted(path, password) : runtime.ImportHistory(path));
+
+        var saved = store.LoadAllStrict();
+        Assert.Equal(30, saved.Count);
+        Assert.Equal(new[] { "value-20", "new value", "value-0", "another new value", "value-1" },
+            saved.Take(5).Select(item => item.Text));
+        Assert.Equal(DateTimeOffset.UnixEpoch.AddSeconds(1), saved[1].CapturedAt);
+        Assert.Equal("value-27", saved[^1].Text);
+        Assert.Equal(30 - runtime.History.Items.Count, runtime.UnloadedPersistedHistoryCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExportSizeLimit_UsesFinalFileLengthAndPreservesExistingDestination(bool encrypted)
+    {
+        var root = CreateTestRoot();
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, encrypted ? "backup.clipton" : "backup.json");
+        const string password = "test-password";
+        const string data = "backup content";
+        var options = new JsonSerializerOptions();
+        byte[] sentinel = [1, 3, 3, 7];
+        File.WriteAllBytes(path, sentinel);
+
+        void Write(long maxBytes)
+        {
+            if (encrypted)
+            {
+                EncryptedExportFile.Write(path, "history", data, password, options, maxBytes);
+            }
+            else
+            {
+                EncryptedExportFile.WriteBounded(path, data, options, maxBytes);
+            }
+        }
+
+        // The encrypted payload's Base64 fits 64 bytes, but its full envelope exceeds that limit.
+        Assert.Throws<InvalidOperationException>(() => Write(encrypted ? 64 : 15));
+        Assert.Equal(sentinel, File.ReadAllBytes(path));
+        Assert.Single(Directory.EnumerateFiles(root));
+
+        Write(encrypted ? 1024 : 16);
+        Assert.Equal(data, encrypted
+            ? EncryptedExportFile.Read<string>(path, "history", password, options)
+            : JsonSerializer.Deserialize<string>(File.ReadAllBytes(path), options));
+    }
+
+    [Fact]
+    public async Task ImportHistory_ReconfirmsChangedEvictionCountAndKeepsSelectedBackup()
+    {
+        var root = CreateTestRoot();
+        using var runtime = new CliptonRuntime(root, isSafeMode: true);
+        runtime.SetMaxHistoryItems(2);
+        runtime.History.Add(TextSnapshot("first", "first"));
+        var path = Path.Combine(root, "backup.json");
+        File.WriteAllText(path, """{"Items":[{"Text":"imported"}]}""");
+        var confirmations = new List<int>();
+
+        var count = await runtime.ImportHistoryWithConfirmationAsync(path, null, preview =>
+        {
+            confirmations.Add(preview.RemovedByCapacityItems);
+            if (confirmations.Count == 1)
+            {
+                runtime.History.Add(TextSnapshot("second", "second"));
+                File.WriteAllText(path, """{"Items":[{"Text":"different backup"}]}""");
+            }
+
+            return Task.FromResult(true);
+        });
+
+        Assert.Equal(1, count);
+        Assert.Equal([0, 1], confirmations);
+        Assert.Equal(["imported", "second"], runtime.History.Items.Select(item => item.Text));
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("Vault.exe", false)]
+    [InlineData("editor.exe", true)]
+    public void CaptureWithExclusionsRequiresKnownAllowedOwner(string? owner, bool allowed)
+    {
+        Assert.Equal(allowed, CliptonRuntime.CanCaptureFrom(["Vault*"], owner));
+        Assert.True(CliptonRuntime.CanCaptureFrom([], owner));
+    }
+
+    [Theory]
+    [InlineData(42u, 42u, true)]
+    [InlineData(42u, 43u, false)]
+    [InlineData(42u, 0u, false)]
+    [InlineData(0u, 0u, false)]
+    public void PasteRequiresConfirmedPublishedSequence(uint published, uint current, bool allowed)
+    {
+        Assert.Equal(allowed, CliptonRuntime.IsPublishedClipboardCurrent(published, current));
+    }
+
     [Fact]
     public void ImportHistory_ReplacesEveryExternalIdBeforePersistence()
     {
