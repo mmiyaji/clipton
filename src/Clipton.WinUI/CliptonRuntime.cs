@@ -81,6 +81,7 @@ public sealed class CliptonRuntime : IDisposable
     private long _lastImmediateHistorySaveTick;
     private int _persistedHistoryCount;
     private int _loadedPersistedHistoryCount;
+    private readonly HashSet<string> _loadedPersistedHistoryIds = new(StringComparer.Ordinal);
     private HotkeyMessageWindow? _messageWindow;
     private NativeTrayIcon? _notifyIcon;
     private StoreUpdateMonitor? _storeUpdateMonitor;
@@ -145,6 +146,7 @@ public sealed class CliptonRuntime : IDisposable
             _persistedHistoryCount = _historyStore.Count();
             var snapshots = _historyStore.LoadRecent(Math.Min(Settings.MaxHistoryItems, ResidentHistoryMenuCount));
             _loadedPersistedHistoryCount = snapshots.Count;
+            _loadedPersistedHistoryIds.UnionWith(snapshots.Select(item => item.Id));
             foreach (var snapshot in snapshots.Reverse())
             {
                 History.Add(ApplySourceMetadataPolicy(snapshot));
@@ -845,6 +847,7 @@ public sealed class CliptonRuntime : IDisposable
             _deletedHistoryIds.Clear();
             _persistedHistoryCount = 0;
             _loadedPersistedHistoryCount = 0;
+            _loadedPersistedHistoryIds.Clear();
             Settings.PinnedHistoryIds = [];
             SaveHistory();
             ClearHistoryImageFiles();
@@ -1370,6 +1373,11 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         _loadedPersistedHistoryCount = Settings.PersistEncryptedHistory ? History.Items.Count : 0;
+        _loadedPersistedHistoryIds.Clear();
+        if (Settings.PersistEncryptedHistory)
+        {
+            _loadedPersistedHistoryIds.UnionWith(History.Items.Select(item => item.Id));
+        }
         PruneHistoryImageFiles(History.Items.Select(item => item.Id).ToHashSet(StringComparer.Ordinal));
         _mainWindow?.RefreshItems();
         return plan.ImportedCount;
@@ -1556,6 +1564,7 @@ public sealed class CliptonRuntime : IDisposable
         _deletedHistoryIds.Clear();
         _persistedHistoryCount = 0;
         _loadedPersistedHistoryCount = 0;
+        _loadedPersistedHistoryIds.Clear();
         Settings.PinnedHistoryIds = [];
         SaveSettings();
         SaveHistory();
@@ -2066,9 +2075,12 @@ public sealed class CliptonRuntime : IDisposable
             origin.WindowTitle);
     }
 
-    private ClipboardSnapshot ApplySourceMetadataPolicy(ClipboardSnapshot snapshot)
+    private ClipboardSnapshot ApplySourceMetadataPolicy(ClipboardSnapshot snapshot) =>
+        ApplySourceMetadataPolicy(snapshot, Settings.SaveHistorySourceMetadata);
+
+    private static ClipboardSnapshot ApplySourceMetadataPolicy(ClipboardSnapshot snapshot, bool saveSourceMetadata)
     {
-        if (Settings.SaveHistorySourceMetadata
+        if (saveSourceMetadata
             || (string.IsNullOrWhiteSpace(snapshot.SourceApplicationName)
                 && string.IsNullOrWhiteSpace(snapshot.SourceWindowTitle)))
         {
@@ -2733,6 +2745,7 @@ public sealed class CliptonRuntime : IDisposable
                 }
 
                 _loadedPersistedHistoryCount += snapshots.Count;
+                _loadedPersistedHistoryIds.UnionWith(snapshots.Select(item => item.Id));
             }))
             {
                 break;
@@ -2778,6 +2791,84 @@ public sealed class CliptonRuntime : IDisposable
             .Concat(persist ? _historyStore.GetOrderedIds().Skip(loaded) : [])
             .Where(id => !deleted.Contains(id)).Distinct(StringComparer.Ordinal).Take(capacity).ToArray();
         return (ids, resident.ToDictionary(item => item.Id, StringComparer.Ordinal));
+    }
+
+    // Capture UI-owned inputs before the worker begins enumerating or reading the store.
+    internal IEnumerable<ClipboardSnapshot> GetHistorySearchCandidates(CancellationToken cancellationToken)
+    {
+        if (RequiresHistoryAccessUnlock)
+        {
+            return [];
+        }
+
+        var resident = History.Items.ToArray();
+        var excludedIds = _deletedHistoryIds.ToHashSet(StringComparer.Ordinal);
+        var loadedPersistedIds = _loadedPersistedHistoryIds.ToArray();
+        var includePersisted = Settings.PersistEncryptedHistory && UnloadedPersistedHistoryCount > 0;
+        var capacity = Settings.MaxHistoryItems;
+        var saveSourceMetadata = Settings.SaveHistorySourceMetadata;
+        return EnumerateCandidates();
+
+        IEnumerable<ClipboardSnapshot> EnumerateCandidates()
+        {
+            foreach (var snapshot in resident)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (excludedIds.Add(snapshot.Id))
+                {
+                    yield return ApplySourceMetadataPolicy(snapshot, saveSourceMetadata);
+                    if (--capacity == 0)
+                    {
+                        yield break;
+                    }
+                }
+            }
+
+            if (!includePersisted)
+            {
+                yield break;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            // A background write can move the persisted boundary while this query runs.
+            // Skip consumed ids instead of applying an old offset to a new manifest.
+            excludedIds.UnionWith(loadedPersistedIds);
+            foreach (var id in _historyStore.GetOrderedIds())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (excludedIds.Add(id) && _historyStore.LoadMenuSnapshot(id) is { } snapshot)
+                {
+                    yield return ApplySourceMetadataPolicy(snapshot, saveSourceMetadata);
+                    if (--capacity == 0)
+                    {
+                        yield break;
+                    }
+                }
+            }
+        }
+    }
+
+    internal async Task<byte[]?> LoadHistorySearchThumbnailAsync(string id)
+    {
+        var version = ProtectedAccessVersion;
+        if (!CanUseProtectedData(version))
+        {
+            return null;
+        }
+
+        var cacheVersion = _historyImageCacheVersion;
+        try
+        {
+            var bytes = await Task.Run(() => _historyStore.LoadItem(id) is { ImagePng.Length: > 0 } item
+                ? GetQuickMenuThumbnailBytes(item, cacheVersion)
+                : null);
+            return CanUseProtectedData(version) ? bytes : null;
+        }
+        catch (Exception exception)
+        {
+            AppDiagnostics.Log(exception, "Settings history thumbnail");
+            return null;
+        }
     }
 
     internal IReadOnlyList<QuickMenuItem> SearchQuickMenuItems(string query, CancellationToken cancellationToken)
@@ -3195,11 +3286,18 @@ public sealed class CliptonRuntime : IDisposable
         }
 
         _persistedHistoryCount = _historyStore.Count();
-        TrimLoadedHistoryAfterPersist();
+        var trimmed = TrimLoadedHistoryAfterPersist();
         // A save replaces the consumed disk prefix with this plan's resident
         // snapshots. Captures/deletions can change the live list while it saves.
-        _loadedPersistedHistoryCount = plan.Snapshots
-            .TakeWhile(item => History.Find(item.Id) is not null || _deletedHistoryIds.Contains(item.Id)).Count();
+        _loadedPersistedHistoryIds.Clear();
+        _loadedPersistedHistoryIds.UnionWith(plan.Snapshots
+            .TakeWhile(item => History.Find(item.Id) is not null || _deletedHistoryIds.Contains(item.Id))
+            .Select(item => item.Id));
+        _loadedPersistedHistoryCount = _loadedPersistedHistoryIds.Count;
+        if (trimmed)
+        {
+            _mainWindow?.RefreshItems();
+        }
     }
 
     private sealed record HistoryPersistPlan(
@@ -3265,16 +3363,16 @@ public sealed class CliptonRuntime : IDisposable
         });
     }
 
-    private void TrimLoadedHistoryAfterPersist()
+    private bool TrimLoadedHistoryAfterPersist()
     {
         if (!Settings.PersistEncryptedHistory || History.Items.Count <= ResidentHistoryMenuCount)
         {
-            return;
+            return false;
         }
 
         History.UnloadOlderBeyond(ResidentHistoryMenuCount);
         PruneHistoryImageFiles(History.Items.Select(item => item.Id).ToHashSet(StringComparer.Ordinal));
-        _mainWindow?.RefreshItems();
+        return true;
     }
 
     private bool ShouldFlushResidentHistory()

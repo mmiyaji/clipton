@@ -195,6 +195,70 @@ public sealed class LargeHistoryMenuTests
         Assert.Null(snapshot.ImagePng);
     }
 
+    [Fact]
+    public async Task SettingsSearch_FindsOlderMatchesAndNewCapturesWithoutChangingResidentPaging()
+    {
+        var root = Seed(120, i => i % 2 == 0 ? $"needle {i}" : $"unrelated {i}");
+        using var runtime = new CliptonRuntime(root, isSafeMode: true);
+        runtime.History.Add(new ClipboardSnapshot("fresh", DateTimeOffset.UtcNow, [ClipboardFormatKind.Text], text: "needle fresh"));
+        runtime.RemoveHistoryItem("item-116");
+        var filter = SearchFilter.Parse("needle type:text");
+        var candidates = runtime.GetHistorySearchCandidates(default);
+
+        var matches = await Task.Run(() => candidates
+            .Where(item => MainWindow.HistoryMatchesSearch(filter, item, new HashSet<string>(),
+                new Dictionary<ClipboardFormatKind, string>(), new Dictionary<string, string?>())).ToArray());
+
+        Assert.Equal(60, matches.Length);
+        Assert.Equal("fresh", matches[0].Id);
+        Assert.Equal("item-118", matches[^1].Id);
+        Assert.DoesNotContain(matches, item => item.Id == "item-116");
+        Assert.Equal(11, runtime.History.Items.Count);
+        Assert.Equal(110, runtime.UnloadedPersistedHistoryCount);
+        Assert.Equal("needle 118", runtime.GetHistoryPlainText("item-118"));
+        Assert.NotEmpty(runtime.CreateHistoryContextOptions("item-118"));
+    }
+
+    [Fact]
+    public void SettingsSearch_UsesSourcePolicyAndExistingFiltersForDiskItems()
+    {
+        var root = Seed(30);
+        var store = new EncryptedHistoryStore(Path.Combine(root, "history.dat"));
+        var original = store.LoadAllStrict();
+        store.Save(original.Append(new ClipboardSnapshot("special", DateTimeOffset.UtcNow.AddMinutes(-1),
+            [ClipboardFormatKind.Text], text: "https://example.com payload", sourceWindowTitle: "private title")));
+        using var runtime = new CliptonRuntime(root, isSafeMode: true);
+        runtime.Settings.SaveHistorySourceMetadata = true;
+        HashSet<string> pinned = ["special"];
+        var labels = new Dictionary<ClipboardFormatKind, string> { [ClipboardFormatKind.Text] = "localized-format" };
+        var snippets = new Dictionary<string, string?> { ["https://example.com payload"] = "saved name" };
+        var query = SearchFilter.Parse("localized-format private saved pinned:true url:true type:text");
+        var item = Assert.Single(runtime.GetHistorySearchCandidates(default), item => item.Id == "special");
+        Assert.True(MainWindow.HistoryMatchesSearch(query, item, pinned, labels, snippets));
+
+        runtime.SetSaveHistorySourceMetadata(false);
+        item = Assert.Single(runtime.GetHistorySearchCandidates(default), item => item.Id == "special");
+        Assert.False(MainWindow.HistoryMatchesSearch(query, item, pinned, labels, snippets));
+        Assert.True(MainWindow.HistoryMatchesSearch(SearchFilter.Parse("payload pinned:true url:true"),
+            item, pinned, labels, snippets));
+    }
+
+    [Fact]
+    public void SettingsSearch_RejectsLockedAccessAndStopsOnCancellation()
+    {
+        using var runtime = new CliptonRuntime(Seed(20), isSafeMode: true);
+        using var cancellation = new CancellationTokenSource();
+        var candidates = runtime.GetHistorySearchCandidates(cancellation.Token);
+        using var enumerator = candidates.GetEnumerator();
+        Assert.True(enumerator.MoveNext());
+        cancellation.Cancel();
+        Assert.Throws<OperationCanceledException>(() => enumerator.MoveNext());
+
+        runtime.ConfigureHistoryAccessLock("2468", timeoutMinutes: 15);
+        runtime.LockHistoryAccess();
+        Assert.Empty(runtime.GetHistorySearchCandidates(default));
+    }
+
     private static string Seed(int count, Func<int, string>? text = null)
     {
         var root = Path.Combine(Path.GetTempPath(), "clipton-large-history-tests", Guid.NewGuid().ToString("N"));
