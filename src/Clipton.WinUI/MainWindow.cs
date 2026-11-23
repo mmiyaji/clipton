@@ -180,9 +180,10 @@ public sealed class MainWindow : Window
     private readonly ComboBox _maxHistoryItemsBox = new();
     private readonly ComboBox _clipboardCaptureDelayBox = new();
     private readonly Button _registerFromHistoryButton = new();
-    private readonly Button _exportHistoryButton = new();
-    private readonly Button _importHistoryButton = new();
-    private readonly Button _clearButton = new();
+    private readonly DropDownButton _manageHistoryButton = new() { VerticalAlignment = VerticalAlignment.Top };
+    private readonly MenuFlyoutItem _exportHistoryItem = new();
+    private readonly MenuFlyoutItem _importHistoryItem = new();
+    private readonly MenuFlyoutItem _clearHistoryItem = new();
     private readonly Grid _historySearchHost = new();
     private readonly TextBox _historySearchBox = new();
     private readonly FontIcon _historySearchIcon = new();
@@ -704,10 +705,10 @@ public sealed class MainWindow : Window
         _aboutHeaderText.Text = t("About");
         _aboutDescriptionText.Text = t("AboutDescription");
         SetCommandButton(_registerFromHistoryButton, "\uE8EC", t("RegisterFromHistory"));
-        SetCommandButton(_exportHistoryButton, "\uEDE1", t("Export"));
-        SetCommandButton(_importHistoryButton, "\uE896", t("Import"));
-        SetCommandButton(_clearButton, "\uE74D", t("ClearHistory"));
-        ApplyCritical(_clearButton);
+        _manageHistoryButton.Content = t("ManageHistory");
+        _exportHistoryItem.Text = t("Export");
+        _importHistoryItem.Text = t("Import");
+        _clearHistoryItem.Text = t("ClearHistory");
         SetCommandButton(_maskDefinitionsButton, "\uE713", t("MaskDefinitions"));
         _historySearchBox.PlaceholderText = t("SearchPlaceholder");
         SetCommandButton(_advancedHistorySearchButton, "\uE71C", t("AdvancedSearch"));
@@ -901,9 +902,10 @@ public sealed class MainWindow : Window
         SetAutomationId(_historyPinnedFilter, "HistoryFilterPinned");
         SetAutomationId(_historyUrlFilter, "HistoryFilterUrl");
         SetAutomationId(_registerFromHistoryButton, "RegisterHistoryButton");
-        SetAutomationId(_exportHistoryButton, "ExportHistoryButton");
-        SetAutomationId(_importHistoryButton, "ImportHistoryButton");
-        SetAutomationId(_clearButton, "ClearHistoryButton");
+        SetAutomationId(_manageHistoryButton, "ManageHistoryButton");
+        SetAutomationId(_exportHistoryItem, "ExportHistoryButton");
+        SetAutomationId(_importHistoryItem, "ImportHistoryButton");
+        SetAutomationId(_clearHistoryItem, "ClearHistoryButton");
         SetAutomationId(_historyListView, "HistoryList");
         SetAutomationId(_loadMoreHistoryButton, "LoadMoreHistoryButton");
         SetAutomationId(_resetQuickMenuPasteOptionsButton, "ResetQuickMenuPasteOptionsButton");
@@ -1389,8 +1391,19 @@ public sealed class MainWindow : Window
 
     private void BuildHistoryPage()
     {
-        _historyPage.Children.Add(PageHeader(_historyHeaderText, _historyDescriptionText));
-        _historyPage.Children.Add(SectionHeader("HistorySection"));
+        var header = new Grid { ColumnSpacing = 12 };
+        header.ColumnDefinitions.Add(new ColumnDefinition());
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.Children.Add(PageHeader(_historyHeaderText, _historyDescriptionText));
+        var management = new MenuFlyout();
+        management.Items.Add(_exportHistoryItem);
+        management.Items.Add(_importHistoryItem);
+        management.Items.Add(new MenuFlyoutSeparator());
+        management.Items.Add(_clearHistoryItem);
+        _manageHistoryButton.Flyout = management;
+        Grid.SetColumn(_manageHistoryButton, 1);
+        header.Children.Add(_manageHistoryButton);
+        _historyPage.Children.Add(header);
         _historyPage.Children.Add(BuildHistorySearchPanel());
         _historyListView.SelectionMode = ListViewSelectionMode.Single;
         _historyListView.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -1420,34 +1433,13 @@ public sealed class MainWindow : Window
         _historyListHost.Children.Add(_historyEmptyText);
         _historyListHost.Children.Add(_loadMoreHistoryButton);
 
-        var actions = new Grid { ColumnSpacing = 12 };
-        actions.ColumnDefinitions.Add(new ColumnDefinition());
-        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var primaryActions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Spacing = 8 };
-        var dataActions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         _registerFromHistoryButton.Click += (_, _) => RegisterSelectedHistory();
-        _clearButton.Click += async (_, _) => await ConfirmAndClearHistoryAsync();
+        _clearHistoryItem.Click += async (_, _) => await ConfirmAndClearHistoryAsync();
         _loadMoreHistoryButton.Click += (_, _) => LoadMoreHistory();
-        _exportHistoryButton.Click += async (_, _) => await ExportHistoryAsync();
-        _importHistoryButton.Click += async (_, _) => await ImportHistoryAsync();
-        primaryActions.Children.Add(_registerFromHistoryButton);
-        dataActions.Children.Add(_exportHistoryButton);
-        dataActions.Children.Add(_importHistoryButton);
-        var destructiveActionSeparator = new Border
-        {
-            Width = 1,
-            Height = 24,
-            Margin = new Thickness(4, 0, 4, 0),
-            Background = RowSeparatorBrush(),
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        _rowSeparators.Add(destructiveActionSeparator);
-        dataActions.Children.Add(destructiveActionSeparator);
-        dataActions.Children.Add(_clearButton);
-        actions.Children.Add(primaryActions);
-        Grid.SetColumn(dataActions, 1);
-        actions.Children.Add(dataActions);
-        _historyPage.Children.Add(actions);
+        _exportHistoryItem.Click += async (_, _) => await ExportHistoryAsync();
+        _importHistoryItem.Click += async (_, _) => await ImportHistoryAsync();
+        _registerFromHistoryButton.HorizontalAlignment = HorizontalAlignment.Left;
+        _historyPage.Children.Add(_registerFromHistoryButton);
         _historyPage.Children.Add(_historySearchStatusText);
         _historyPage.Children.Add(Card(_historyListHost, new Thickness(8, 8, 8, 10)));
     }
@@ -2271,9 +2263,9 @@ public sealed class MainWindow : Window
         _registerFromHistoryButton.Visibility = _registerFromHistoryButton.IsEnabled
             ? Visibility.Visible
             : Visibility.Collapsed;
-        _exportHistoryButton.IsEnabled = hasHistory;
-        _clearButton.IsEnabled = hasHistory;
-        _importHistoryButton.IsEnabled = !locked;
+        _exportHistoryItem.IsEnabled = hasHistory;
+        _clearHistoryItem.IsEnabled = hasHistory;
+        _importHistoryItem.IsEnabled = !locked;
     }
 
     private void ToggleAdvancedHistorySearch()
