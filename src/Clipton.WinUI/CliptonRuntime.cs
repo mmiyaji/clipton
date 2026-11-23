@@ -1787,7 +1787,7 @@ public sealed class CliptonRuntime : IDisposable
                 {
                     // Construct only the selected hidden menu. The window constructors build
                     // their controls but do not activate, focus, show, or install input hooks.
-                    var items = BuildQuickMenuItems();
+                    var items = BuildQuickMenuItemsForDisplay(includeSearchCommand: !richMode);
                     if (cancellationToken.IsCancellationRequested || IsExiting || RequiresHistoryAccessUnlock
                         || configurationVersion != Volatile.Read(ref _quickMenuConfigurationVersion)
                         || !FitsQuickMenuWarmupBudget(items))
@@ -2372,9 +2372,9 @@ public sealed class CliptonRuntime : IDisposable
 
         ScheduleClipboardRefreshForQuickMenu();
 
-        var menuItems = BuildQuickMenuItems();
         var quickMenuDisplayMode = NormalizeQuickMenuDisplayMode(Settings.QuickMenuDisplayMode);
         var useRichQuickMenu = string.Equals(quickMenuDisplayMode, "rich", StringComparison.OrdinalIgnoreCase);
+        var menuItems = BuildQuickMenuItemsForDisplay(includeSearchCommand: !useRichQuickMenu);
         if (useRichQuickMenu)
         {
             ShowRichQuickMenu(menuItems, startInSearchMode: false);
@@ -2465,7 +2465,7 @@ public sealed class CliptonRuntime : IDisposable
     }
 
     // Opens the rich window focused on its search box. Used by the default
-    // quick menu's search shortcut so both display modes share one search UI.
+    // quick menu's search command and shortcut.
     private void OpenQuickMenuSearch()
     {
         ShowRichQuickMenu(BuildQuickMenuItems(), startInSearchMode: true);
@@ -2476,7 +2476,7 @@ public sealed class CliptonRuntime : IDisposable
         ApplyQuickMenuDisplayOptions();
         if (_defaultQuickMenu is { IsDismissed: false })
         {
-            _defaultQuickMenu.RefreshItems(BuildQuickMenuItems());
+            _defaultQuickMenu.RefreshItems(BuildQuickMenuItemsForDisplay(includeSearchCommand: true));
             return;
         }
 
@@ -2536,7 +2536,10 @@ public sealed class CliptonRuntime : IDisposable
         _richQuickMenu?.UpdateDisplayOptions(Settings.QuickMenuShowCapturedAt, Settings.QuickMenuShowShortcutHints);
     }
 
-    private List<QuickMenuItem> BuildQuickMenuItems()
+    private List<QuickMenuItem> BuildQuickMenuItems() =>
+        BuildQuickMenuItemsForDisplay(includeSearchCommand: false);
+
+    internal List<QuickMenuItem> BuildQuickMenuItemsForDisplay(bool includeSearchCommand)
     {
         var menuItems = new List<QuickMenuItem>();
         var history = CaptureMenuHistory();
@@ -2579,6 +2582,18 @@ public sealed class CliptonRuntime : IDisposable
                         payloadOnDisk: !history.Resident.ContainsKey(item.Id)))
                     .ToArray(),
                 IconGlyph: "",
+                IconFontFamily: "Segoe Fluent Icons"));
+        }
+
+        if (includeSearchCommand && menuItems.Count > 0)
+        {
+            menuItems.Add(new QuickMenuItem(
+                Translate("SearchHistory"),
+                string.Empty,
+                string.Empty,
+                Settings.QuickMenuShortcuts.Search,
+                OpenQuickMenuSearch,
+                IconGlyph: "\uE721",
                 IconFontFamily: "Segoe Fluent Icons"));
         }
 
