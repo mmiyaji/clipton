@@ -2229,6 +2229,10 @@ public sealed class MainWindow : Window
         {
             var text = GetPlainText();
             var fileNames = string.Join(" ", item.FilePaths.Select(Path.GetFileName));
+            // The search cache omits image bytes. Its preview should match the full image.
+            var preview = item.Formats.Contains(ClipboardFormatKind.Image) && string.IsNullOrWhiteSpace(item.Text) && item.FilePaths.Count == 0
+                ? nameof(ClipboardFormatKind.Image)
+                : item.Preview;
             return string.Join(
                 " ",
                 string.Join(" ", item.Formats),
@@ -2239,7 +2243,7 @@ public sealed class MainWindow : Window
                 fileNames,
                 item.SourceApplicationName,
                 item.SourceWindowTitle,
-                item.Preview);
+                preview);
         });
     }
 

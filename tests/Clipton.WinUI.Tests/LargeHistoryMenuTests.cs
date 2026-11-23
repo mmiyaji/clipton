@@ -196,6 +196,17 @@ public sealed class LargeHistoryMenuTests
     }
 
     [Fact]
+    public void SettingsSearch_ImageMetadataMatchesTheImageWithoutItsPayload()
+    {
+        var item = new ClipboardSnapshot("image", DateTimeOffset.UtcNow, [ClipboardFormatKind.Image]);
+        bool Matches(string query) => MainWindow.HistoryMatchesSearch(SearchFilter.Parse(query), item,
+            new HashSet<string>(), new Dictionary<ClipboardFormatKind, string>(), new Dictionary<string, string?>());
+
+        Assert.True(Matches("Image"));
+        Assert.False(Matches("Clipboard item"));
+    }
+
+    [Fact]
     public async Task SettingsSearch_FindsOlderMatchesAndNewCapturesWithoutChangingResidentPaging()
     {
         var root = Seed(120, i => i % 2 == 0 ? $"needle {i}" : $"unrelated {i}");
