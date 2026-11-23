@@ -37,7 +37,7 @@ public sealed class QuickMenuSearchCommandTests
 
         Assert.True(items[searchIndex + 1].IsSeparator);
         Assert.Equal("Test snippet", items[searchIndex + 2].Title);
-        Assert.Equal(shortcut, search.CommandHint);
+        Assert.Equal(shortcut, search.KeyboardShortcut);
         Assert.False(search.IsNumberShortcutEnabled);
         Assert.False(search.IsFolder);
         Assert.DoesNotContain(runtime.BuildQuickMenuItemsForDisplay(includeSearchCommand: false), item => item.Title == label);

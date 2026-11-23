@@ -2603,10 +2603,10 @@ public sealed class CliptonRuntime : IDisposable
                 Translate("SearchHistory"),
                 string.Empty,
                 string.Empty,
-                Settings.QuickMenuShortcuts.Search,
+                string.Empty,
                 OpenQuickMenuSearch,
                 IconGlyph: "\uE721",
-                IconFontFamily: "Segoe Fluent Icons"));
+                IconFontFamily: "Segoe Fluent Icons") { KeyboardShortcut = Settings.QuickMenuShortcuts.Search });
         }
 
         var snippetItems = CreateSnippetMenuItems(Snippets.Snippets);

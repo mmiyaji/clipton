@@ -1911,7 +1911,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
 
     private string BuildCommandHint(QuickMenuItem item)
     {
-        var commandHint = _showShortcutHints ? item.CommandHint : string.Empty;
+        var commandHint = item.KeyboardShortcut ?? (_showShortcutHints ? item.CommandHint : string.Empty);
         if (!_showCapturedAt || item.CapturedAt is not { } capturedAt)
         {
             return commandHint;
@@ -2481,6 +2481,8 @@ public sealed record QuickMenuItem(
     private readonly Lazy<Task<byte[]?>> _iconImageTask = new(() => LoadIconImageAsync(IconImageBytes, IconImageBytesProvider));
     private IReadOnlyList<QuickMenuItem>? _resolvedChildren = Children;
     private IReadOnlyList<QuickMenuPasteOption>? _resolvedPasteOptions = PasteOptions;
+
+    public string? KeyboardShortcut { get; init; }
 
     public bool IsSelected { get; set; }
 
