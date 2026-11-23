@@ -1,6 +1,6 @@
 # Microsoft Store Listing Draft
 
-Last updated: 2026-11-01
+Last updated: 2026-11-23
 
 Use this document as the source text for Partner Center Store listings.
 
@@ -12,7 +12,7 @@ Official references:
 ## Product Identity
 
 - Product name: Clipton
-- Release: 1.0.0
+- Release: 1.0.1
 - Category: Productivity
 - Target device family: PC / Windows Desktop
 - Store listing draft languages: English, Japanese
@@ -57,7 +57,7 @@ clipboard, clipboard manager, clipboard history, paste, snippets, productivity, 
 
 ### Release Notes
 
-Clipton 1.0: update checks and installation from the About page, a settings sidebar organized into groups, clearer destructive actions with a confirmation before exit, terms, privacy policy, and license notices inside the app, and improved clipboard capture reliability and quick-menu performance with large histories.
+Clipton 1.0.1 improves history search across saved items, snippet editing and narrow-window layouts. It also fixes clipboard capture, paste, backup, history locking, and snippet management reliability.
 
 ## Japanese Listing
 
@@ -96,24 +96,4 @@ Clipton はプライバシーに配慮した日常作業向けに設計してい
 
 ### Release Notes
 
-Clipton 1.0: 情報ページからの更新確認とインストール、グループ分けした設定サイドバー、終了前の確認など影響の大きい操作の強調、利用規約・プライバシーポリシー・ライセンス表記のアプリ内表示を追加し、クリップボード取得の信頼性と大量の履歴を表示するクイックメニューの性能を改善しました。
-
-## Screenshot Captions
-
-Upload screenshots separately for English and Japanese listings. Captions must be 200 characters or fewer.
-
-### English
-
-- `01-quick-menu-en.png`: Open recent clipboard items from a keyboard-friendly quick menu.
-- `02-history-en.png`: Search, review, import, export, and clear clipboard history.
-- `03-snippets-en.png`: Keep reusable snippets in folders and insert dynamic variables such as date, time, and UUID.
-- `04-settings-en.png`: Configure encrypted history, capture behavior, masking, diagnostics, and local retention.
-- `05-privacy-en.png`: Local encrypted storage, capture pause, masking, and cleanup controls.
-
-### Japanese
-
-- `01-quick-menu-ja.png`: キーボードで最近のクリップボード項目をすばやく呼び出せます。
-- `02-history-ja.png`: 履歴の検索、確認、インポート、エクスポート、削除を行えます。
-- `03-snippets-ja.png`: 登録単語をフォルダで整理し、日付、時刻、UUID などの動的変数を挿入できます。
-- `04-settings-ja.png`: 暗号化履歴、取得動作、マスク、診断ログ、保存件数を設定できます。
-- `05-privacy-ja.png`: ローカル暗号化保存、記録停止、マスク、削除を制御できます。
+Clipton 1.0.1 では、保存済みの履歴を含む検索、定型文の編集、狭い画面での表示を改善しました。クリップボードの取得・貼り付け、バックアップ、履歴ロック、定型文管理の信頼性も修正しました。
