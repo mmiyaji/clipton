@@ -22,7 +22,10 @@ public static class ClipboardBridge
     /// <summary>
     /// Captures the current clipboard into a supported snapshot, or <see langword="null"/>.
     /// </summary>
-    public static ClipboardSnapshot? Capture() => WithClipboardRetry(NativeClipboardReader.Capture);
+    public static ClipboardSnapshot? Capture() => WithClipboardRetry(() => NativeClipboardReader.Capture());
+
+    internal static ClipboardSnapshot? Capture(Func<IntPtr, uint, bool> acceptOwner)
+        => WithClipboardRetry(() => NativeClipboardReader.Capture(acceptOwner));
 
     /// <summary>
     /// Returns plain text from a snapshot, deriving it from rich formats when needed.

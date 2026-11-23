@@ -73,6 +73,18 @@ public sealed class ClipboardHistoryTests
     }
 
     [Fact]
+    public void Add_AllowsRecopyOfNewestRemovedSnapshot()
+    {
+        var history = new ClipboardHistory();
+        history.Add(TextSnapshot("1", "alpha"));
+        history.Add(TextSnapshot("2", "beta"));
+        Assert.True(history.Remove("2"));
+
+        Assert.True(history.Add(TextSnapshot("3", "beta")));
+        Assert.Equal(["3", "1"], history.Items.Select(item => item.Id));
+    }
+
+    [Fact]
     public void Add_AllowsRemovedFingerprintWhenAnotherSnapshotRemains()
     {
         var history = new ClipboardHistory(capacity: 10);

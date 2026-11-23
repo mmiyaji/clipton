@@ -297,6 +297,69 @@ public sealed class HistoryAccessLockPrivacyTests
         Assert.Equal(secretSnippet, imported.Snippets.Find("Secrets", "ApiKey")?.Text);
     }
 
+    [Fact]
+    public void Relock_InvalidatesPendingProtectedActionsEvenAfterUnlock()
+    {
+        using var runtime = new CliptonRuntime(CreateTestRoot(), isSafeMode: true);
+        runtime.ConfigureHistoryAccessLock("2468", timeoutMinutes: 15);
+        var version = runtime.ProtectedAccessVersion;
+        Assert.True(runtime.CanUseProtectedData(version));
+
+        runtime.LockHistoryAccess();
+        Assert.False(runtime.CanUseProtectedData(version));
+        Assert.True(runtime.UnlockHistoryAccess("2468"));
+
+        Assert.False(runtime.CanUseProtectedData(version));
+        Assert.True(runtime.CanUseProtectedData(runtime.ProtectedAccessVersion));
+    }
+
+    [Fact]
+    public void SaveSnippet_RenamesAndMovesOverExistingDestinationInOneUpdate()
+    {
+        var root = CreateTestRoot();
+        using (var runtime = new CliptonRuntime(root, isSafeMode: true))
+        {
+            var original = new Snippet("Old", "original", "Source");
+            runtime.UpsertSnippet(original.Folder, original.Name, original.Text);
+            runtime.UpsertSnippet("Destination", "New", "overwritten");
+
+            runtime.SaveSnippet(new Snippet("New", "edited", "Destination"), original);
+
+            Assert.Equal("edited", runtime.Snippets.FindByText("edited")?.Text);
+            Assert.Single(runtime.Snippets.Snippets);
+        }
+
+        using var reloaded = new CliptonRuntime(root, isSafeMode: true);
+        Assert.Null(reloaded.Snippets.Find("Source", "Old"));
+        Assert.Equal("edited", reloaded.Snippets.Find("Destination", "New")?.Text);
+    }
+
+    [Fact]
+    public void SaveSnippet_FailedReplacementKeepsOriginalCatalogAndFile()
+    {
+        var root = CreateTestRoot();
+        var path = Path.Combine(root, "snippets.dat");
+        var original = new Snippet("Old", "original", "Source");
+        var replacement = new Snippet("New", "edited", "Destination");
+        using var runtime = new CliptonRuntime(root, isSafeMode: true);
+        runtime.UpsertSnippet(original.Folder, original.Name, original.Text);
+        var saved = File.ReadAllBytes(path);
+        using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            var error = Record.Exception(() => runtime.SaveSnippet(replacement, original));
+            Assert.True(error is IOException or UnauthorizedAccessException, error?.ToString());
+
+            Assert.Equal(original, runtime.Snippets.Find(original.Folder, original.Name));
+            Assert.Null(runtime.Snippets.Find(replacement.Folder, replacement.Name));
+            Assert.Equal(saved, File.ReadAllBytes(path));
+            Assert.Empty(Directory.EnumerateFiles(root, "snippets.dat.*.tmp"));
+        }
+
+        runtime.SaveSnippet(replacement, original);
+        Assert.Null(runtime.Snippets.Find(original.Folder, original.Name));
+        Assert.Equal(replacement, runtime.Snippets.Find(replacement.Folder, replacement.Name));
+    }
+
     private static string CreateTestRoot()
     {
         return Path.Combine(Path.GetTempPath(), "clipton-winui-lock-privacy-tests", Guid.NewGuid().ToString("N"));

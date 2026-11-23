@@ -44,6 +44,95 @@ public sealed class ImagePasteOptionTests
         Assert.DoesNotContain(QuickMenuPasteOptionIds.PasteImageResizeHalf, optionIds);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task ImagePreviewClipboardAction_WaitsForWriteAndOnlyRemovesAfterSuccessfulCut(bool cut, bool writeSucceeds)
+    {
+        using var runtime = new CliptonRuntime(CreateTestRoot(), isSafeMode: true);
+        var item = AddImage(runtime);
+        var started = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var finish = new ManualResetEventSlim();
+
+        var operation = runtime.CopyOrCutImageHistoryItemAsync(item.Id, cut, bytes =>
+        {
+            started.SetResult(bytes);
+            return finish.Wait(TimeSpan.FromSeconds(5)) && writeSucceeds;
+        });
+
+        try
+        {
+            Assert.Equal(item.ImagePng, await started.Task.WaitAsync(TimeSpan.FromSeconds(3)));
+            Assert.False(operation.IsCompleted);
+            Assert.NotNull(runtime.History.Find(item.Id));
+        }
+        finally
+        {
+            finish.Set();
+        }
+
+        Assert.Equal(writeSucceeds, await operation.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.Equal(cut && writeSucceeds, runtime.History.Find(item.Id) is null);
+    }
+
+    [Fact]
+    public async Task ImagePreviewCut_PreservesHistoryWhenClipboardWriteThrows()
+    {
+        using var runtime = new CliptonRuntime(CreateTestRoot(), isSafeMode: true);
+        var item = AddImage(runtime);
+
+        Assert.False(await runtime.CopyOrCutImageHistoryItemAsync(item.Id, cut: true, _ => throw new InvalidOperationException()));
+        Assert.NotNull(runtime.History.Find(item.Id));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ImagePreviewCut_PreservesHistoryWhenItLocksDuringTheClipboardWrite(bool unlockAgain)
+    {
+        using var runtime = new CliptonRuntime(CreateTestRoot(), isSafeMode: true);
+        runtime.ConfigureHistoryAccessLock("1234", timeoutMinutes: 5);
+        var item = AddImage(runtime);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var finish = new ManualResetEventSlim();
+
+        var operation = runtime.CopyOrCutImageHistoryItemAsync(item.Id, cut: true, _ =>
+        {
+            started.SetResult();
+            return finish.Wait(TimeSpan.FromSeconds(5));
+        });
+
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            runtime.LockHistoryAccess();
+            if (unlockAgain)
+            {
+                Assert.True(runtime.UnlockHistoryAccess("1234"));
+            }
+        }
+        finally
+        {
+            finish.Set();
+        }
+
+        Assert.False(await operation.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.NotNull(runtime.History.Find(item.Id));
+    }
+
+    private static ClipboardSnapshot AddImage(CliptonRuntime runtime)
+    {
+        var item = new ClipboardSnapshot(
+            "image-1",
+            DateTimeOffset.UtcNow,
+            [ClipboardFormatKind.Image],
+            imagePng: CreatePngBytes(8, 4));
+        Assert.True(runtime.History.Add(item));
+        return item;
+    }
+
     [Fact]
     public void ResizeImagePng_ReducesDimensionsByHalf()
     {

@@ -30,7 +30,7 @@ internal static class EncryptedExportFile
         return passphrase is { Length: >= MinPassphraseLength };
     }
 
-    public static void Write<T>(string path, string kind, T value, string passphrase, JsonSerializerOptions options)
+    public static void Write<T>(string path, string kind, T value, string passphrase, JsonSerializerOptions options, long maxFileBytes = MaxImportFileBytes)
     {
         if (!IsValidPassphrase(passphrase))
         {
@@ -38,40 +38,73 @@ internal static class EncryptedExportFile
         }
 
         var plaintext = JsonSerializer.SerializeToUtf8Bytes(value, options);
-        var salt = RandomNumberGenerator.GetBytes(SaltSize);
-        var nonce = RandomNumberGenerator.GetBytes(NonceSize);
-        var ciphertext = new byte[plaintext.Length];
-        var tag = new byte[TagSize];
-        var key = DeriveKey(passphrase, salt);
         try
         {
-            using var aes = new AesGcm(key, TagSize);
-            aes.Encrypt(nonce, plaintext, ciphertext, tag, Encoding.UTF8.GetBytes(kind));
+            // The Base64 ciphertext alone needs at least this much space in the envelope.
+            EnsureExportWithinImportLimit(4L * ((plaintext.Length + 2L) / 3), maxFileBytes);
+            var salt = RandomNumberGenerator.GetBytes(SaltSize);
+            var nonce = RandomNumberGenerator.GetBytes(NonceSize);
+            var ciphertext = new byte[plaintext.Length];
+            var tag = new byte[TagSize];
+            var key = DeriveKey(passphrase, salt);
+            try
+            {
+                using var aes = new AesGcm(key, TagSize);
+                aes.Encrypt(nonce, plaintext, ciphertext, tag, Encoding.UTF8.GetBytes(kind));
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(key);
+            }
+
+            var envelope = new Envelope(
+                Version,
+                kind,
+                Kdf,
+                Iterations,
+                Cipher,
+                Convert.ToBase64String(salt),
+                Convert.ToBase64String(nonce),
+                Convert.ToBase64String(tag),
+                Convert.ToBase64String(ciphertext));
+
+            WriteBounded(path, envelope, options, maxFileBytes);
         }
         finally
         {
-            CryptographicOperations.ZeroMemory(key);
             CryptographicOperations.ZeroMemory(plaintext);
         }
+    }
 
-        var envelope = new Envelope(
-            Version,
-            kind,
-            Kdf,
-            Iterations,
-            Cipher,
-            Convert.ToBase64String(salt),
-            Convert.ToBase64String(nonce),
-            Convert.ToBase64String(tag),
-            Convert.ToBase64String(ciphertext));
-
-        var directory = Path.GetDirectoryName(path);
-        if (!string.IsNullOrWhiteSpace(directory))
+    internal static void WriteBounded<T>(string path, T value, JsonSerializerOptions options, long maxFileBytes = MaxImportFileBytes)
+    {
+        path = Path.GetFullPath(path);
+        var directory = Path.GetDirectoryName(path)!;
+        Directory.CreateDirectory(directory);
+        // Stage the exact bytes beside the destination so publication is a single rename.
+        var tempPath = Path.Combine(directory, $".clipton-export-{Guid.NewGuid():N}.tmp");
+        try
         {
-            Directory.CreateDirectory(directory);
-        }
+            using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                JsonSerializer.Serialize(stream, value, options);
+                EnsureExportWithinImportLimit(stream.Length, maxFileBytes);
+            }
 
-        File.WriteAllBytes(path, JsonSerializer.SerializeToUtf8Bytes(envelope, options));
+            File.Move(tempPath, path, overwrite: true);
+        }
+        finally
+        {
+            File.Delete(tempPath);
+        }
+    }
+
+    private static void EnsureExportWithinImportLimit(long length, long maxFileBytes)
+    {
+        if (length > maxFileBytes)
+        {
+            throw new InvalidOperationException($"The export exceeds the maximum supported import size of {maxFileBytes / 1024 / 1024} MB.");
+        }
     }
 
     public static T Read<T>(string path, string expectedKind, string passphrase, JsonSerializerOptions options)

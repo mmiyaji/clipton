@@ -118,7 +118,7 @@ public sealed class ClipboardHistory
     public bool Remove(string id)
     {
         var removed = _itemsById.TryGetValue(id, out var item) && RemoveTracked(item);
-        if (_items.Count == 0)
+        if (removed && _lastFingerprint is not null && !_itemsByFingerprint.ContainsKey(_lastFingerprint))
         {
             _lastFingerprint = null;
         }

@@ -1990,29 +1990,28 @@ internal sealed class RichQuickMenuWindow : Window, IQuickMenuHostWindow
         });
     }
 
-    private void CopySelectedImage()
+    private void CopySelectedImage() => InvokeSelectedImageClipboardAction(cut: false);
+
+    private void CutSelectedImage() => InvokeSelectedImageClipboardAction(cut: true);
+
+    private async void InvokeSelectedImageClipboardAction(bool cut)
     {
         var item = GetSelectedItem();
-        if (item?.CopyInvoke is null)
+        var action = cut ? item?.CutInvoke : item?.CopyInvoke;
+        if (action is null || !await action() || _dismissed || !ReferenceEquals(item, GetSelectedItem()))
         {
             return;
         }
 
-        item.CopyInvoke();
-        ShowFeedback(_copyFeedbackText);
-    }
-
-    private void CutSelectedImage()
-    {
-        var item = GetSelectedItem();
-        if (item?.CutInvoke is null)
+        ShowFeedback(cut ? _cutFeedbackText : _copyFeedbackText);
+        if (cut)
         {
-            return;
+            await Task.Delay(450);
+            if (!_dismissed && ReferenceEquals(item, GetSelectedItem()))
+            {
+                Dismiss();
+            }
         }
-
-        item.CutInvoke();
-        ShowFeedback(_cutFeedbackText);
-        Dismiss();
     }
 
     private void ShowFeedback(string text)
