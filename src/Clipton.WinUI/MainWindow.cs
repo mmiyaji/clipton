@@ -34,7 +34,7 @@ public sealed class MainWindow : Window
     private const double SettingsPageMaxWidth = 920;
     private const double SidebarExpandedWidth = 248;
     private const double SidebarCollapsedWidth = 72;
-    private const double ContentMinWidth = 520;
+    private const double ContentMinWidth = 300;
     private const double SidebarAutoCollapseWidth = 1040;
     private const double SidebarAutoExpandWidth = 1120;
     private const double SettingControlHeight = 36;
@@ -202,6 +202,9 @@ public sealed class MainWindow : Window
     private readonly Button _loadMoreHistoryButton = new();
     private readonly TextBlock _historySearchStatusText = Description();
     private readonly TextBlock _selectedSnippetText = Description();
+    private readonly StackPanel _historyPausedPanel = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
+    private readonly TextBlock _historyPausedText = new() { VerticalAlignment = VerticalAlignment.Center };
+    private readonly Button _historyResumeButton = new();
     private readonly Grid _snippetSearchHost = new();
     private readonly TextBox _snippetSearchBox = new();
     private readonly FontIcon _snippetSearchIcon = new();
@@ -1445,19 +1448,20 @@ public sealed class MainWindow : Window
 
     private void BuildHistoryPage()
     {
-        var header = new Grid { ColumnSpacing = 12 };
-        header.ColumnDefinitions.Add(new ColumnDefinition());
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        header.Children.Add(PageHeader(_historyHeaderText, _historyDescriptionText));
+        _historyPage.Children.Add(PageHeader(_historyHeaderText, _historyDescriptionText));
         var management = new MenuFlyout();
         management.Items.Add(_exportHistoryItem);
         management.Items.Add(_importHistoryItem);
         management.Items.Add(new MenuFlyoutSeparator());
         management.Items.Add(_clearHistoryItem);
         _manageHistoryButton.Flyout = management;
-        Grid.SetColumn(_manageHistoryButton, 1);
-        header.Children.Add(_manageHistoryButton);
-        _historyPage.Children.Add(header);
+        _manageHistoryButton.HorizontalAlignment = HorizontalAlignment.Left;
+        _historyPage.Children.Add(_manageHistoryButton);
+        _historyPausedPanel.Children.Add(_historyPausedText);
+        _historyPausedPanel.Children.Add(_historyResumeButton);
+        _historyResumeButton.Click += (_, _) => _pauseCaptureToggle.IsOn = false;
+        SetAutomationId(_historyResumeButton, "HistoryResumeButton");
+        _historyPage.Children.Add(_historyPausedPanel);
         _historyPage.Children.Add(BuildHistorySearchPanel());
         _historyListView.SelectionMode = ListViewSelectionMode.Single;
         _historyListView.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -1473,13 +1477,6 @@ public sealed class MainWindow : Window
             }
 
             UpdateHistoryActionButtons();
-        };
-        _historyListView.DoubleTapped += (_, _) =>
-        {
-            if (_historyListView.SelectedItem is ListViewItem { Tag: HistoryItemViewModel item })
-            {
-                _runtime.PasteHistoryItem(item.Id, asPlainText: false);
-            }
         };
         _historyEmptyText.Margin = new Thickness(4, 6, 4, 6);
         _loadMoreHistoryButton.HorizontalAlignment = HorizontalAlignment.Left;
@@ -1707,15 +1704,12 @@ public sealed class MainWindow : Window
 
         BuildHistoryAdvancedSearchPanel();
 
-        var row = new Grid { ColumnSpacing = 12, MinHeight = SearchControlHeight };
-        row.ColumnDefinitions.Add(new ColumnDefinition());
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var row = new StackPanel { Spacing = 8 };
         row.Children.Add(_historySearchHost);
-        Grid.SetColumn(_advancedHistorySearchButton, 1);
-        row.Children.Add(_advancedHistorySearchButton);
-        Grid.SetColumn(_clearHistorySearchButton, 2);
-        row.Children.Add(_clearHistorySearchButton);
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        actions.Children.Add(_advancedHistorySearchButton);
+        actions.Children.Add(_clearHistorySearchButton);
+        row.Children.Add(actions);
 
         return new StackPanel
         {
@@ -2317,9 +2311,7 @@ public sealed class MainWindow : Window
         _registerFromHistoryButton.IsEnabled = !locked
             && _selectedHistoryId is not null
             && !string.IsNullOrWhiteSpace(FindDisplayedHistoryItem(_selectedHistoryId)?.Text);
-        _registerFromHistoryButton.Visibility = _registerFromHistoryButton.IsEnabled
-            ? Visibility.Visible
-            : Visibility.Collapsed;
+        _registerFromHistoryButton.Visibility = Visibility.Visible;
         _exportHistoryItem.IsEnabled = hasHistory;
         _clearHistoryItem.IsEnabled = hasHistory;
         _importHistoryItem.IsEnabled = !locked;
@@ -4227,7 +4219,6 @@ public sealed class MainWindow : Window
         if (_runtime.RequiresHistoryAccessUnlock || _selectedHistoryId is null) return;
         var item = FindDisplayedHistoryItem(_selectedHistoryId);
         if (string.IsNullOrWhiteSpace(item?.Text)) return;
-        SelectPage(4);
         _ = OpenSnippetEditorAsync(null, "History", CreateSnippetName(item.Text), item.Text);
     }
 
@@ -5529,6 +5520,10 @@ public sealed class MainWindow : Window
                 protectedVersion: version);
             if (!confirmed)
             {
+                if (_runtime.CanUseProtectedData(version))
+                {
+                    await OpenSnippetEditorAsync(existing, folderBox.Text, nameBox.Text, textBox.Text);
+                }
                 return;
             }
         }
@@ -5859,6 +5854,9 @@ public sealed class MainWindow : Window
     private void UpdateNavigationPaneFooterVisibility()
     {
         var hideExpandedFooter = _sidebarCollapsed;
+        _historyPausedPanel.Visibility = _runtime.Settings.PauseCapture ? Visibility.Visible : Visibility.Collapsed;
+        _historyPausedText.Text = $"{_runtime.Translate("PauseCapture")}: {_runtime.Translate("ToggleOn")}";
+        _historyResumeButton.Content = _runtime.Translate("ResumeCapture");
         _captureStatusPill.Visibility = hideExpandedFooter || !_runtime.Settings.PauseCapture
             ? Visibility.Collapsed
             : Visibility.Visible;
@@ -6502,7 +6500,6 @@ public sealed class MainWindow : Window
             Padding = new Thickness(12, 7, 10, 7)
         };
         grid.ColumnDefinitions.Add(new ColumnDefinition());
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var texts = new StackPanel { Spacing = 3 };
         texts.Children.Add(new TextBlock
@@ -6525,10 +6522,9 @@ public sealed class MainWindow : Window
             FontSize = 12,
             Foreground = DescriptionBrush(),
             VerticalAlignment = VerticalAlignment.Center,
-            TextAlignment = TextAlignment.Right
+            TextAlignment = TextAlignment.Left
         };
-        Grid.SetColumn(capturedAt, 1);
-        grid.Children.Add(capturedAt);
+        texts.Children.Add(capturedAt);
         return grid;
     }
 
