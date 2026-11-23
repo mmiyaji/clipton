@@ -1861,7 +1861,15 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
 
     private void ApplyMenuItemAutomation(MenuFlyoutItemBase flyoutItem, QuickMenuItem item, bool opensPasteOptions)
     {
-        AutomationProperties.SetName(flyoutItem, BuildDisplayText(item));
+        if (!string.IsNullOrEmpty(item.KeyboardShortcut))
+        {
+            AutomationProperties.SetName(flyoutItem, item.Title);
+            AutomationProperties.SetAcceleratorKey(flyoutItem, item.KeyboardShortcut);
+        }
+        else
+        {
+            AutomationProperties.SetName(flyoutItem, BuildDisplayText(item));
+        }
         var helpText = BuildMenuItemHelpText(item, opensPasteOptions);
         if (!string.IsNullOrWhiteSpace(helpText))
         {
@@ -1906,12 +1914,12 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             ? item.RevealedTitle!
             : item.Title;
         var text = FormatMenuText(title);
-        return text;
+        return string.IsNullOrEmpty(item.KeyboardShortcut) ? text : $"{text}    {item.KeyboardShortcut}";
     }
 
     private string BuildCommandHint(QuickMenuItem item)
     {
-        var commandHint = item.KeyboardShortcut ?? (_showShortcutHints ? item.CommandHint : string.Empty);
+        var commandHint = _showShortcutHints ? item.CommandHint : string.Empty;
         if (!_showCapturedAt || item.CapturedAt is not { } capturedAt)
         {
             return commandHint;
