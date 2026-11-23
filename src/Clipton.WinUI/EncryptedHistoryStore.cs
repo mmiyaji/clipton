@@ -31,6 +31,8 @@ public sealed partial class EncryptedHistoryStore
     private readonly string _itemsDirectory;
     private readonly object _syncRoot = new();
     private bool _suppressWritesAfterTransientReadFailure;
+    private string[]? _validatedPathIds;
+    private string?[]? _validatedItemPaths;
 
     /// <summary>
     /// Creates a store rooted next to the legacy encrypted history file path.
@@ -562,24 +564,46 @@ public sealed partial class EncryptedHistoryStore
             return [];
         }
 
+        // Resolve and validate each path only when the ordering changes. File existence
+        // remains a fresh directory scan so deletions outside this store are repaired
+        // immediately, even after this view has been warmed.
+        if (_validatedPathIds is null || !_validatedPathIds.SequenceEqual(manifest.OrderedIds, StringComparer.Ordinal))
+        {
+            _validatedPathIds = (string[])manifest.OrderedIds.Clone();
+            _validatedItemPaths = new string?[manifest.OrderedIds.Length];
+            for (var index = 0; index < manifest.OrderedIds.Length; index++)
+            {
+                try
+                {
+                    _validatedItemPaths[index] = ItemPath(manifest.OrderedIds[index]);
+                }
+                catch (InvalidDataException)
+                {
+                    // Invalid ids are treated like missing payloads below.
+                }
+            }
+        }
+
+        HashSet<string>? files = null;
+        try
+        {
+            files = Directory.Exists(_itemsDirectory)
+                ? Directory.EnumerateFiles(_itemsDirectory).Select(Path.GetFullPath).ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Preserve File.Exists behavior if the directory cannot be enumerated.
+        }
+
         var existingIds = new List<string>(manifest.OrderedIds.Length);
         var missingCount = 0;
-        foreach (var id in manifest.OrderedIds)
+        for (var index = 0; index < manifest.OrderedIds.Length; index++)
         {
-            string path;
-            try
+            var path = _validatedItemPaths![index];
+            if (path is not null && (files?.Contains(path) ?? File.Exists(path)))
             {
-                path = ItemPath(id);
-            }
-            catch (InvalidDataException)
-            {
-                missingCount++;
-                continue;
-            }
-
-            if (File.Exists(path))
-            {
-                existingIds.Add(id);
+                existingIds.Add(manifest.OrderedIds[index]);
             }
             else
             {

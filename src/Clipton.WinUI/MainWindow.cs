@@ -71,6 +71,7 @@ public sealed class MainWindow : Window
     private readonly TreeView _snippetTree = new();
     private readonly Dictionary<TreeViewNode, SnippetItemViewModel> _snippetNodes = [];
     private readonly Dictionary<TreeViewNode, string> _snippetFolderNodes = [];
+    private readonly HashSet<string> _collapsedSnippetFolders = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<Border> _cards = [];
     private readonly List<Border> _rowSeparators = [];
     private readonly List<NavigationViewItem> _navItems = [];
@@ -107,8 +108,6 @@ public sealed class MainWindow : Window
     private readonly TextBlock _advancedHeaderText = Header();
     private readonly TextBlock _advancedDescriptionText = Description();
     private readonly TextBlock _snippetHeaderText = Header();
-    private readonly TextBlock _snippetDescriptionText = Description();
-    private readonly TextBlock _snippetFormTitle = Header(18);
     private readonly TextBlock _donationHeaderText = Header();
     private readonly TextBlock _donationDescriptionText = Description();
     private readonly TextBlock _aboutHeaderText = Header();
@@ -201,15 +200,12 @@ public sealed class MainWindow : Window
     private readonly ToggleButton _historyUrlFilter = new();
     private readonly Button _loadMoreHistoryButton = new();
     private readonly TextBlock _historySearchStatusText = Description();
-    private readonly TextBlock _selectedSnippetText = Description();
     private readonly StackPanel _historyPausedPanel = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
     private readonly TextBlock _historyPausedText = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly Button _historyResumeButton = new();
     private readonly Grid _snippetSearchHost = new();
     private readonly TextBox _snippetSearchBox = new();
     private readonly FontIcon _snippetSearchIcon = new();
-    private readonly Button _clearSnippetSearchButton = new();
-    private readonly TextBlock _snippetSearchStatusText = Description();
     private readonly TextBlock _snippetSelectionTitleText = Header(16);
     private readonly TextBlock _snippetSelectionMetaText = Description();
     private readonly TextBox _snippetPreviewBox = new();
@@ -313,14 +309,11 @@ public sealed class MainWindow : Window
             _historyDescriptionText,
             _historySettingsDescriptionText,
             _advancedDescriptionText,
-            _snippetDescriptionText,
             _donationDescriptionText,
             _aboutDescriptionText,
             _storeUpdateStatusText,
             _historySearchStatusText,
             _historyEmptyText,
-            _selectedSnippetText,
-            _snippetSearchStatusText,
             _snippetSelectionMetaText,
             _dataDirectoryText,
             _excludedCaptureAppsStatusText,
@@ -753,8 +746,6 @@ public sealed class MainWindow : Window
         _advancedHeaderText.Text = t("Advanced");
         _advancedDescriptionText.Text = t("AdvancedDescription");
         _snippetHeaderText.Text = t("Snippets");
-        _snippetDescriptionText.Text = t("SnippetDescription");
-        _snippetFormTitle.Text = t("SnippetEditor");
         _donationHeaderText.Text = t("Donation");
         _donationDescriptionText.Text = t("DonationDescription");
         _aboutHeaderText.Text = t("About");
@@ -780,7 +771,6 @@ public sealed class MainWindow : Window
         SetCommandButton(_deleteSnippetButton, "\uE74D", t("Delete"));
         ApplyCritical(_deleteSnippetButton);
         _snippetSearchBox.PlaceholderText = t("SnippetSearchPlaceholder");
-        SetIconButton(_clearSnippetSearchButton, "\uE711", t("ClearSearch"));
         _snippetPreviewBox.PlaceholderText = t("SnippetPreviewPlaceholder");
         AutomationProperties.SetName(_snippetSearchBox, t("SnippetSearchPlaceholder"));
         AutomationProperties.SetName(_snippetPreviewBox, t("SnippetPreviewPlaceholder"));
@@ -969,7 +959,6 @@ public sealed class MainWindow : Window
         SetAutomationId(_quickMenuPasteOptionsSearchBox, "QuickMenuPasteOptionsSearchBox");
         SetAutomationId(_quickMenuPasteOptionsStatusText, "QuickMenuPasteOptionsStatus");
         SetAutomationId(_snippetSearchBox, "SnippetSearchBox");
-        SetAutomationId(_clearSnippetSearchButton, "ClearSnippetSearchButton");
         SetAutomationId(_snippetTree, "SnippetTree");
         SetAutomationId(_snippetPreviewBox, "SnippetPreviewTextBox");
         SetAutomationId(_newSnippetButton, "NewSnippetButton");
@@ -1138,7 +1127,7 @@ public sealed class MainWindow : Window
             _runtime.SetTheme(theme);
             ApplyTheme();
         };
-        _generalPage.Children.Add(SettingCard("\uE790", "Theme", "ThemeDescription", _themeBox));
+        _generalPage.Children.Add(SettingCard("\uE790", "Theme", "ThemeDescription", _themeBox, showDescription: false));
 
         _localeBox.Items.Add(new ComboBoxItem { Tag = "system" });
         foreach (var supportedLocale in LocalizationCatalog.SupportedLocales)
@@ -1151,7 +1140,7 @@ public sealed class MainWindow : Window
             _runtime.SetLocale(locale);
             RefreshTexts();
         };
-        _generalPage.Children.Add(SettingCard("\uE8C1", "Language", "LanguageDescription", _localeBox));
+        _generalPage.Children.Add(SettingCard("\uE8C1", "Language", "LanguageDescription", _localeBox, showDescription: false));
 
         _startupToggle.Toggled += (_, _) => _ = SetStartupAsyncSafely();
         _generalPage.Children.Add(SettingCard("\uE7C3", "Startup", "StartupDescription", _startupToggle));
@@ -2634,6 +2623,14 @@ public sealed class MainWindow : Window
             _snippetSearchQuery = query;
             RefreshSnippetTree();
         };
+        _snippetSearchBox.KeyDown += (_, args) =>
+        {
+            if (args.Key == Windows.System.VirtualKey.Escape && _snippetSearchBox.Text.Length > 0)
+            {
+                _snippetSearchBox.Text = string.Empty;
+                args.Handled = true;
+            }
+        };
 
         _snippetSearchIcon.Glyph = "\uE721";
         _snippetSearchIcon.FontFamily = new FontFamily("Segoe Fluent Icons");
@@ -2647,50 +2644,32 @@ public sealed class MainWindow : Window
         _snippetSearchHost.Children.Add(_snippetSearchBox);
         _snippetSearchHost.Children.Add(_snippetSearchIcon);
 
-        _clearSnippetSearchButton.Width = SearchControlHeight;
-        _clearSnippetSearchButton.MinWidth = SearchControlHeight;
-        _clearSnippetSearchButton.Height = SearchControlHeight;
-        _clearSnippetSearchButton.MinHeight = SearchControlHeight;
-        _clearSnippetSearchButton.Padding = new Thickness(0);
-        _clearSnippetSearchButton.Click += (_, _) =>
-        {
-            _snippetSearchBox.Text = string.Empty;
-            _snippetSearchBox.Focus(FocusState.Programmatic);
-        };
-
-        var searchRow = new Grid { ColumnSpacing = 8, MinHeight = SearchControlHeight };
-        searchRow.ColumnDefinitions.Add(new ColumnDefinition());
-        searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        searchRow.Children.Add(_snippetSearchHost);
-        Grid.SetColumn(_clearSnippetSearchButton, 1);
-        searchRow.Children.Add(_clearSnippetSearchButton);
-
-        _snippetSearchStatusText.FontSize = 12;
-        _snippetSearchStatusText.Visibility = Visibility.Collapsed;
-
         return new StackPanel
         {
             Spacing = 10,
             Children =
             {
-                searchRow,
-                _snippetTree,
-                _snippetSearchStatusText
+                _snippetSearchHost,
+                _snippetTree
             }
         };
     }
 
     private void BuildSnippetPage()
     {
-        _snippetPage.Children.Add(PageHeader(_snippetHeaderText, _snippetDescriptionText));
+        _snippetPage.Children.Add(_snippetHeaderText);
         _snippetLayoutGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(320) });
         _snippetLayoutGrid.ColumnDefinitions.Add(new ColumnDefinition());
         _snippetTree.SelectionMode = TreeViewSelectionMode.Single;
-        _snippetTree.MinHeight = 180;
         _snippetTree.HorizontalAlignment = HorizontalAlignment.Stretch;
+        var rowStyle = new Style(typeof(TreeViewItem));
+        rowStyle.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, 36d));
+        rowStyle.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
+        _snippetTree.ItemContainerStyle = rowStyle;
+        Application.Current.Resources["CliptonSnippetTreeRowConverter"] = new SnippetTreeRowConverter();
         _snippetTree.ItemTemplate = (DataTemplate)XamlReader.Load("""
             <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
-                <ContentPresenter Content="{Binding Content}" />
+                <ContentPresenter Content="{Binding Content, Converter={StaticResource CliptonSnippetTreeRowConverter}}" />
             </DataTemplate>
             """);
         _snippetTree.ItemInvoked += (_, e) =>
@@ -2700,7 +2679,8 @@ public sealed class MainWindow : Window
                 return;
             }
 
-            if (TryGetSnippetFromTreeContent(e.InvokedItem, out var item))
+            var content = e.InvokedItem is TreeViewNode node ? node.Content : e.InvokedItem;
+            if (content is SnippetTreeRowContent { Snippet: { } item })
             {
                 SelectSnippet(item);
             }
@@ -2727,7 +2707,9 @@ public sealed class MainWindow : Window
         var detailsHeader = new Grid { ColumnSpacing = 12 };
         detailsHeader.ColumnDefinitions.Add(new ColumnDefinition());
         detailsHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        detailsHeader.Children.Add(_snippetFormTitle);
+        _snippetSelectionTitleText.TextWrapping = TextWrapping.Wrap;
+        _snippetSelectionTitleText.VerticalAlignment = VerticalAlignment.Center;
+        detailsHeader.Children.Add(_snippetSelectionTitleText);
         var snippetDataActions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         snippetDataActions.Children.Add(_exportSnippetsButton);
         snippetDataActions.Children.Add(_importSnippetsButton);
@@ -2742,9 +2724,7 @@ public sealed class MainWindow : Window
         _snippetPreviewBox.HorizontalAlignment = HorizontalAlignment.Stretch;
         _snippetPreviewBox.Visibility = Visibility.Collapsed;
         ScrollViewer.SetVerticalScrollBarVisibility(_snippetPreviewBox, ScrollBarVisibility.Auto);
-        details.Children.Add(_snippetSelectionTitleText);
         details.Children.Add(_snippetSelectionMetaText);
-        details.Children.Add(_selectedSnippetText);
         details.Children.Add(_snippetPreviewBox);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         _newSnippetButton.Click += async (_, _) => await OpenSnippetEditorAsync(null, _selectedSnippetFolder, string.Empty, string.Empty);
@@ -5053,94 +5033,69 @@ public sealed class MainWindow : Window
 
     private void UpdateSelectedSnippetText()
     {
-        if (_runtime.RequiresHistoryAccessUnlock)
+        var locked = _runtime.RequiresHistoryAccessUnlock;
+        var selected = locked ? null : _selectedSnippet;
+        var canEdit = selected is not null;
+        _saveSnippetButton.IsEnabled = canEdit;
+        _pasteSnippetButton.IsEnabled = canEdit;
+        _deleteSnippetButton.IsEnabled = canEdit;
+
+        if (selected is null)
         {
-            _snippetSelectionTitleText.Text = _runtime.Translate("UnlockHistoryAccess");
+            _snippetPreviewBox.Text = string.Empty;
+            _snippetPreviewBox.Visibility = Visibility.Collapsed;
+            var hasFolder = !locked && !string.IsNullOrWhiteSpace(_selectedSnippetFolder);
+            _snippetSelectionTitleText.Text = hasFolder
+                ? string.Format(_runtime.Translate("SnippetSelectedFolderMeta"), _selectedSnippetFolder)
+                : _runtime.Translate(locked ? "SnippetEditor" : "SnippetSelectionEmptyTitle");
             _snippetSelectionMetaText.Text = string.Empty;
             _snippetSelectionMetaText.Visibility = Visibility.Collapsed;
-            _selectedSnippetText.Text = _runtime.Translate("UnlockHistoryAccess");
-            _selectedSnippetText.Visibility = Visibility.Visible;
-            _snippetPreviewBox.Text = string.Empty;
-            _snippetPreviewBox.Visibility = Visibility.Collapsed;
-            _saveSnippetButton.IsEnabled = false;
-            _pasteSnippetButton.IsEnabled = false;
-            _deleteSnippetButton.IsEnabled = false;
             return;
         }
 
-        if (_selectedSnippet is null)
-        {
-            _snippetPreviewBox.Text = string.Empty;
-            _snippetPreviewBox.Visibility = Visibility.Collapsed;
-            _selectedSnippetText.Visibility = Visibility.Visible;
-
-            if (string.IsNullOrWhiteSpace(_selectedSnippetFolder))
-            {
-                _snippetSelectionTitleText.Text = _runtime.Translate("SnippetSelectionEmptyTitle");
-                _snippetSelectionMetaText.Text = string.Empty;
-                _snippetSelectionMetaText.Visibility = Visibility.Collapsed;
-                _selectedSnippetText.Text = _runtime.Translate("SnippetEditorEmpty");
-            }
-            else
-            {
-                _snippetSelectionTitleText.Text = _runtime.Translate("SnippetSelectionFolderTitle");
-                _snippetSelectionMetaText.Text = string.Format(_runtime.Translate("SnippetSelectedFolderMeta"), _selectedSnippetFolder);
-                _snippetSelectionMetaText.Visibility = Visibility.Visible;
-                _selectedSnippetText.Text = string.Format(_runtime.Translate("SnippetFolderSelected"), _selectedSnippetFolder);
-            }
-
-            _saveSnippetButton.IsEnabled = false;
-            _pasteSnippetButton.IsEnabled = false;
-            _deleteSnippetButton.IsEnabled = false;
-            return;
-        }
-
-        var selected = _selectedSnippet;
         var snippet = _runtime.Snippets.Find(selected.Folder, selected.Name);
         var folder = string.IsNullOrWhiteSpace(selected.Folder)
             ? _runtime.Translate("SnippetRootFolder")
             : selected.Folder;
 
-        _snippetSelectionTitleText.Text = selected.DisplayName;
+        _snippetSelectionTitleText.Text = selected.Name;
         _snippetSelectionMetaText.Text = $"{_runtime.Translate("SnippetFolder")}: {folder}";
         _snippetSelectionMetaText.Visibility = Visibility.Visible;
-        _selectedSnippetText.Text = string.Empty;
-        _selectedSnippetText.Visibility = Visibility.Collapsed;
         _snippetPreviewBox.Text = snippet?.Text ?? string.Empty;
         _snippetPreviewBox.Visibility = Visibility.Visible;
-        _saveSnippetButton.IsEnabled = true;
-        _pasteSnippetButton.IsEnabled = true;
-        _deleteSnippetButton.IsEnabled = true;
     }
 
     private void RefreshSnippetTree()
     {
         _updatingSnippetTreeSelection = true;
+        foreach (var (node, folder) in _snippetFolderNodes)
+        {
+            if (node.IsExpanded)
+            {
+                _collapsedSnippetFolders.Remove(folder);
+            }
+            else
+            {
+                _collapsedSnippetFolders.Add(folder);
+            }
+        }
+
         _snippetNodes.Clear();
         _snippetFolderNodes.Clear();
         _snippetTree.RootNodes.Clear();
         var locked = _runtime.RequiresHistoryAccessUnlock;
         _snippetSearchBox.IsEnabled = !locked;
-        _clearSnippetSearchButton.IsEnabled = !locked && !string.IsNullOrWhiteSpace(_snippetSearchQuery);
         _newSnippetButton.IsEnabled = !locked;
         _exportSnippetsButton.IsEnabled = !locked;
         _importSnippetsButton.IsEnabled = !locked;
         if (locked)
         {
+            _collapsedSnippetFolders.Clear();
             _selectedSnippet = null;
             _selectedSnippetFolder = string.Empty;
-            _snippetTree.RootNodes.Add(new TreeViewNode
-            {
-                Content = new TextBlock
-                {
-                    Text = _runtime.Translate("UnlockHistoryAccess"),
-                    Foreground = DescriptionBrush(),
-                    Margin = new Thickness(8, 6, 8, 6)
-                }
-            });
+            _snippetTree.RootNodes.Add(CreateSnippetTreeMessage("UnlockHistoryAccess"));
             _updatingSnippetTreeSelection = false;
             UpdateSelectedSnippetText();
-            UpdateSnippetSearchStatus(0, filtering: false);
             return;
         }
 
@@ -5149,28 +5104,35 @@ public sealed class MainWindow : Window
             .Where(snippet => !hasSearch || MatchesSnippetSearch(snippet, _snippetSearchQuery))
             .OrderBy(snippet => snippet.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        UpdateSnippetSearchStatus(snippets.Count, hasSearch);
-
         var folderNodesByPath = new Dictionary<string, TreeViewNode>(StringComparer.OrdinalIgnoreCase);
-        var folders = hasSearch
-            ? CollectSnippetFolders(snippets)
-            : CollectSnippetFolders(_runtime.Snippets.Snippets);
-        foreach (var folder in folders)
+        if (!hasSearch)
         {
-            EnsureSnippetFolderNode(folder, folderNodesByPath);
+            var folders = CollectSnippetFolders(snippets).ToArray();
+            _collapsedSnippetFolders.IntersectWith(folders);
+            foreach (var folder in folders)
+            {
+                EnsureSnippetFolderNode(folder, folderNodesByPath);
+            }
         }
 
+        var duplicateNames = hasSearch
+            ? snippets.GroupBy(snippet => snippet.Name, StringComparer.OrdinalIgnoreCase)
+                .Where(group => group.Count() > 1)
+                .Select(group => group.Key)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : null;
         foreach (var snippet in snippets)
         {
             var item = SnippetItemViewModel.FromSnippet(snippet);
+            var folder = NormalizeSnippetFolder(snippet.Folder);
+            var showFolder = duplicateNames?.Contains(item.Name) == true;
             var snippetNode = new TreeViewNode
             {
-                Content = SnippetTreeRow("\uE8A5", item.Name, item.Folder, item)
+                Content = new SnippetTreeRowContent(() => SnippetTreeRow("\uE8A5", item.Name, folder, item, showFolder), item)
             };
             _snippetNodes[snippetNode] = item;
 
-            var folder = NormalizeSnippetFolder(snippet.Folder);
-            if (!string.IsNullOrWhiteSpace(folder))
+            if (!hasSearch && !string.IsNullOrEmpty(folder))
             {
                 EnsureSnippetFolderNode(folder, folderNodesByPath).Children.Add(snippetNode);
             }
@@ -5182,15 +5144,7 @@ public sealed class MainWindow : Window
 
         if (_snippetTree.RootNodes.Count == 0)
         {
-            _snippetTree.RootNodes.Add(new TreeViewNode
-            {
-                Content = new TextBlock
-                {
-                    Text = _runtime.Translate(hasSearch ? "SnippetSearchNoResults" : "SnippetEditorEmpty"),
-                    Foreground = DescriptionBrush(),
-                    Margin = new Thickness(8, 6, 8, 6)
-                }
-            });
+            _snippetTree.RootNodes.Add(CreateSnippetTreeMessage(hasSearch ? "SnippetSearchNoResults" : "SnippetEditorEmpty"));
         }
 
         _updatingSnippetTreeSelection = false;
@@ -5204,21 +5158,6 @@ public sealed class MainWindow : Window
         }
 
         UpdateSelectedSnippetText();
-    }
-
-    private void UpdateSnippetSearchStatus(int visibleCount, bool filtering)
-    {
-        if (!filtering)
-        {
-            _snippetSearchStatusText.Text = string.Empty;
-            _snippetSearchStatusText.Visibility = Visibility.Collapsed;
-            return;
-        }
-
-        _snippetSearchStatusText.Text = visibleCount == 0
-            ? _runtime.Translate("SnippetSearchNoResults")
-            : string.Format(_runtime.Translate("SnippetSearchStatus"), visibleCount);
-        _snippetSearchStatusText.Visibility = Visibility.Visible;
     }
 
     private static bool MatchesSnippetSearch(Snippet snippet, string query)
@@ -5260,8 +5199,8 @@ public sealed class MainWindow : Window
         var title = parts.Length == 0 ? normalized : parts[^1];
         var node = new TreeViewNode
         {
-            Content = SnippetTreeRow("\uE8B7", title, normalized),
-            IsExpanded = true
+            Content = new SnippetTreeRowContent(() => SnippetTreeRow("\uE8B7", title, normalized)),
+            IsExpanded = !_collapsedSnippetFolders.Contains(normalized)
         };
         _snippetFolderNodes[node] = normalized;
         nodesByPath[normalized] = node;
@@ -5279,20 +5218,51 @@ public sealed class MainWindow : Window
         return node;
     }
 
-    private UIElement SnippetTreeRow(string glyph, string title, string subtitle, SnippetItemViewModel? item = null)
+    private sealed record SnippetTreeRowContent(Func<UIElement> CreateVisual, SnippetItemViewModel? Snippet = null);
+
+    private sealed class SnippetTreeRowConverter : Microsoft.UI.Xaml.Data.IValueConverter
     {
-        var accessibleName = item?.DisplayName
-            ?? (string.IsNullOrWhiteSpace(subtitle) ? title : $"{title} {subtitle}");
+        public object? Convert(object value, Type targetType, object parameter, string language)
+        {
+            // Collapsing a folder can recycle its row containers. Give each
+            // presenter its own visual instead of sharing a node-owned element.
+            return value is SnippetTreeRowContent row ? row.CreateVisual() : null;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, string language)
+            => throw new NotSupportedException();
+    }
+
+    private TreeViewNode CreateSnippetTreeMessage(string messageKey)
+    {
+        return new TreeViewNode
+        {
+            Content = new SnippetTreeRowContent(() => new TextBlock
+            {
+                Text = _runtime.Translate(messageKey),
+                Foreground = DescriptionBrush(),
+                Margin = new Thickness(8, 6, 8, 6)
+            })
+        };
+    }
+
+    private UIElement SnippetTreeRow(string glyph, string title, string path, SnippetItemViewModel? item = null, bool showFolder = false)
+    {
+        var pathLabel = showFolder
+            ? string.IsNullOrEmpty(path) ? _runtime.Translate("SnippetRootFolder") : path
+            : null;
+        var accessibleName = pathLabel is null ? item?.DisplayName ?? path : $"{pathLabel} / {title}";
         var row = new Grid
         {
-            ColumnSpacing = 10,
-            Padding = new Thickness(2, 4, 2, 4),
-            Tag = item
+            ColumnSpacing = 7,
+            Padding = new Thickness(2, 3, 6, 3),
+            VerticalAlignment = VerticalAlignment.Stretch
         };
         AutomationProperties.SetName(row, accessibleName);
-        AutomationProperties.SetAutomationId(row, SnippetTreeAutomationId(item is null ? "Folder" : "Item", title, subtitle));
+        AutomationProperties.SetAutomationId(row, SnippetTreeAutomationId(item is null ? "Folder" : "Item", title, path));
+        ToolTipService.SetToolTip(row, accessibleName);
         row.Loaded += (_, _) => ApplySnippetTreeItemAutomation(row, accessibleName);
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
         row.ColumnDefinitions.Add(new ColumnDefinition());
         row.Children.Add(new FontIcon
         {
@@ -5306,22 +5276,29 @@ public sealed class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center
         });
 
-        var texts = new StackPanel { Spacing = 1 };
-        texts.Children.Add(new TextBlock
+        var nameText = new TextBlock
         {
             Text = title,
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center
-        });
-        texts.Children.Add(new TextBlock
+        };
+        Grid.SetColumn(nameText, 1);
+        row.Children.Add(nameText);
+        if (pathLabel is not null)
         {
-            Text = subtitle,
-            FontSize = 12,
-            Foreground = DescriptionBrush(),
-            TextTrimming = TextTrimming.CharacterEllipsis
-        });
-        Grid.SetColumn(texts, 1);
-        row.Children.Add(texts);
+            var pathText = new TextBlock
+            {
+                Text = pathLabel,
+                FontSize = 12,
+                MaxWidth = 112,
+                Foreground = DescriptionBrush(),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(pathText, 2);
+            row.Children.Add(pathText);
+        }
 
         if (item is not null)
         {
@@ -5391,18 +5368,6 @@ public sealed class MainWindow : Window
         _updatingSnippetTreeSelection = false;
     }
 
-    private static bool TryGetSnippetFromTreeContent(object? content, out SnippetItemViewModel item)
-    {
-        if (content is FrameworkElement { Tag: SnippetItemViewModel tagged })
-        {
-            item = tagged;
-            return true;
-        }
-
-        item = default!;
-        return false;
-    }
-
     private async Task OpenSnippetEditorAsync(SnippetItemViewModel? existing, string folder, string name, string text)
     {
         var version = _runtime.ProtectedAccessVersion;
@@ -5411,9 +5376,15 @@ public sealed class MainWindow : Window
             return;
         }
 
-        var folderBox = SnippetEditorTextBox(folder, _runtime.Translate("SnippetFolder"));
-        var nameBox = SnippetEditorTextBox(name, _runtime.Translate("SnippetName"));
-        var textBox = SnippetEditorTextBox(text, _runtime.Translate("SnippetText"));
+        var folderBox = SnippetEditorTextBox(folder, "Work/Templates");
+        var nameBox = SnippetEditorTextBox(name);
+        var textBox = SnippetEditorTextBox(text);
+        var folderHint = _runtime.Translate("SnippetFolderHint");
+        var nameHint = _runtime.Translate("SnippetNameWithFolderHint");
+        ToolTipService.SetToolTip(folderBox, folderHint);
+        ToolTipService.SetToolTip(nameBox, nameHint);
+        AutomationProperties.SetHelpText(folderBox, folderHint);
+        AutomationProperties.SetHelpText(nameBox, nameHint);
         SetAutomationId(folderBox, "SnippetEditorFolderTextBox");
         SetAutomationId(nameBox, "SnippetEditorNameTextBox");
         SetAutomationId(textBox, "SnippetEditorBodyTextBox");
@@ -5423,43 +5394,23 @@ public sealed class MainWindow : Window
         textBox.MaxHeight = 260;
         ScrollViewer.SetVerticalScrollBarVisibility(textBox, ScrollBarVisibility.Auto);
 
-        var templateHelp = DescriptionText("SnippetTemplateHelp", fontSize: 12, wrapping: TextWrapping.Wrap);
         var validationText = DescriptionText("SnippetValidationRequired", fontSize: 12, wrapping: TextWrapping.Wrap);
-        var variableSamples = SnippetVariableSamplePanel(textBox);
-        var referenceButton = new HyperlinkButton
-        {
-            Content = new TextBlock
-            {
-                Text = _runtime.Translate("SnippetTemplateReference"),
-                TextWrapping = TextWrapping.Wrap
-            },
-            Padding = new Thickness(0),
-            HorizontalAlignment = HorizontalAlignment.Left
-        };
-        SetAutomationId(referenceButton, "SnippetVariableReference");
-        AutomationProperties.SetName(referenceButton, _runtime.Translate("SnippetTemplateReference"));
-        referenceButton.Click += (_, _) => OpenExternalUrl(SnippetVariablesUrl);
-
         var content = new StackPanel
         {
             Spacing = 12,
             Children =
             {
                 SnippetEditorField("SnippetFolder", folderBox),
-                DescriptionText("SnippetFolderHint", fontSize: 12, wrapping: TextWrapping.Wrap),
                 SnippetEditorField("SnippetName", nameBox),
-                DescriptionText("SnippetNameWithFolderHint", fontSize: 12, wrapping: TextWrapping.Wrap),
                 SnippetEditorField("SnippetText", textBox),
                 validationText,
-                templateHelp,
-                variableSamples,
-                referenceButton
+                SnippetVariableSamplePanel(textBox)
             }
         };
 
         var dialog = new ContentDialog
         {
-            Title = _runtime.Translate("SnippetEditor"),
+            Title = _runtime.Translate(existing is null ? "NewSnippet" : "SnippetEditor"),
             Content = new ScrollViewer
             {
                 Content = content,
@@ -5593,6 +5544,19 @@ public sealed class MainWindow : Window
             ("LineBreak", "{{br}}")
         ];
 
+        var heading = new SnippetVariableWrapPanel();
+        var headingText = DescriptionText("SnippetVariableSamples", fontSize: 12, wrapping: TextWrapping.Wrap);
+        headingText.VerticalAlignment = VerticalAlignment.Center;
+        heading.Children.Add(headingText);
+        var referenceButton = new HyperlinkButton
+        {
+            Content = _runtime.Translate("SnippetTemplateReference"),
+            Padding = new Thickness(0)
+        };
+        SetAutomationId(referenceButton, "SnippetVariableReference");
+        referenceButton.Click += (_, _) => OpenExternalUrl(SnippetVariablesUrl);
+        heading.Children.Add(referenceButton);
+
         var buttons = new SnippetVariableWrapPanel();
         SetAutomationId(buttons, "SnippetVariableButtons");
         foreach (var (id, token) in samples)
@@ -5605,7 +5569,7 @@ public sealed class MainWindow : Window
             Spacing = 7,
             Children =
             {
-                DescriptionText("SnippetVariableSamples", fontSize: 12, wrapping: TextWrapping.Wrap),
+                heading,
                 buttons
             }
         };
@@ -5640,7 +5604,7 @@ public sealed class MainWindow : Window
         target.SelectionLength = 0;
     }
 
-    private TextBox SnippetEditorTextBox(string text, string placeholder)
+    private static TextBox SnippetEditorTextBox(string text, string placeholder = "")
     {
         return new TextBox
         {
@@ -6290,7 +6254,7 @@ public sealed class MainWindow : Window
         }
     }
 
-    private UIElement SettingCard(string glyph, string titleKey, string descriptionKey, FrameworkElement control)
+    private UIElement SettingCard(string glyph, string titleKey, string descriptionKey, FrameworkElement control, bool showDescription = true)
     {
         if (control is Control controlElement)
         {
@@ -6309,7 +6273,14 @@ public sealed class MainWindow : Window
 
         var texts = new StackPanel { Spacing = 3 };
         texts.Children.Add(LocalizedText(titleKey, fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
-        texts.Children.Add(DescriptionText(descriptionKey, fontSize: 12, wrapping: TextWrapping.Wrap));
+        if (showDescription)
+        {
+            texts.Children.Add(DescriptionText(descriptionKey, fontSize: 12, wrapping: TextWrapping.Wrap));
+        }
+        else
+        {
+            texts.VerticalAlignment = VerticalAlignment.Center;
+        }
         Grid.SetColumn(texts, 1);
         grid.Children.Add(texts);
         Grid.SetColumn(actionControl, 2);

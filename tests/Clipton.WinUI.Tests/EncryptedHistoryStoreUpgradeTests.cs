@@ -163,6 +163,24 @@ public sealed class EncryptedHistoryStoreUpgradeTests
         Assert.Equal(["present-1"], manifest.GetProperty("OrderedIds").EnumerateArray().Select(entry => entry.GetString()));
     }
 
+    [Fact]
+    public void WarmedItemPaths_ObserveExternalDeletionAndNewOrdering()
+    {
+        var root = CreateTestRoot();
+        var store = new EncryptedHistoryStore(Path.Combine(root, "history.dat"));
+        store.Save([Snapshot("first", "first"), Snapshot("second", "second")]);
+        Assert.Equal(["first", "second"], store.GetOrderedIds());
+
+        File.Delete(Path.Combine(root, "history", "items", "second.dat"));
+
+        Assert.Equal(["first"], store.GetOrderedIds());
+        Assert.Equal(["first"], ReadManifest(root).GetProperty("OrderedIds").EnumerateArray().Select(entry => entry.GetString()));
+
+        store.SavePreservingOlder([Snapshot("new", "new")], loadedPersistedCount: 0, capacity: 10);
+        Assert.Equal(["new", "first"], store.GetOrderedIds());
+        Assert.Equal(2, store.Count());
+    }
+
     private static string CreateTestRoot()
     {
         return Path.Combine(Path.GetTempPath(), "clipton-winui-upgrade-tests", Guid.NewGuid().ToString("N"));
