@@ -5338,6 +5338,9 @@ public sealed class MainWindow : Window
         var folderBox = SnippetEditorTextBox(folder, _runtime.Translate("SnippetFolder"));
         var nameBox = SnippetEditorTextBox(name, _runtime.Translate("SnippetName"));
         var textBox = SnippetEditorTextBox(text, _runtime.Translate("SnippetText"));
+        SetAutomationId(folderBox, "SnippetEditorFolderTextBox");
+        SetAutomationId(nameBox, "SnippetEditorNameTextBox");
+        SetAutomationId(textBox, "SnippetEditorBodyTextBox");
         textBox.AcceptsReturn = true;
         textBox.TextWrapping = TextWrapping.Wrap;
         textBox.MinHeight = 180;
@@ -5349,16 +5352,21 @@ public sealed class MainWindow : Window
         var variableSamples = SnippetVariableSamplePanel(textBox);
         var referenceButton = new HyperlinkButton
         {
-            Content = _runtime.Translate("SnippetTemplateReference"),
+            Content = new TextBlock
+            {
+                Text = _runtime.Translate("SnippetTemplateReference"),
+                TextWrapping = TextWrapping.Wrap
+            },
             Padding = new Thickness(0),
             HorizontalAlignment = HorizontalAlignment.Left
         };
+        SetAutomationId(referenceButton, "SnippetVariableReference");
+        AutomationProperties.SetName(referenceButton, _runtime.Translate("SnippetTemplateReference"));
         referenceButton.Click += (_, _) => OpenExternalUrl(SnippetVariablesUrl);
 
         var content = new StackPanel
         {
             Spacing = 12,
-            MinWidth = 520,
             Children =
             {
                 SnippetEditorField("SnippetFolder", folderBox),
@@ -5376,13 +5384,22 @@ public sealed class MainWindow : Window
         var dialog = new ContentDialog
         {
             Title = _runtime.Translate("SnippetEditor"),
-            Content = content,
+            Content = new ScrollViewer
+            {
+                Content = content,
+                HorizontalScrollMode = ScrollMode.Disabled,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+            },
             PrimaryButtonText = _runtime.Translate("Save"),
             CloseButtonText = _runtime.Translate("Cancel"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = _root.XamlRoot ?? throw new InvalidOperationException("The snippet editor cannot open before its window has a XamlRoot."),
             RequestedTheme = DialogTheme
         };
+        SetAutomationId(dialog, "SnippetEditorDialog");
+        dialog.Resources["ContentDialogMaxWidth"] = 568d;
+
         void UpdateSaveState()
         {
             var canSave = CanSaveSnippet(nameBox.Text, textBox.Text);
@@ -5467,64 +5484,66 @@ public sealed class MainWindow : Window
     private UIElement SnippetEditorField(string labelKey, TextBox input)
     {
         var panel = new StackPanel { Spacing = 6 };
-        panel.Children.Add(LocalizedText(labelKey, fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
+        var label = LocalizedText(labelKey, fontWeight: Microsoft.UI.Text.FontWeights.SemiBold);
+        AutomationProperties.SetLabeledBy(input, label);
+        panel.Children.Add(label);
         panel.Children.Add(input);
         return panel;
     }
 
     private UIElement SnippetVariableSamplePanel(TextBox target)
     {
-        string[] samples =
+        (string Id, string Token)[] samples =
         [
-            "{{date}}",
-            "{{time}}",
-            "{{datetime}}",
-            "{{date:yyyy/MM/dd}}",
-            "{{weekday}}",
-            "{{uuid}}",
-            "{{shortuuid}}",
-            "{{tomorrow}}",
-            "{{adddays:7}}",
-            "{{adddays:-7|yyyy/MM/dd}}",
-            "{{filepath}}",
-            "{{filename}}",
-            "{{filecount}}",
-            "{{randomhex:8}}",
-            "{{randomnumber:4}}",
-            "{{br}}"
+            ("Date", "{{date}}"),
+            ("Time", "{{time}}"),
+            ("FileName", "{{filename}}"),
+            ("DateTime", "{{datetime}}"),
+            ("FormattedDate", "{{date:yyyy/MM/dd}}"),
+            ("Weekday", "{{weekday}}"),
+            ("Tomorrow", "{{tomorrow}}"),
+            ("NextWeek", "{{adddays:7}}"),
+            ("LastWeek", "{{adddays:-7|yyyy/MM/dd}}"),
+            ("FilePath", "{{filepath}}"),
+            ("FileCount", "{{filecount}}"),
+            ("Uuid", "{{uuid}}"),
+            ("ShortUuid", "{{shortuuid}}"),
+            ("RandomHex", "{{randomhex:8}}"),
+            ("RandomNumber", "{{randomnumber:4}}"),
+            ("LineBreak", "{{br}}")
         ];
 
-        var panel = new StackPanel { Spacing = 7 };
-        panel.Children.Add(DescriptionText("SnippetVariableSamples", fontSize: 12, wrapping: TextWrapping.Wrap));
-
-        foreach (var rowSamples in samples.Chunk(4))
+        var buttons = new SnippetVariableWrapPanel();
+        SetAutomationId(buttons, "SnippetVariableButtons");
+        foreach (var (id, token) in samples)
         {
-            var row = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Spacing = 6
-            };
-            foreach (var sample in rowSamples)
-            {
-                row.Children.Add(SnippetVariableButton(sample, target));
-            }
-
-            panel.Children.Add(row);
+            buttons.Children.Add(SnippetVariableButton(id, token, target));
         }
 
-        return panel;
+        return new StackPanel
+        {
+            Spacing = 7,
+            Children =
+            {
+                DescriptionText("SnippetVariableSamples", fontSize: 12, wrapping: TextWrapping.Wrap),
+                buttons
+            }
+        };
     }
 
-    private Button SnippetVariableButton(string token, TextBox target)
+    private Button SnippetVariableButton(string id, string token, TextBox target)
     {
+        var label = _runtime.Translate($"SnippetVariable{id}");
         var button = new Button
         {
-            Content = token,
-            MinHeight = 30,
-            Padding = new Thickness(10, 0, 10, 0),
+            Content = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap },
+            MinHeight = 32,
+            Padding = new Thickness(10, 4, 10, 4),
             VerticalAlignment = VerticalAlignment.Center
         };
-        AutomationProperties.SetName(button, token);
+        SetAutomationId(button, $"SnippetVariable{id}Button");
+        AutomationProperties.SetName(button, label);
+        AutomationProperties.SetHelpText(button, token);
         ToolTipService.SetToolTip(button, token);
         button.Click += (_, _) => InsertSnippetVariable(target, token);
         return button;
