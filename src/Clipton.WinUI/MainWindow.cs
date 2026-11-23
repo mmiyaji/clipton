@@ -584,8 +584,7 @@ public sealed class MainWindow : Window
             return;
         }
 
-        if (!string.IsNullOrWhiteSpace(_historySearchQuery)
-            || !string.Equals(_pendingHistorySearchQuery.Trim(), _historySearchQuery, StringComparison.Ordinal))
+        if (_historySearchDebouncing || _historySearchQuery.Length > 0)
         {
             ShowHistorySearchPending();
             if (!_historySearchDebouncing)
@@ -623,14 +622,14 @@ public sealed class MainWindow : Window
         _historySearchCancellation = cancellation;
         var token = cancellation.Token;
         var version = _runtime.ProtectedAccessVersion;
-        var filter = SearchFilter.Parse(_historySearchQuery);
-        var pinnedIds = _runtime.Settings.PinnedHistoryIds.ToHashSet(StringComparer.Ordinal);
-        var formatLabels = Enum.GetValues<ClipboardFormatKind>().ToDictionary(format => format, TranslateHistoryFormatForSearch);
-        var snippetNames = _runtime.Snippets.Snippets.Select(snippet => snippet.Text).Distinct(StringComparer.Ordinal)
-            .ToDictionary(text => text, text => _runtime.Snippets.FindByText(text)?.DisplayName, StringComparer.Ordinal);
-        var candidates = _runtime.GetHistorySearchCandidates(token);
         try
         {
+            var filter = SearchFilter.Parse(_historySearchQuery);
+            var pinnedIds = _runtime.Settings.PinnedHistoryIds.ToHashSet(StringComparer.Ordinal);
+            var formatLabels = Enum.GetValues<ClipboardFormatKind>().ToDictionary(format => format, TranslateHistoryFormatForSearch);
+            var snippetNames = _runtime.Snippets.Snippets.Select(snippet => snippet.Text).Distinct(StringComparer.Ordinal)
+                .ToDictionary(text => text, text => _runtime.Snippets.FindByText(text)?.DisplayName, StringComparer.Ordinal);
+            var candidates = _runtime.GetHistorySearchCandidates(token);
             var matches = await Task.Run(() => candidates.Where(snapshot =>
                 HistoryMatchesSearch(filter, snapshot, pinnedIds, formatLabels, snippetNames)).ToArray(), token);
             if (!token.IsCancellationRequested && _runtime.CanUseProtectedData(version))
@@ -2260,6 +2259,7 @@ public sealed class MainWindow : Window
     private void ScheduleHistorySearch(string query)
     {
         _pendingHistorySearchQuery = query;
+        _historySearchDebouncing = true;
         if (!_runtime.RequiresHistoryAccessUnlock)
         {
             CancelHistorySearch();
@@ -2268,7 +2268,6 @@ public sealed class MainWindow : Window
 
         _historySearchDebounceTimer ??= CreateHistorySearchDebounceTimer();
         _historySearchDebounceTimer.Stop();
-        _historySearchDebouncing = true;
         _historySearchDebounceTimer.Start();
     }
 
@@ -2292,6 +2291,7 @@ public sealed class MainWindow : Window
         _pendingHistorySearchQuery = normalized;
         _historySearchQuery = normalized;
         _historyVisibleLimit = HistoryDisplayBatchSize;
+        CancelHistorySearch();
         UpdateHistorySearchStatus();
         RefreshItemsIncremental();
     }
@@ -2303,7 +2303,7 @@ public sealed class MainWindow : Window
 
     private void ClearHistoryFilters()
     {
-        ApplyHistorySearch(BuildHistorySearchTextBoxValue(_historySearchQuery));
+        ApplyHistorySearch(BuildHistorySearchTextBoxValue(_pendingHistorySearchQuery));
     }
 
     private void UpdateHistoryActionButtons()
@@ -2537,6 +2537,14 @@ public sealed class MainWindow : Window
 
     private void UpdateHistorySearchStatus(bool syncControls = true)
     {
+        if (_historySearchDebouncing)
+        {
+            _historySearchStatusText.Visibility = Visibility.Collapsed;
+            _clearHistorySearchButton.Visibility = string.IsNullOrWhiteSpace(_pendingHistorySearchQuery)
+                ? Visibility.Collapsed : Visibility.Visible;
+            return;
+        }
+
         var hasQuery = !string.IsNullOrWhiteSpace(_historySearchQuery);
         _historySearchStatusText.Text = hasQuery
             ? string.Format(_runtime.Translate("SearchResults"), BuildHistorySearchStatusLabel())

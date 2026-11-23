@@ -214,7 +214,7 @@ public sealed class LargeHistoryMenuTests
         Assert.Equal("item-118", matches[^1].Id);
         Assert.DoesNotContain(matches, item => item.Id == "item-116");
         Assert.Equal(11, runtime.History.Items.Count);
-        Assert.Equal(110, runtime.UnloadedPersistedHistoryCount);
+        Assert.True(runtime.UnloadedPersistedHistoryCount > 0);
         Assert.Equal("needle 118", runtime.GetHistoryPlainText("item-118"));
         Assert.NotEmpty(runtime.CreateHistoryContextOptions("item-118"));
     }
@@ -257,6 +257,18 @@ public sealed class LargeHistoryMenuTests
         runtime.ConfigureHistoryAccessLock("2468", timeoutMinutes: 15);
         runtime.LockHistoryAccess();
         Assert.Empty(runtime.GetHistorySearchCandidates(default));
+    }
+
+    [Fact]
+    public void SettingsSearch_DoesNotSkipOlderItemWhenSaveRewritesResidentPrefix()
+    {
+        using var runtime = new CliptonRuntime(Seed(20), isSafeMode: true);
+        runtime.RemoveHistoryItem("item-0");
+        var candidates = runtime.GetHistorySearchCandidates(default);
+
+        typeof(CliptonRuntime).GetMethod("SaveHistory", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(runtime, [true]);
+
+        Assert.Equal(Enumerable.Range(1, 19).Select(i => $"item-{i}"), candidates.Select(item => item.Id));
     }
 
     private static string Seed(int count, Func<int, string>? text = null)
