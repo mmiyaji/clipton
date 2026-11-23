@@ -1861,7 +1861,15 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
 
     private void ApplyMenuItemAutomation(MenuFlyoutItemBase flyoutItem, QuickMenuItem item, bool opensPasteOptions)
     {
-        AutomationProperties.SetName(flyoutItem, BuildDisplayText(item));
+        if (!string.IsNullOrEmpty(item.KeyboardShortcut))
+        {
+            AutomationProperties.SetName(flyoutItem, item.Title);
+            AutomationProperties.SetAcceleratorKey(flyoutItem, item.KeyboardShortcut);
+        }
+        else
+        {
+            AutomationProperties.SetName(flyoutItem, BuildDisplayText(item));
+        }
         var helpText = BuildMenuItemHelpText(item, opensPasteOptions);
         if (!string.IsNullOrWhiteSpace(helpText))
         {
@@ -1906,7 +1914,7 @@ public sealed class QuickMenuWindow : Window, IQuickMenuHostWindow
             ? item.RevealedTitle!
             : item.Title;
         var text = FormatMenuText(title);
-        return text;
+        return string.IsNullOrEmpty(item.KeyboardShortcut) ? text : $"{text}    {item.KeyboardShortcut}";
     }
 
     private string BuildCommandHint(QuickMenuItem item)
@@ -2481,6 +2489,8 @@ public sealed record QuickMenuItem(
     private readonly Lazy<Task<byte[]?>> _iconImageTask = new(() => LoadIconImageAsync(IconImageBytes, IconImageBytesProvider));
     private IReadOnlyList<QuickMenuItem>? _resolvedChildren = Children;
     private IReadOnlyList<QuickMenuPasteOption>? _resolvedPasteOptions = PasteOptions;
+
+    public string? KeyboardShortcut { get; init; }
 
     public bool IsSelected { get; set; }
 

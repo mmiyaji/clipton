@@ -180,9 +180,10 @@ public sealed class MainWindow : Window
     private readonly ComboBox _maxHistoryItemsBox = new();
     private readonly ComboBox _clipboardCaptureDelayBox = new();
     private readonly Button _registerFromHistoryButton = new();
-    private readonly Button _exportHistoryButton = new();
-    private readonly Button _importHistoryButton = new();
-    private readonly Button _clearButton = new();
+    private readonly DropDownButton _manageHistoryButton = new() { VerticalAlignment = VerticalAlignment.Top };
+    private readonly MenuFlyoutItem _exportHistoryItem = new();
+    private readonly MenuFlyoutItem _importHistoryItem = new();
+    private readonly MenuFlyoutItem _clearHistoryItem = new();
     private readonly Grid _historySearchHost = new();
     private readonly TextBox _historySearchBox = new();
     private readonly FontIcon _historySearchIcon = new();
@@ -247,6 +248,9 @@ public sealed class MainWindow : Window
     private bool _updatingSnippetTreeSelection;
     private string _historySearchQuery = string.Empty;
     private string _pendingHistorySearchQuery = string.Empty;
+    private CancellationTokenSource? _historySearchCancellation;
+    private bool _historySearchDebouncing;
+    private IReadOnlyList<ClipboardSnapshot>? _historySearchMatches;
     private string _snippetSearchQuery = string.Empty;
     private int _historyVisibleLimit = HistoryDisplayBatchSize;
     private readonly Dictionary<string, ListViewItem> _historyRowCache = new(StringComparer.Ordinal);
@@ -332,6 +336,8 @@ public sealed class MainWindow : Window
         _runtime.StoreUpdateAvailabilityChanged += OnStoreUpdateAvailabilityChanged;
         Closed += (_, _) =>
         {
+            _historySearchDebounceTimer?.Stop();
+            CancelHistorySearch();
             _runtime.HighContrastChanged -= OnHighContrastChanged;
             _runtime.StoreUpdateAvailabilityChanged -= OnStoreUpdateAvailabilityChanged;
             RestoreWindowProc();
@@ -563,65 +569,121 @@ public sealed class MainWindow : Window
 
     private void RefreshItemsCore()
     {
-        var filter = SearchFilter.Parse(_historySearchQuery);
-        _historyListView.Items.Clear();
+        CancelHistorySearch();
         if (_runtime.RequiresHistoryAccessUnlock)
         {
+            _historyListView.Items.Clear();
             _historyRowCache.Clear();
             _selectedHistoryId = null;
             _historyEmptyText.Text = _runtime.Translate("UnlockHistoryAccess");
             _historyEmptyText.Visibility = Visibility.Visible;
             _loadMoreHistoryButton.Visibility = Visibility.Collapsed;
+            UpdateHistorySearchStatus(syncControls: false);
             UpdateHistoryActionButtons();
             RefreshSnippetTree();
             return;
         }
 
-        var visibleHistoryItems = new List<ClipboardSnapshot>(_historyVisibleLimit);
-        var matchedHistoryCount = 0;
-        foreach (var snapshot in _runtime.History.Items)
+        if (_historySearchDebouncing || _historySearchQuery.Length > 0)
         {
-            if (!HistoryMatchesSearch(filter, snapshot))
+            ShowHistorySearchPending();
+            if (!_historySearchDebouncing)
             {
-                continue;
+                _ = SearchHistoryAsync();
             }
-
-            matchedHistoryCount++;
-            if (visibleHistoryItems.Count < _historyVisibleLimit)
-            {
-                visibleHistoryItems.Add(snapshot);
-            }
+            RefreshSnippetTree();
+            return;
         }
 
-        PruneHistoryRowCache();
-        foreach (var snapshot in visibleHistoryItems)
+        RenderHistory(_runtime.History.Items, _runtime.AvailableHistoryCount);
+        RefreshSnippetTree();
+    }
+
+    private void CancelHistorySearch()
+    {
+        _historySearchCancellation?.Cancel();
+        _historySearchCancellation = null;
+        _historySearchMatches = null;
+    }
+
+    private void ShowHistorySearchPending()
+    {
+        _historyListView.Items.Clear();
+        _historyEmptyText.Text = _runtime.Translate("QuickMenuFolderLoading");
+        _historyEmptyText.Visibility = Visibility.Visible;
+        _loadMoreHistoryButton.Visibility = Visibility.Collapsed;
+        UpdateHistoryActionButtons();
+        UpdateHistorySearchStatus(syncControls: false);
+    }
+
+    private async Task SearchHistoryAsync()
+    {
+        using var cancellation = new CancellationTokenSource();
+        _historySearchCancellation = cancellation;
+        var token = cancellation.Token;
+        var version = _runtime.ProtectedAccessVersion;
+        try
+        {
+            var filter = SearchFilter.Parse(_historySearchQuery);
+            var pinnedIds = _runtime.Settings.PinnedHistoryIds.ToHashSet(StringComparer.Ordinal);
+            var formatLabels = Enum.GetValues<ClipboardFormatKind>().ToDictionary(format => format, TranslateHistoryFormatForSearch);
+            var snippetNames = _runtime.Snippets.Snippets.Select(snippet => snippet.Text).Distinct(StringComparer.Ordinal)
+                .ToDictionary(text => text, text => _runtime.Snippets.FindByText(text)?.DisplayName, StringComparer.Ordinal);
+            var candidates = _runtime.GetHistorySearchCandidates(token);
+            var matches = await Task.Run(() => candidates.Where(snapshot =>
+                HistoryMatchesSearch(filter, snapshot, pinnedIds, formatLabels, snippetNames)).ToArray(), token);
+            if (!token.IsCancellationRequested && _runtime.CanUseProtectedData(version))
+            {
+                _historySearchMatches = matches;
+                UpdateHistorySearchStatus(syncControls: false);
+                RenderHistory(matches, matches.Length);
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            AppDiagnostics.Log(exception, "Settings history search");
+            if (!token.IsCancellationRequested && _runtime.CanUseProtectedData(version))
+            {
+                _historyEmptyText.Text = _runtime.Translate("HistorySearchFailed");
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(_historySearchCancellation, cancellation))
+            {
+                _historySearchCancellation = null;
+            }
+        }
+    }
+
+    private void RenderHistory(IReadOnlyList<ClipboardSnapshot> history, int totalCount)
+    {
+        var selectedId = _selectedHistoryId;
+        _historyListView.Items.Clear();
+        var visibleCount = Math.Min(_historyVisibleLimit, history.Count);
+        PruneHistoryRowCache(history.Take(visibleCount));
+        foreach (var snapshot in history.Take(visibleCount))
         {
             _historyListView.Items.Add(GetOrCreateHistoryRow(snapshot));
         }
 
-        _historyEmptyText.Text = string.IsNullOrWhiteSpace(_historySearchQuery) ? _runtime.Translate("HistoryEmpty") : _runtime.Translate("NoSearchResults");
-        _historyEmptyText.Visibility = visibleHistoryItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        var hasMoreLoadedMatches = matchedHistoryCount > visibleHistoryItems.Count;
-        var hasUnloadedHistory = _runtime.UnloadedPersistedHistoryCount > 0;
-        _loadMoreHistoryButton.Visibility = hasMoreLoadedMatches || hasUnloadedHistory ? Visibility.Visible : Visibility.Collapsed;
-        if (hasMoreLoadedMatches || hasUnloadedHistory)
+        _historyEmptyText.Text = _historySearchMatches is null ? _runtime.Translate("HistoryEmpty") : _runtime.Translate("NoSearchResults");
+        _historyEmptyText.Visibility = visibleCount == 0 ? Visibility.Visible : Visibility.Collapsed;
+        var remaining = Math.Max(0, totalCount - visibleCount);
+        _loadMoreHistoryButton.Visibility = remaining > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (remaining > 0)
         {
-            var remaining = string.IsNullOrWhiteSpace(_historySearchQuery)
-                ? Math.Max(0, _runtime.AvailableHistoryCount - visibleHistoryItems.Count)
-                : Math.Max(0, matchedHistoryCount - visibleHistoryItems.Count) + _runtime.UnloadedPersistedHistoryCount;
             _loadMoreHistoryButton.Content = string.Format(_runtime.Translate("LoadMoreHistory"), remaining);
         }
 
-        if (visibleHistoryItems.Count == 0)
-        {
-            _selectedHistoryId = null;
-        }
-
-        if (_selectedHistoryId is not null)
+        if (selectedId is not null)
         {
             foreach (ListViewItem item in _historyListView.Items)
             {
-                if (item.Tag is HistoryItemViewModel historyItem && string.Equals(historyItem.Id, _selectedHistoryId, StringComparison.Ordinal))
+                if (item.Tag is HistoryItemViewModel historyItem && string.Equals(historyItem.Id, selectedId, StringComparison.Ordinal))
                 {
                     _historyListView.SelectedItem = item;
                     break;
@@ -630,7 +692,6 @@ public sealed class MainWindow : Window
         }
 
         UpdateHistoryActionButtons();
-        RefreshSnippetTree();
     }
 
     private ListViewItem GetOrCreateHistoryRow(ClipboardSnapshot snapshot)
@@ -640,12 +701,14 @@ public sealed class MainWindow : Window
             return cached;
         }
 
+        var payloadOnDisk = _historySearchMatches is not null && _runtime.History.Find(snapshot.Id) is null;
         var item = _runtime.CreateHistoryItemViewModel(snapshot);
+        var content = item.IsImage ? HistoryImageListRow(item, payloadOnDisk) : HistoryListRow(item);
         var listItem = new ListViewItem
         {
-            Content = HistoryListRow(item),
+            Content = content,
             Tag = item,
-            ContextFlyout = CreateHistoryContextFlyout(item),
+            ContextFlyout = CreateHistoryContextFlyout(item.Id, payloadOnDisk),
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Padding = new Thickness(0),
             MinHeight = 56,
@@ -662,19 +725,9 @@ public sealed class MainWindow : Window
         return listItem;
     }
 
-    private void PruneHistoryRowCache()
+    private void PruneHistoryRowCache(IEnumerable<ClipboardSnapshot> visibleItems)
     {
-        if (_historyRowCache.Count == 0)
-        {
-            return;
-        }
-
-        var activeIds = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var snapshot in _runtime.History.Items)
-        {
-            activeIds.Add(snapshot.Id);
-        }
-
+        var activeIds = visibleItems.Select(snapshot => snapshot.Id).ToHashSet(StringComparer.Ordinal);
         foreach (var staleId in _historyRowCache.Keys.Where(id => !activeIds.Contains(id)).ToArray())
         {
             _historyRowCache.Remove(staleId);
@@ -704,10 +757,10 @@ public sealed class MainWindow : Window
         _aboutHeaderText.Text = t("About");
         _aboutDescriptionText.Text = t("AboutDescription");
         SetCommandButton(_registerFromHistoryButton, "\uE8EC", t("RegisterFromHistory"));
-        SetCommandButton(_exportHistoryButton, "\uEDE1", t("Export"));
-        SetCommandButton(_importHistoryButton, "\uE896", t("Import"));
-        SetCommandButton(_clearButton, "\uE74D", t("ClearHistory"));
-        ApplyCritical(_clearButton);
+        _manageHistoryButton.Content = t("ManageHistory");
+        _exportHistoryItem.Text = t("Export");
+        _importHistoryItem.Text = t("Import");
+        _clearHistoryItem.Text = t("ClearHistory");
         SetCommandButton(_maskDefinitionsButton, "\uE713", t("MaskDefinitions"));
         _historySearchBox.PlaceholderText = t("SearchPlaceholder");
         SetCommandButton(_advancedHistorySearchButton, "\uE71C", t("AdvancedSearch"));
@@ -832,7 +885,7 @@ public sealed class MainWindow : Window
         UpdateHistoryAccessLockUi();
         UpdateSelectedSnippetText();
         RefreshSnippetTree();
-        UpdateHistorySearchStatus();
+        UpdateHistorySearchStatus(syncControls: !_historySearchDebouncing);
         UpdateMaskTestPreview();
         _loading = false;
     }
@@ -901,10 +954,13 @@ public sealed class MainWindow : Window
         SetAutomationId(_historyPinnedFilter, "HistoryFilterPinned");
         SetAutomationId(_historyUrlFilter, "HistoryFilterUrl");
         SetAutomationId(_registerFromHistoryButton, "RegisterHistoryButton");
-        SetAutomationId(_exportHistoryButton, "ExportHistoryButton");
-        SetAutomationId(_importHistoryButton, "ImportHistoryButton");
-        SetAutomationId(_clearButton, "ClearHistoryButton");
+        SetAutomationId(_manageHistoryButton, "ManageHistoryButton");
+        SetAutomationId(_exportHistoryItem, "ExportHistoryButton");
+        SetAutomationId(_importHistoryItem, "ImportHistoryButton");
+        SetAutomationId(_clearHistoryItem, "ClearHistoryButton");
         SetAutomationId(_historyListView, "HistoryList");
+        SetAutomationId(_historySearchStatusText, "HistorySearchStatus");
+        SetAutomationId(_historyEmptyText, "HistoryEmptyStatus");
         SetAutomationId(_loadMoreHistoryButton, "LoadMoreHistoryButton");
         SetAutomationId(_resetQuickMenuPasteOptionsButton, "ResetQuickMenuPasteOptionsButton");
         SetAutomationId(_quickMenuPasteOptionsSearchBox, "QuickMenuPasteOptionsSearchBox");
@@ -1389,8 +1445,19 @@ public sealed class MainWindow : Window
 
     private void BuildHistoryPage()
     {
-        _historyPage.Children.Add(PageHeader(_historyHeaderText, _historyDescriptionText));
-        _historyPage.Children.Add(SectionHeader("HistorySection"));
+        var header = new Grid { ColumnSpacing = 12 };
+        header.ColumnDefinitions.Add(new ColumnDefinition());
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.Children.Add(PageHeader(_historyHeaderText, _historyDescriptionText));
+        var management = new MenuFlyout();
+        management.Items.Add(_exportHistoryItem);
+        management.Items.Add(_importHistoryItem);
+        management.Items.Add(new MenuFlyoutSeparator());
+        management.Items.Add(_clearHistoryItem);
+        _manageHistoryButton.Flyout = management;
+        Grid.SetColumn(_manageHistoryButton, 1);
+        header.Children.Add(_manageHistoryButton);
+        _historyPage.Children.Add(header);
         _historyPage.Children.Add(BuildHistorySearchPanel());
         _historyListView.SelectionMode = ListViewSelectionMode.Single;
         _historyListView.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -1420,34 +1487,13 @@ public sealed class MainWindow : Window
         _historyListHost.Children.Add(_historyEmptyText);
         _historyListHost.Children.Add(_loadMoreHistoryButton);
 
-        var actions = new Grid { ColumnSpacing = 12 };
-        actions.ColumnDefinitions.Add(new ColumnDefinition());
-        actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var primaryActions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Spacing = 8 };
-        var dataActions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
         _registerFromHistoryButton.Click += (_, _) => RegisterSelectedHistory();
-        _clearButton.Click += async (_, _) => await ConfirmAndClearHistoryAsync();
+        _clearHistoryItem.Click += async (_, _) => await ConfirmAndClearHistoryAsync();
         _loadMoreHistoryButton.Click += (_, _) => LoadMoreHistory();
-        _exportHistoryButton.Click += async (_, _) => await ExportHistoryAsync();
-        _importHistoryButton.Click += async (_, _) => await ImportHistoryAsync();
-        primaryActions.Children.Add(_registerFromHistoryButton);
-        dataActions.Children.Add(_exportHistoryButton);
-        dataActions.Children.Add(_importHistoryButton);
-        var destructiveActionSeparator = new Border
-        {
-            Width = 1,
-            Height = 24,
-            Margin = new Thickness(4, 0, 4, 0),
-            Background = RowSeparatorBrush(),
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        _rowSeparators.Add(destructiveActionSeparator);
-        dataActions.Children.Add(destructiveActionSeparator);
-        dataActions.Children.Add(_clearButton);
-        actions.Children.Add(primaryActions);
-        Grid.SetColumn(dataActions, 1);
-        actions.Children.Add(dataActions);
-        _historyPage.Children.Add(actions);
+        _exportHistoryItem.Click += async (_, _) => await ExportHistoryAsync();
+        _importHistoryItem.Click += async (_, _) => await ImportHistoryAsync();
+        _registerFromHistoryButton.HorizontalAlignment = HorizontalAlignment.Left;
+        _historyPage.Children.Add(_registerFromHistoryButton);
         _historyPage.Children.Add(_historySearchStatusText);
         _historyPage.Children.Add(Card(_historyListHost, new Thickness(8, 8, 8, 10)));
     }
@@ -2152,7 +2198,12 @@ public sealed class MainWindow : Window
         }
     }
 
-    private bool HistoryMatchesSearch(SearchFilter filter, ClipboardSnapshot item)
+    internal static bool HistoryMatchesSearch(
+        SearchFilter filter,
+        ClipboardSnapshot item,
+        IReadOnlySet<string> pinnedIds,
+        IReadOnlyDictionary<ClipboardFormatKind, string> formatLabels,
+        IReadOnlyDictionary<string, string?> snippetNames)
     {
         if (filter.IsEmpty)
         {
@@ -2160,7 +2211,7 @@ public sealed class MainWindow : Window
         }
 
         if (!filter.MatchesDate(item.CapturedAt)
-            || !filter.MatchesPinned(_runtime.IsHistoryPinned(item.Id))
+            || !filter.MatchesPinned(pinnedIds.Contains(item.Id))
             || !filter.MatchesType(item.Formats))
         {
             return false;
@@ -2177,29 +2228,23 @@ public sealed class MainWindow : Window
         return filter.MatchesText(() =>
         {
             var text = GetPlainText();
-            return CreateHistorySearchText(item, text);
+            var fileNames = string.Join(" ", item.FilePaths.Select(Path.GetFileName));
+            // The search cache omits image bytes. Its preview should match the full image.
+            var preview = item.Formats.Contains(ClipboardFormatKind.Image) && string.IsNullOrWhiteSpace(item.Text) && item.FilePaths.Count == 0
+                ? nameof(ClipboardFormatKind.Image)
+                : item.Preview;
+            return string.Join(
+                " ",
+                string.Join(" ", item.Formats),
+                string.Join(" ", item.Formats.Select(format => formatLabels.GetValueOrDefault(format, format.ToString()))),
+                snippetNames.GetValueOrDefault(text),
+                text,
+                string.Join(" ", item.FilePaths),
+                fileNames,
+                item.SourceApplicationName,
+                item.SourceWindowTitle,
+                preview);
         });
-    }
-
-    private string CreateHistorySearchText(ClipboardSnapshot item, string plainText)
-    {
-        var formats = string.Join(" ", item.Formats);
-        var formatLabels = string.Join(" ", item.Formats.Select(TranslateHistoryFormatForSearch));
-        var snippet = string.IsNullOrEmpty(plainText) ? null : _runtime.Snippets.FindByText(plainText);
-        var fileNames = item.FilePaths.Count == 0
-            ? string.Empty
-            : string.Join(" ", item.FilePaths.Select(path => Path.GetFileName(path)));
-        return string.Join(
-            " ",
-            formats,
-            formatLabels,
-            snippet?.DisplayName,
-            plainText,
-            string.Join(" ", item.FilePaths),
-            fileNames,
-            item.SourceApplicationName,
-            item.SourceWindowTitle,
-            item.Preview);
     }
 
     private string TranslateHistoryFormatForSearch(ClipboardFormatKind format)
@@ -2218,6 +2263,13 @@ public sealed class MainWindow : Window
     private void ScheduleHistorySearch(string query)
     {
         _pendingHistorySearchQuery = query;
+        _historySearchDebouncing = true;
+        if (!_runtime.RequiresHistoryAccessUnlock)
+        {
+            CancelHistorySearch();
+            ShowHistorySearchPending();
+        }
+
         _historySearchDebounceTimer ??= CreateHistorySearchDebounceTimer();
         _historySearchDebounceTimer.Stop();
         _historySearchDebounceTimer.Start();
@@ -2239,14 +2291,11 @@ public sealed class MainWindow : Window
     {
         var normalized = query.Trim();
         _historySearchDebounceTimer?.Stop();
+        _historySearchDebouncing = false;
         _pendingHistorySearchQuery = normalized;
-        if (string.Equals(_historySearchQuery, normalized, StringComparison.Ordinal))
-        {
-            return;
-        }
-
         _historySearchQuery = normalized;
         _historyVisibleLimit = HistoryDisplayBatchSize;
+        CancelHistorySearch();
         UpdateHistorySearchStatus();
         RefreshItemsIncremental();
     }
@@ -2258,7 +2307,7 @@ public sealed class MainWindow : Window
 
     private void ClearHistoryFilters()
     {
-        ApplyHistorySearch(BuildHistorySearchTextBoxValue(_historySearchQuery));
+        ApplyHistorySearch(BuildHistorySearchTextBoxValue(_pendingHistorySearchQuery));
     }
 
     private void UpdateHistoryActionButtons()
@@ -2267,14 +2316,18 @@ public sealed class MainWindow : Window
         var hasHistory = !locked && _runtime.AvailableHistoryCount > 0;
         _registerFromHistoryButton.IsEnabled = !locked
             && _selectedHistoryId is not null
-            && !string.IsNullOrWhiteSpace(_runtime.History.Find(_selectedHistoryId)?.Text);
+            && !string.IsNullOrWhiteSpace(FindDisplayedHistoryItem(_selectedHistoryId)?.Text);
         _registerFromHistoryButton.Visibility = _registerFromHistoryButton.IsEnabled
             ? Visibility.Visible
             : Visibility.Collapsed;
-        _exportHistoryButton.IsEnabled = hasHistory;
-        _clearButton.IsEnabled = hasHistory;
-        _importHistoryButton.IsEnabled = !locked;
+        _exportHistoryItem.IsEnabled = hasHistory;
+        _clearHistoryItem.IsEnabled = hasHistory;
+        _importHistoryItem.IsEnabled = !locked;
     }
+
+    private ClipboardSnapshot? FindDisplayedHistoryItem(string id) =>
+        _historySearchMatches?.FirstOrDefault(item => string.Equals(item.Id, id, StringComparison.Ordinal))
+        ?? _runtime.History.Find(id);
 
     private void ToggleAdvancedHistorySearch()
     {
@@ -2476,17 +2529,41 @@ public sealed class MainWindow : Window
     private void LoadMoreHistory()
     {
         _historyVisibleLimit += HistoryDisplayBatchSize;
+        if (_historySearchMatches is { } matches)
+        {
+            RenderHistory(matches, matches.Count);
+            return;
+        }
+
         _runtime.LoadMorePersistedHistory(HistoryDisplayBatchSize);
         RefreshItemsIncremental();
     }
 
-    private void UpdateHistorySearchStatus()
+    private void UpdateHistorySearchStatus(bool syncControls = true)
     {
+        if (_historySearchDebouncing)
+        {
+            _historySearchStatusText.Visibility = Visibility.Collapsed;
+            _clearHistorySearchButton.Visibility = string.IsNullOrWhiteSpace(_pendingHistorySearchQuery)
+                ? Visibility.Collapsed : Visibility.Visible;
+            return;
+        }
+
         var hasQuery = !string.IsNullOrWhiteSpace(_historySearchQuery);
         _historySearchStatusText.Text = hasQuery
             ? string.Format(_runtime.Translate("SearchResults"), BuildHistorySearchStatusLabel())
             : string.Empty;
+        if (hasQuery && _historySearchMatches is { } matches)
+        {
+            _historySearchStatusText.Text += $" ({matches.Count:N0})";
+        }
+
         _historySearchStatusText.Visibility = hasQuery ? Visibility.Visible : Visibility.Collapsed;
+        if (!syncControls)
+        {
+            return;
+        }
+
         _clearHistorySearchButton.Visibility = hasQuery ? Visibility.Visible : Visibility.Collapsed;
         var displayQuery = BuildHistorySearchTextBoxValue(_historySearchQuery);
         if (!string.Equals(_historySearchBox.Text, displayQuery, StringComparison.Ordinal))
@@ -4147,8 +4224,8 @@ public sealed class MainWindow : Window
 
     private void RegisterSelectedHistory()
     {
-        if (_selectedHistoryId is null) return;
-        var item = _runtime.History.Find(_selectedHistoryId);
+        if (_runtime.RequiresHistoryAccessUnlock || _selectedHistoryId is null) return;
+        var item = FindDisplayedHistoryItem(_selectedHistoryId);
         if (string.IsNullOrWhiteSpace(item?.Text)) return;
         SelectPage(4);
         _ = OpenSnippetEditorAsync(null, "History", CreateSnippetName(item.Text), item.Text);
@@ -5346,6 +5423,9 @@ public sealed class MainWindow : Window
         var folderBox = SnippetEditorTextBox(folder, _runtime.Translate("SnippetFolder"));
         var nameBox = SnippetEditorTextBox(name, _runtime.Translate("SnippetName"));
         var textBox = SnippetEditorTextBox(text, _runtime.Translate("SnippetText"));
+        SetAutomationId(folderBox, "SnippetEditorFolderTextBox");
+        SetAutomationId(nameBox, "SnippetEditorNameTextBox");
+        SetAutomationId(textBox, "SnippetEditorBodyTextBox");
         textBox.AcceptsReturn = true;
         textBox.TextWrapping = TextWrapping.Wrap;
         textBox.MinHeight = 180;
@@ -5357,16 +5437,21 @@ public sealed class MainWindow : Window
         var variableSamples = SnippetVariableSamplePanel(textBox);
         var referenceButton = new HyperlinkButton
         {
-            Content = _runtime.Translate("SnippetTemplateReference"),
+            Content = new TextBlock
+            {
+                Text = _runtime.Translate("SnippetTemplateReference"),
+                TextWrapping = TextWrapping.Wrap
+            },
             Padding = new Thickness(0),
             HorizontalAlignment = HorizontalAlignment.Left
         };
+        SetAutomationId(referenceButton, "SnippetVariableReference");
+        AutomationProperties.SetName(referenceButton, _runtime.Translate("SnippetTemplateReference"));
         referenceButton.Click += (_, _) => OpenExternalUrl(SnippetVariablesUrl);
 
         var content = new StackPanel
         {
             Spacing = 12,
-            MinWidth = 520,
             Children =
             {
                 SnippetEditorField("SnippetFolder", folderBox),
@@ -5384,13 +5469,22 @@ public sealed class MainWindow : Window
         var dialog = new ContentDialog
         {
             Title = _runtime.Translate("SnippetEditor"),
-            Content = content,
+            Content = new ScrollViewer
+            {
+                Content = content,
+                HorizontalScrollMode = ScrollMode.Disabled,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+            },
             PrimaryButtonText = _runtime.Translate("Save"),
             CloseButtonText = _runtime.Translate("Cancel"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = _root.XamlRoot ?? throw new InvalidOperationException("The snippet editor cannot open before its window has a XamlRoot."),
             RequestedTheme = DialogTheme
         };
+        SetAutomationId(dialog, "SnippetEditorDialog");
+        dialog.Resources["ContentDialogMaxWidth"] = 568d;
+
         void UpdateSaveState()
         {
             var canSave = CanSaveSnippet(nameBox.Text, textBox.Text);
@@ -5475,64 +5569,66 @@ public sealed class MainWindow : Window
     private UIElement SnippetEditorField(string labelKey, TextBox input)
     {
         var panel = new StackPanel { Spacing = 6 };
-        panel.Children.Add(LocalizedText(labelKey, fontWeight: Microsoft.UI.Text.FontWeights.SemiBold));
+        var label = LocalizedText(labelKey, fontWeight: Microsoft.UI.Text.FontWeights.SemiBold);
+        AutomationProperties.SetLabeledBy(input, label);
+        panel.Children.Add(label);
         panel.Children.Add(input);
         return panel;
     }
 
     private UIElement SnippetVariableSamplePanel(TextBox target)
     {
-        string[] samples =
+        (string Id, string Token)[] samples =
         [
-            "{{date}}",
-            "{{time}}",
-            "{{datetime}}",
-            "{{date:yyyy/MM/dd}}",
-            "{{weekday}}",
-            "{{uuid}}",
-            "{{shortuuid}}",
-            "{{tomorrow}}",
-            "{{adddays:7}}",
-            "{{adddays:-7|yyyy/MM/dd}}",
-            "{{filepath}}",
-            "{{filename}}",
-            "{{filecount}}",
-            "{{randomhex:8}}",
-            "{{randomnumber:4}}",
-            "{{br}}"
+            ("Date", "{{date}}"),
+            ("Time", "{{time}}"),
+            ("FileName", "{{filename}}"),
+            ("DateTime", "{{datetime}}"),
+            ("FormattedDate", "{{date:yyyy/MM/dd}}"),
+            ("Weekday", "{{weekday}}"),
+            ("Tomorrow", "{{tomorrow}}"),
+            ("NextWeek", "{{adddays:7}}"),
+            ("LastWeek", "{{adddays:-7|yyyy/MM/dd}}"),
+            ("FilePath", "{{filepath}}"),
+            ("FileCount", "{{filecount}}"),
+            ("Uuid", "{{uuid}}"),
+            ("ShortUuid", "{{shortuuid}}"),
+            ("RandomHex", "{{randomhex:8}}"),
+            ("RandomNumber", "{{randomnumber:4}}"),
+            ("LineBreak", "{{br}}")
         ];
 
-        var panel = new StackPanel { Spacing = 7 };
-        panel.Children.Add(DescriptionText("SnippetVariableSamples", fontSize: 12, wrapping: TextWrapping.Wrap));
-
-        foreach (var rowSamples in samples.Chunk(4))
+        var buttons = new SnippetVariableWrapPanel();
+        SetAutomationId(buttons, "SnippetVariableButtons");
+        foreach (var (id, token) in samples)
         {
-            var row = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Spacing = 6
-            };
-            foreach (var sample in rowSamples)
-            {
-                row.Children.Add(SnippetVariableButton(sample, target));
-            }
-
-            panel.Children.Add(row);
+            buttons.Children.Add(SnippetVariableButton(id, token, target));
         }
 
-        return panel;
+        return new StackPanel
+        {
+            Spacing = 7,
+            Children =
+            {
+                DescriptionText("SnippetVariableSamples", fontSize: 12, wrapping: TextWrapping.Wrap),
+                buttons
+            }
+        };
     }
 
-    private Button SnippetVariableButton(string token, TextBox target)
+    private Button SnippetVariableButton(string id, string token, TextBox target)
     {
+        var label = _runtime.Translate($"SnippetVariable{id}");
         var button = new Button
         {
-            Content = token,
-            MinHeight = 30,
-            Padding = new Thickness(10, 0, 10, 0),
+            Content = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap },
+            MinHeight = 32,
+            Padding = new Thickness(10, 4, 10, 4),
             VerticalAlignment = VerticalAlignment.Center
         };
-        AutomationProperties.SetName(button, token);
+        SetAutomationId(button, $"SnippetVariable{id}Button");
+        AutomationProperties.SetName(button, label);
+        AutomationProperties.SetHelpText(button, token);
         ToolTipService.SetToolTip(button, token);
         button.Click += (_, _) => InsertSnippetVariable(target, token);
         return button;
@@ -6400,11 +6496,6 @@ public sealed class MainWindow : Window
 
     private UIElement HistoryListRow(HistoryItemViewModel item)
     {
-        if (item.IsImage)
-        {
-            return HistoryImageListRow(item);
-        }
-
         var grid = new Grid
         {
             ColumnSpacing = 16,
@@ -6441,22 +6532,42 @@ public sealed class MainWindow : Window
         return grid;
     }
 
-    private MenuFlyout CreateHistoryContextFlyout(HistoryItemViewModel item)
+    private MenuFlyout CreateHistoryContextFlyout(string id, bool payloadOnDisk)
     {
         var flyout = new MenuFlyout();
-        foreach (var option in _runtime.CreateHistoryContextOptions(item.Id))
+        if (payloadOnDisk)
         {
-            flyout.Items.Add(CreateHistoryContextMenuItem(option));
+            // Loading a disk-only payload is deferred until its menu is opened.
+            flyout.Items.Add(CreateHistoryDeleteContextMenuItem(id));
+            flyout.Opening += (_, _) => Populate();
         }
-
-        if (flyout.Items.Count > 0)
+        else
         {
-            flyout.Items.Add(new MenuFlyoutSeparator());
+            Populate();
         }
-
-        flyout.Items.Add(CreateHistoryDeleteContextMenuItem(item.Id));
 
         return flyout;
+
+        void Populate()
+        {
+            flyout.Items.Clear();
+            if (_runtime.RequiresHistoryAccessUnlock)
+            {
+                return;
+            }
+
+            foreach (var option in _runtime.CreateHistoryContextOptions(id))
+            {
+                flyout.Items.Add(CreateHistoryContextMenuItem(option));
+            }
+
+            if (flyout.Items.Count > 0)
+            {
+                flyout.Items.Add(new MenuFlyoutSeparator());
+            }
+
+            flyout.Items.Add(CreateHistoryDeleteContextMenuItem(id));
+        }
     }
 
     private MenuFlyoutItem CreateHistoryDeleteContextMenuItem(string id)
@@ -6497,7 +6608,7 @@ public sealed class MainWindow : Window
         };
     }
 
-    private UIElement HistoryImageListRow(HistoryItemViewModel item)
+    private UIElement HistoryImageListRow(HistoryItemViewModel item, bool payloadOnDisk)
     {
         var grid = new Grid
         {
@@ -6508,7 +6619,7 @@ public sealed class MainWindow : Window
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        grid.Children.Add(HistoryPreviewSlot(item, 84, 48));
+        grid.Children.Add(HistoryPreviewSlot(item, 84, 48, payloadOnDisk));
 
         var label = new TextBlock
         {
@@ -6533,7 +6644,7 @@ public sealed class MainWindow : Window
         return grid;
     }
 
-    private UIElement HistoryPreviewSlot(HistoryItemViewModel item, double width, double height)
+    private UIElement HistoryPreviewSlot(HistoryItemViewModel item, double width, double height, bool payloadOnDisk)
     {
         var host = new HandCursorGrid
         {
@@ -6551,7 +6662,7 @@ public sealed class MainWindow : Window
         };
         host.Children.Add(border);
 
-        if (item.HasPreviewImage && item.ThumbnailImageBytes is { Length: > 0 } thumbnailBytes)
+        if (item.HasPreviewImage || payloadOnDisk)
         {
             border.BorderBrush = CardBorderBrush();
             border.BorderThickness = new Thickness(1);
@@ -6561,7 +6672,21 @@ public sealed class MainWindow : Window
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            image.Loaded += async (_, _) => image.Source = await CreateBitmapImageAsync(thumbnailBytes);
+            image.Loaded += async (_, _) =>
+            {
+                if (image.Source is not null)
+                {
+                    return;
+                }
+
+                var version = _runtime.ProtectedAccessVersion;
+                var thumbnailBytes = item.ThumbnailImageBytes ?? await _runtime.LoadHistorySearchThumbnailAsync(item.Id);
+                if (thumbnailBytes is { Length: > 0 } && _runtime.CanUseProtectedData(version))
+                {
+                    var bitmap = await CreateBitmapImageAsync(thumbnailBytes);
+                    if (_runtime.CanUseProtectedData(version)) image.Source = bitmap;
+                }
+            };
             border.Child = image;
             host.Tapped += async (_, e) =>
             {
