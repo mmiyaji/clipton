@@ -20,7 +20,7 @@
 
 
 - [ ] Excel のセル範囲を表として識別し、書式付き貼り付け・値のみ・画像を選びやすくする。実機のコピーで確認した Biff12、XML Spreadsheet などを候補に、数式を保持できる形式を検証する。
-- [ ] Store 審査の結果を確認する（Clipton 1.0.0）
+- [x] Clipton 1.0.0 の Store 公開を確認。
 - [ ] AGENTS.md と docs/TODO.md の運用を試す
 
 ## 保留
